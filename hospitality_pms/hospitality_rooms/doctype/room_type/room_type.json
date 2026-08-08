@@ -1,0 +1,437 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "field:room_type_code",
+ "creation": "2026-08-08 16:04:51.322807",
+ "description": "A sellable category of room (e.g. Deluxe King) with its occupancy limits, bed setup, amenities and fallback rates. Individual Hotel Room records point back to a Room Type.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "room_type_code",
+  "room_type_name",
+  "property",
+  "identity_col",
+  "is_active",
+  "display_order",
+  "occupancy_section",
+  "base_occupancy",
+  "max_occupancy",
+  "max_adults",
+  "occupancy_col",
+  "max_children",
+  "max_extra_beds",
+  "bed_section",
+  "bed_configuration",
+  "bed_col",
+  "room_size_sqm",
+  "attributes_section",
+  "is_smoking",
+  "is_accessible",
+  "attributes_col",
+  "allows_connecting_rooms",
+  "currency",
+  "rates_section",
+  "base_rate",
+  "extra_adult_charge",
+  "rates_col",
+  "extra_child_charge",
+  "extra_bed_charge",
+  "amenities_section",
+  "amenities",
+  "description_section",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "fieldname": "room_type_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Room Type Code",
+   "length": 20,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "room_type_name",
+   "fieldtype": "Data",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "label": "Room Type Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Property",
+   "options": "Hospitality Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "identity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "default": "0",
+   "description": "Controls the sort order of this room type on room racks and rate grids.",
+   "fieldname": "display_order",
+   "fieldtype": "Int",
+   "label": "Display Order"
+  },
+  {
+   "fieldname": "occupancy_section",
+   "fieldtype": "Section Break",
+   "label": "Occupancy"
+  },
+  {
+   "default": "2",
+   "fieldname": "base_occupancy",
+   "fieldtype": "Int",
+   "label": "Base Occupancy",
+   "reqd": 1
+  },
+  {
+   "default": "2",
+   "fieldname": "max_occupancy",
+   "fieldtype": "Int",
+   "label": "Max Occupancy",
+   "reqd": 1
+  },
+  {
+   "default": "2",
+   "fieldname": "max_adults",
+   "fieldtype": "Int",
+   "label": "Max Adults",
+   "reqd": 1
+  },
+  {
+   "fieldname": "occupancy_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "max_children",
+   "fieldtype": "Int",
+   "label": "Max Children"
+  },
+  {
+   "default": "0",
+   "fieldname": "max_extra_beds",
+   "fieldtype": "Int",
+   "label": "Max Extra Beds"
+  },
+  {
+   "fieldname": "bed_section",
+   "fieldtype": "Section Break",
+   "label": "Bed Setup"
+  },
+  {
+   "description": "Free text, e.g. \"1 King\" or \"2 Twin\".",
+   "fieldname": "bed_configuration",
+   "fieldtype": "Data",
+   "label": "Bed Configuration"
+  },
+  {
+   "fieldname": "bed_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "room_size_sqm",
+   "fieldtype": "Float",
+   "label": "Room Size (sqm)"
+  },
+  {
+   "fieldname": "attributes_section",
+   "fieldtype": "Section Break",
+   "label": "Attributes"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_smoking",
+   "fieldtype": "Check",
+   "label": "Smoking"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_accessible",
+   "fieldtype": "Check",
+   "label": "Accessible"
+  },
+  {
+   "fieldname": "attributes_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "allows_connecting_rooms",
+   "fieldtype": "Check",
+   "label": "Allows Connecting Rooms"
+  },
+  {
+   "fetch_from": "property.currency",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Currency",
+   "options": "Currency",
+   "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "description": "Fallback defaults only, used where no Rate Plan applies. Rate Plans (HPMS-0.8.0) are the authoritative source of sellable rates once they exist.",
+   "fieldname": "rates_section",
+   "fieldtype": "Section Break",
+   "label": "Rates"
+  },
+  {
+   "fieldname": "base_rate",
+   "fieldtype": "Currency",
+   "label": "Base Rate",
+   "options": "currency"
+  },
+  {
+   "fieldname": "extra_adult_charge",
+   "fieldtype": "Currency",
+   "label": "Extra Adult Charge",
+   "options": "currency"
+  },
+  {
+   "fieldname": "rates_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "extra_child_charge",
+   "fieldtype": "Currency",
+   "label": "Extra Child Charge",
+   "options": "currency"
+  },
+  {
+   "fieldname": "extra_bed_charge",
+   "fieldtype": "Currency",
+   "label": "Extra Bed Charge",
+   "options": "currency"
+  },
+  {
+   "fieldname": "amenities_section",
+   "fieldtype": "Section Break",
+   "label": "Amenities"
+  },
+  {
+   "fieldname": "amenities",
+   "fieldtype": "Table",
+   "label": "Amenities",
+   "options": "Hospitality Room Type Amenity"
+  },
+  {
+   "fieldname": "description_section",
+   "fieldtype": "Section Break",
+   "label": "Description"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text Editor",
+   "label": "Description"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:18:56.433717",
+ "modified_by": "Administrator",
+ "module": "Hospitality Rooms",
+ "name": "Room Type",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Agent"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Agent"
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Revenue Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Supervisor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Room Attendant"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Technician"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Food and Beverage Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen User"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Corporate Sales Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Guest Relations Officer"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "room_type_name",
+ "track_changes": 1
+}

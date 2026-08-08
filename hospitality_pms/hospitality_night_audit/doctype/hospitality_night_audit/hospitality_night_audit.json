@@ -1,0 +1,570 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-08 16:54:55.183142",
+ "description": "One property business date's Night Audit run: business-date review, unresolved arrivals, no-shows, due-outs, daily room charge posting, failed-posting review, payment/folio reconciliation, exception approval and the controlled close/reopen of the business date, per SAS 3.10. All status transitions and the counts and totals on this record are maintained by NightAuditService, never by direct edit. Daily posting is idempotent.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "naming_series",
+  "property",
+  "identity_col",
+  "audit_status",
+  "business_date_section",
+  "business_date",
+  "business_date_col",
+  "next_business_date",
+  "arrivals_section",
+  "arrivals_expected",
+  "arrivals_completed",
+  "no_shows",
+  "arrivals_col",
+  "departures_expected",
+  "departures_completed",
+  "in_house_rooms",
+  "charges_section",
+  "rooms_charged",
+  "charges_posted",
+  "charges_col",
+  "postings_failed",
+  "financial_section",
+  "room_revenue",
+  "total_revenue",
+  "financial_col",
+  "payments_received",
+  "outstanding_balance",
+  "currency",
+  "metrics_section",
+  "occupancy_percentage",
+  "metrics_col",
+  "adr",
+  "revpar",
+  "exceptions_section",
+  "audit_exceptions",
+  "lifecycle_section",
+  "started_on",
+  "started_by",
+  "lifecycle_col",
+  "closed_on",
+  "closed_by",
+  "reopen_section",
+  "reopened_on",
+  "reopened_by",
+  "reopen_col",
+  "reopen_reason",
+  "notes_section",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "default": "HPMS-NA-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Naming Series",
+   "options": "HPMS-NA-.YYYY.-.#####"
+  },
+  {
+   "columns": 2,
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Property",
+   "options": "Hospitality Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "identity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "default": "Open",
+   "description": "Transitions go through NightAuditService only; this field is not edited directly on the form.",
+   "fieldname": "audit_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Audit Status",
+   "options": "Open\nReviewing\nPosting\nReady to Close\nClosed",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "business_date_section",
+   "fieldtype": "Section Break",
+   "label": "Business Date"
+  },
+  {
+   "columns": 2,
+   "description": "The property business date this audit is closing.",
+   "fieldname": "business_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Business Date",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "business_date_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "description": "The business date the property rolls forward to once this audit closes.",
+   "fieldname": "next_business_date",
+   "fieldtype": "Date",
+   "label": "Next Business Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "arrivals_section",
+   "fieldtype": "Section Break",
+   "label": "Arrivals and Departures"
+  },
+  {
+   "columns": 2,
+   "fieldname": "arrivals_expected",
+   "fieldtype": "Int",
+   "label": "Arrivals Expected",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "arrivals_completed",
+   "fieldtype": "Int",
+   "label": "Arrivals Completed",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "no_shows",
+   "fieldtype": "Int",
+   "label": "No-Shows",
+   "read_only": 1
+  },
+  {
+   "fieldname": "arrivals_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "departures_expected",
+   "fieldtype": "Int",
+   "label": "Departures Expected",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "departures_completed",
+   "fieldtype": "Int",
+   "label": "Departures Completed",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "in_house_rooms",
+   "fieldtype": "Int",
+   "label": "In-House Rooms",
+   "read_only": 1
+  },
+  {
+   "fieldname": "charges_section",
+   "fieldtype": "Section Break",
+   "label": "Charge Posting"
+  },
+  {
+   "columns": 2,
+   "fieldname": "rooms_charged",
+   "fieldtype": "Int",
+   "label": "Rooms Charged",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "charges_posted",
+   "fieldtype": "Int",
+   "label": "Charges Posted",
+   "read_only": 1
+  },
+  {
+   "fieldname": "charges_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "postings_failed",
+   "fieldtype": "Int",
+   "label": "Postings Failed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "financial_section",
+   "fieldtype": "Section Break",
+   "label": "Financial Summary"
+  },
+  {
+   "columns": 2,
+   "fieldname": "room_revenue",
+   "fieldtype": "Currency",
+   "label": "Room Revenue",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "total_revenue",
+   "fieldtype": "Currency",
+   "label": "Total Revenue",
+   "read_only": 1
+  },
+  {
+   "fieldname": "financial_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "payments_received",
+   "fieldtype": "Currency",
+   "label": "Payments Received",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "outstanding_balance",
+   "fieldtype": "Currency",
+   "label": "Outstanding Balance",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "property.currency",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "metrics_section",
+   "fieldtype": "Section Break",
+   "label": "Metrics"
+  },
+  {
+   "columns": 2,
+   "description": "The standard hospitality occupancy metric computed by NightAuditService at close: rooms sold divided by rooms available.",
+   "fieldname": "occupancy_percentage",
+   "fieldtype": "Float",
+   "label": "Occupancy Percentage",
+   "read_only": 1
+  },
+  {
+   "fieldname": "metrics_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "description": "Average Daily Rate, the standard hospitality metric computed by NightAuditService at close: room revenue divided by rooms sold.",
+   "fieldname": "adr",
+   "fieldtype": "Currency",
+   "label": "ADR",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "description": "Revenue Per Available Room, the standard hospitality metric computed by NightAuditService at close: room revenue divided by rooms available.",
+   "fieldname": "revpar",
+   "fieldtype": "Currency",
+   "label": "RevPAR",
+   "read_only": 1
+  },
+  {
+   "fieldname": "exceptions_section",
+   "fieldtype": "Section Break",
+   "label": "Exceptions"
+  },
+  {
+   "fieldname": "audit_exceptions",
+   "fieldtype": "Table",
+   "label": "Exceptions",
+   "options": "Hospitality Night Audit Exception"
+  },
+  {
+   "fieldname": "lifecycle_section",
+   "fieldtype": "Section Break",
+   "label": "Lifecycle"
+  },
+  {
+   "columns": 2,
+   "fieldname": "started_on",
+   "fieldtype": "Datetime",
+   "label": "Started On",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "started_by",
+   "fieldtype": "Link",
+   "label": "Started By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "lifecycle_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "closed_on",
+   "fieldtype": "Datetime",
+   "label": "Closed On",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "closed_by",
+   "fieldtype": "Link",
+   "label": "Closed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reopen_section",
+   "fieldtype": "Section Break",
+   "label": "Reopen"
+  },
+  {
+   "columns": 2,
+   "fieldname": "reopened_on",
+   "fieldtype": "Datetime",
+   "label": "Reopened On",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "reopened_by",
+   "fieldtype": "Link",
+   "label": "Reopened By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reopen_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Mandatory when a closed business date is reopened; a Manager-approved exception, per Workflow Matrix section 7.",
+   "fieldname": "reopen_reason",
+   "fieldtype": "Small Text",
+   "label": "Reopen Reason"
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:19:04.660454",
+ "modified_by": "Administrator",
+ "module": "Hospitality Night Audit",
+ "name": "Hospitality Night Audit",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Agent"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Agent"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Revenue Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Supervisor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Room Attendant"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Technician"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Food and Beverage Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen User"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Corporate Sales Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Guest Relations Officer"
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "business_date,audit_status",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

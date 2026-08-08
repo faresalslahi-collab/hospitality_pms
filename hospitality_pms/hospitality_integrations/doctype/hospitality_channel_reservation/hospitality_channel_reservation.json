@@ -1,0 +1,396 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-08 17:07:19.409437",
+ "description": "The raw inbound booking message from a channel, kept separately from Hotel Reservation so a malformed or duplicate channel message never corrupts the operational record. The channel adapter processes this record into a Hotel Reservation (or rejects/ignores it) and records the outcome here.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "naming_series",
+  "property",
+  "identity_col",
+  "channel",
+  "channel_reservation_id",
+  "idempotency_section",
+  "idempotency_key",
+  "idempotency_col",
+  "message_type",
+  "status_section",
+  "processing_status",
+  "status_col",
+  "reservation",
+  "guest_section",
+  "guest_name",
+  "guest_email",
+  "guest_col",
+  "guest_phone",
+  "stay_section",
+  "arrival_date",
+  "departure_date",
+  "room_type_code",
+  "stay_col",
+  "rate_code",
+  "rooms",
+  "adults",
+  "children",
+  "amount_section",
+  "total_amount",
+  "currency",
+  "amount_col",
+  "commission_amount",
+  "timing_section",
+  "received_on",
+  "timing_col",
+  "processed_on",
+  "error_message",
+  "payload_section",
+  "raw_payload"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "default": "HPMS-CHRES-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Naming Series",
+   "options": "HPMS-CHRES-.YYYY.-.#####"
+  },
+  {
+   "columns": 2,
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Property",
+   "options": "Hospitality Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "identity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "channel",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Channel",
+   "options": "Hospitality Channel",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "columns": 2,
+   "description": "The channel's own booking id.",
+   "fieldname": "channel_reservation_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Channel Reservation ID",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "idempotency_section",
+   "fieldtype": "Section Break",
+   "label": "Idempotency"
+  },
+  {
+   "columns": 2,
+   "description": "A repeated key means this message was already processed; the channel adapter looks up this key before processing the message again.",
+   "fieldname": "idempotency_key",
+   "fieldtype": "Data",
+   "label": "Idempotency Key",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "idempotency_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "default": "New",
+   "fieldname": "message_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Message Type",
+   "options": "New\nModify\nCancel",
+   "reqd": 1
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Processing"
+  },
+  {
+   "columns": 2,
+   "default": "Received",
+   "fieldname": "processing_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Processing Status",
+   "options": "Received\nProcessed\nFailed\nIgnored\nDuplicate",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "status_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "description": "What this channel message became.",
+   "fieldname": "reservation",
+   "fieldtype": "Link",
+   "label": "Reservation",
+   "options": "Hotel Reservation",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "guest_section",
+   "fieldtype": "Section Break",
+   "label": "Guest"
+  },
+  {
+   "columns": 2,
+   "fieldname": "guest_name",
+   "fieldtype": "Data",
+   "label": "Guest Name"
+  },
+  {
+   "columns": 2,
+   "fieldname": "guest_email",
+   "fieldtype": "Data",
+   "label": "Guest Email",
+   "options": "Email"
+  },
+  {
+   "fieldname": "guest_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "guest_phone",
+   "fieldtype": "Data",
+   "label": "Guest Phone",
+   "options": "Phone"
+  },
+  {
+   "fieldname": "stay_section",
+   "fieldtype": "Section Break",
+   "label": "Stay Details"
+  },
+  {
+   "columns": 2,
+   "fieldname": "arrival_date",
+   "fieldtype": "Date",
+   "label": "Arrival Date",
+   "search_index": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "departure_date",
+   "fieldtype": "Date",
+   "label": "Departure Date"
+  },
+  {
+   "columns": 2,
+   "fieldname": "room_type_code",
+   "fieldtype": "Data",
+   "label": "Room Type Code"
+  },
+  {
+   "fieldname": "stay_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "rate_code",
+   "fieldtype": "Data",
+   "label": "Rate Code"
+  },
+  {
+   "columns": 2,
+   "default": "1",
+   "fieldname": "rooms",
+   "fieldtype": "Int",
+   "label": "Rooms"
+  },
+  {
+   "columns": 2,
+   "default": "2",
+   "fieldname": "adults",
+   "fieldtype": "Int",
+   "label": "Adults"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "children",
+   "fieldtype": "Int",
+   "label": "Children"
+  },
+  {
+   "fieldname": "amount_section",
+   "fieldtype": "Section Break",
+   "label": "Amount"
+  },
+  {
+   "columns": 2,
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "label": "Total Amount"
+  },
+  {
+   "columns": 2,
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency"
+  },
+  {
+   "fieldname": "amount_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "commission_amount",
+   "fieldtype": "Currency",
+   "label": "Commission Amount"
+  },
+  {
+   "fieldname": "timing_section",
+   "fieldtype": "Section Break",
+   "label": "Timing"
+  },
+  {
+   "columns": 2,
+   "fieldname": "received_on",
+   "fieldtype": "Datetime",
+   "label": "Received On",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "timing_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "processed_on",
+   "fieldtype": "Datetime",
+   "label": "Processed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Long Text",
+   "label": "Error Message"
+  },
+  {
+   "fieldname": "payload_section",
+   "fieldtype": "Section Break",
+   "label": "Raw Payload"
+  },
+  {
+   "description": "Retained per the temporary payload retention policy (SAS section 8), not kept indefinitely.",
+   "fieldname": "raw_payload",
+   "fieldtype": "Long Text",
+   "label": "Raw Payload"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:19:09.738235",
+ "modified_by": "Administrator",
+ "module": "Hospitality Integrations",
+ "name": "Hospitality Channel Reservation",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Agent"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Revenue Manager"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "channel_reservation_id,processing_status,arrival_date",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

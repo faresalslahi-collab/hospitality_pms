@@ -1,0 +1,104 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-08-08 16:21:07.402797",
+ "description": "The rate a Rate Plan sells at for one Room Type, with its occupancy supplements.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "room_type",
+  "base_rate",
+  "single_occupancy_rate",
+  "extra_adult_charge",
+  "extra_child_charge",
+  "extra_bed_charge",
+  "is_active",
+  "currency"
+ ],
+ "fields": [
+  {
+   "columns": 3,
+   "fieldname": "room_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Room Type",
+   "options": "Room Type",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "base_rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Base Rate",
+   "options": "currency",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "single_occupancy_rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Single Occupancy Rate",
+   "options": "currency"
+  },
+  {
+   "columns": 2,
+   "fieldname": "extra_adult_charge",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Extra Adult Charge",
+   "options": "currency"
+  },
+  {
+   "columns": 2,
+   "fieldname": "extra_child_charge",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Extra Child Charge",
+   "options": "currency"
+  },
+  {
+   "columns": 2,
+   "fieldname": "extra_bed_charge",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Extra Bed Charge",
+   "options": "currency"
+  },
+  {
+   "columns": 1,
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "description": "Populated by the parent document's controller from its property's currency. Not user-editable; exists only so Currency fields on this row format correctly.",
+   "fieldname": "currency",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Currency",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-08 16:21:07.402797",
+ "modified_by": "Administrator",
+ "module": "Hospitality Rates",
+ "name": "Hospitality Rate Plan Room Type",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

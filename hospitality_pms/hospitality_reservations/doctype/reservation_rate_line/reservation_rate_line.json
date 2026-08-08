@@ -1,0 +1,121 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-08-08 16:21:10.260089",
+ "description": "The rate a reservation was sold at for one night of one room line, snapshotted at the time of booking. A reservation keeps this snapshot for the life of the booking rather than recomputing it from the Rate Plan later, per SAS 3.4's rate breakdown snapshot requirement \u2014 so a later rate plan change never rewrites what the guest already agreed to pay.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "rate_date",
+  "room_type",
+  "rate",
+  "extra_adult_charge",
+  "extra_child_charge",
+  "extra_bed_charge",
+  "discount_amount",
+  "net_rate",
+  "rate_plan",
+  "is_complimentary",
+  "notes",
+  "room_line"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "rate_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Rate Date",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "room_type",
+   "fieldtype": "Link",
+   "label": "Room Type",
+   "options": "Room Type"
+  },
+  {
+   "columns": 2,
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Rate",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "extra_adult_charge",
+   "fieldtype": "Currency",
+   "label": "Extra Adult Charge"
+  },
+  {
+   "columns": 2,
+   "fieldname": "extra_child_charge",
+   "fieldtype": "Currency",
+   "label": "Extra Child Charge"
+  },
+  {
+   "columns": 2,
+   "fieldname": "extra_bed_charge",
+   "fieldtype": "Currency",
+   "label": "Extra Bed Charge"
+  },
+  {
+   "columns": 2,
+   "fieldname": "discount_amount",
+   "fieldtype": "Currency",
+   "label": "Discount Amount"
+  },
+  {
+   "columns": 2,
+   "fieldname": "net_rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Net Rate",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "rate_plan",
+   "fieldtype": "Link",
+   "label": "Rate Plan",
+   "options": "Hospitality Rate Plan"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_complimentary",
+   "fieldtype": "Check",
+   "label": "Complimentary"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  },
+  {
+   "description": "The Reservation Room row this night belongs to. Frappe has no grandchild tables, so the snapshot is stored flat on the reservation and grouped by this reference.",
+   "fieldname": "room_line",
+   "fieldtype": "Data",
+   "label": "Room Line",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-08 16:29:28.917619",
+ "modified_by": "Administrator",
+ "module": "Hospitality Reservations",
+ "name": "Reservation Rate Line",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

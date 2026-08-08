@@ -1,0 +1,172 @@
+{
+ "app": "hospitality_pms",
+ "charts": [],
+ "content": "[{\"id\": \"hpmsShortcutsHeader\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Your Shortcuts</b></span>\", \"col\": 12}}, {\"id\": \"hpmsShortcut0\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Hospitality Property\", \"col\": 3}}, {\"id\": \"hpmsShortcut1\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Hospitality Settings\", \"col\": 3}}, {\"id\": \"hpmsSpacer1\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"hpmsConfigHeader\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Configuration</b></span>\", \"col\": 12}}, {\"id\": \"hpmsCard0\", \"type\": \"card\", \"data\": {\"card_name\": \"Property Setup\", \"col\": 4}}, {\"id\": \"hpmsCard1\", \"type\": \"card\", \"data\": {\"card_name\": \"Physical Structure\", \"col\": 4}}, {\"id\": \"hpmsCard2\", \"type\": \"card\", \"data\": {\"card_name\": \"Organisation\", \"col\": 4}}]",
+ "creation": "2026-08-08 15:19:30.804329",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "hide_custom": 0,
+ "icon": "home",
+ "idx": 0,
+ "indicator_color": "green",
+ "is_hidden": 0,
+ "label": "Hospitality PMS",
+ "link_type": "DocType",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Property Setup",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Property",
+   "link_count": 0,
+   "link_to": "Hospitality Property",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Settings",
+   "link_count": 0,
+   "link_to": "Hospitality Settings",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Physical Structure",
+   "link_count": 4,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Building",
+   "link_count": 0,
+   "link_to": "Hospitality Building",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Wing",
+   "link_count": 0,
+   "link_to": "Hospitality Wing",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Floor",
+   "link_count": 0,
+   "link_to": "Hospitality Floor",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Zone",
+   "link_count": 0,
+   "link_to": "Hospitality Zone",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Organisation",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Department",
+   "link_count": 0,
+   "link_to": "Hospitality Department",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Shift",
+   "link_count": 0,
+   "link_to": "Hospitality Shift",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-08-08 15:19:30.804329",
+ "modified_by": "Administrator",
+ "module": "Hospitality Setup",
+ "name": "Hospitality PMS",
+ "number_cards": [],
+ "owner": "Administrator",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [
+  {
+   "role": "Hospitality Administrator"
+  },
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Hotel Manager"
+  },
+  {
+   "role": "General Manager"
+  }
+ ],
+ "sequence_id": 1.0,
+ "shortcuts": [
+  {
+   "doc_view": "List",
+   "label": "Hospitality Property",
+   "link_to": "Hospitality Property",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "",
+   "label": "Hospitality Settings",
+   "link_to": "Hospitality Settings",
+   "type": "DocType"
+  }
+ ],
+ "title": "Hospitality PMS",
+ "type": "Workspace"
+}

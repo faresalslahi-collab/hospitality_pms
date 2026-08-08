@@ -1,0 +1,471 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "field:room_code",
+ "creation": "2026-08-08 16:04:51.623245",
+ "description": "A single physical, sellable room. Carries its location and the four independent status dimensions (occupancy, housekeeping, maintenance, inventory) defined in SAS 3.2.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "room_code",
+  "room_number",
+  "identity_col",
+  "property",
+  "room_type",
+  "is_active",
+  "location_section",
+  "building",
+  "wing",
+  "location_col",
+  "floor",
+  "zone",
+  "status_section",
+  "occupancy_status",
+  "housekeeping_status",
+  "status_col",
+  "maintenance_status",
+  "inventory_status",
+  "attributes_section",
+  "is_smoking",
+  "is_accessible",
+  "attributes_col",
+  "has_balcony",
+  "view_type",
+  "features",
+  "housekeeping_section",
+  "housekeeping_credits",
+  "housekeeping_col",
+  "last_cleaned_on",
+  "notes_section",
+  "notes",
+  "connecting_section",
+  "connecting_rooms"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "description": "Globally unique, typically PROPERTY-ROOMNUMBER.",
+   "fieldname": "room_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Room Code",
+   "length": 30,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "room_number",
+   "fieldtype": "Data",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "label": "Room Number",
+   "reqd": 1
+  },
+  {
+   "fieldname": "identity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Property",
+   "options": "Hospitality Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "room_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Room Type",
+   "options": "Room Type",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "fieldname": "location_section",
+   "fieldtype": "Section Break",
+   "label": "Location"
+  },
+  {
+   "fieldname": "building",
+   "fieldtype": "Link",
+   "label": "Building",
+   "options": "Hospitality Building"
+  },
+  {
+   "fieldname": "wing",
+   "fieldtype": "Link",
+   "label": "Wing",
+   "options": "Hospitality Wing"
+  },
+  {
+   "fieldname": "location_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "floor",
+   "fieldtype": "Link",
+   "label": "Floor",
+   "options": "Hospitality Floor",
+   "search_index": 1
+  },
+  {
+   "fieldname": "zone",
+   "fieldtype": "Link",
+   "label": "Zone",
+   "options": "Hospitality Zone",
+   "search_index": 1
+  },
+  {
+   "description": "These four dimensions are independent of one another and are changed only by RoomStatusService. They are not editable here \u2014 use the Change Status action, which records the transition in the Room Status Log.",
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "default": "Vacant",
+   "fieldname": "occupancy_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Occupancy Status",
+   "options": "Vacant\nReserved\nOccupied\nDue In\nDue Out\nHouse Use",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "default": "Clean",
+   "fieldname": "housekeeping_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Housekeeping Status",
+   "options": "Clean\nDirty\nIn Progress\nInspection Pending\nInspected\nDND\nService Refused",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "status_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Operational",
+   "fieldname": "maintenance_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Maintenance Status",
+   "options": "Operational\nRequired\nUnder Maintenance\nOut of Service\nOut of Order",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "default": "Available",
+   "fieldname": "inventory_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Inventory Status",
+   "options": "Available\nBlocked\nNot Assignable\nStop Sell",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "attributes_section",
+   "fieldtype": "Section Break",
+   "label": "Attributes"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_smoking",
+   "fieldtype": "Check",
+   "label": "Smoking"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_accessible",
+   "fieldtype": "Check",
+   "label": "Accessible"
+  },
+  {
+   "fieldname": "attributes_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "has_balcony",
+   "fieldtype": "Check",
+   "label": "Has Balcony"
+  },
+  {
+   "fieldname": "view_type",
+   "fieldtype": "Data",
+   "label": "View Type"
+  },
+  {
+   "fieldname": "features",
+   "fieldtype": "Table",
+   "label": "Features",
+   "options": "Hospitality Room Feature"
+  },
+  {
+   "fieldname": "housekeeping_section",
+   "fieldtype": "Section Break",
+   "label": "Housekeeping"
+  },
+  {
+   "default": "0",
+   "description": "Cleaning effort units for this room, used for housekeeping workload balancing.",
+   "fieldname": "housekeeping_credits",
+   "fieldtype": "Int",
+   "label": "Housekeeping Credits"
+  },
+  {
+   "fieldname": "housekeeping_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "last_cleaned_on",
+   "fieldtype": "Datetime",
+   "label": "Last Cleaned On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  },
+  {
+   "description": "Other rooms this room connects with. Only meaningful when the room's Room Type allows connecting rooms.",
+   "fieldname": "connecting_section",
+   "fieldtype": "Section Break",
+   "label": "Connecting Rooms"
+  },
+  {
+   "fieldname": "connecting_rooms",
+   "fieldtype": "Table",
+   "label": "Connecting Rooms",
+   "options": "Hospitality Connecting Room"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:18:56.835577",
+ "modified_by": "Administrator",
+ "module": "Hospitality Rooms",
+ "name": "Hotel Room",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Agent"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Agent"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Revenue Manager"
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Supervisor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Room Attendant"
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Technician"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Food and Beverage Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen User"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Corporate Sales Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Guest Relations Officer"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "room_number,room_type,property",
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "room_number",
+ "track_changes": 1
+}

@@ -1,0 +1,257 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "field:profile_code",
+ "creation": "2026-08-08 16:48:18.910706",
+ "description": "Per-property configuration for how PMS folio charges post onto ERPNext: which company, which default accounts, and which charge types map onto which items and accounts. FolioService's ERPNext posting reads this profile rather than any hard-coded mapping.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "profile_code",
+  "profile_name",
+  "identity_col",
+  "property",
+  "is_active",
+  "company_section",
+  "company",
+  "default_income_account",
+  "company_col",
+  "default_cost_center",
+  "default_receivable_account",
+  "defaults_section",
+  "default_tax_template",
+  "defaults_col",
+  "default_item",
+  "mapping_section",
+  "charge_items",
+  "deposit_section",
+  "deposit_liability_account",
+  "deposit_col",
+  "update_stock_on_posting"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "columns": 2,
+   "fieldname": "profile_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Profile Code",
+   "length": 30,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "profile_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Profile Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "identity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Property",
+   "options": "Hospitality Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "columns": 2,
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Active"
+  },
+  {
+   "fieldname": "company_section",
+   "fieldtype": "Section Break",
+   "label": "Company and Defaults"
+  },
+  {
+   "columns": 2,
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "default_income_account",
+   "fieldtype": "Link",
+   "label": "Default Income Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "company_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "default_cost_center",
+   "fieldtype": "Link",
+   "label": "Default Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "columns": 2,
+   "fieldname": "default_receivable_account",
+   "fieldtype": "Link",
+   "label": "Default Receivable Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "defaults_section",
+   "fieldtype": "Section Break",
+   "label": "Fallback Mapping"
+  },
+  {
+   "columns": 2,
+   "fieldname": "default_tax_template",
+   "fieldtype": "Link",
+   "label": "Default Tax Template",
+   "options": "Sales Taxes and Charges Template"
+  },
+  {
+   "fieldname": "defaults_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "description": "Used to post a charge when its charge type has no explicit mapping below.",
+   "fieldname": "default_item",
+   "fieldtype": "Link",
+   "label": "Default Item",
+   "options": "Item"
+  },
+  {
+   "fieldname": "mapping_section",
+   "fieldtype": "Section Break",
+   "label": "Charge Item Mapping"
+  },
+  {
+   "fieldname": "charge_items",
+   "fieldtype": "Table",
+   "label": "Charge Item Mapping",
+   "options": "Hospitality Charge Item Map"
+  },
+  {
+   "fieldname": "deposit_section",
+   "fieldtype": "Section Break",
+   "label": "Deposits and Stock"
+  },
+  {
+   "columns": 2,
+   "fieldname": "deposit_liability_account",
+   "fieldtype": "Link",
+   "label": "Deposit Liability Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "deposit_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "description": "Only applies to charges that carry an item with stock (e.g. minibar, room service); a plain room charge or fee never touches stock regardless of this setting.",
+   "fieldname": "update_stock_on_posting",
+   "fieldtype": "Check",
+   "label": "Update Stock on Posting"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:19:02.964671",
+ "modified_by": "Administrator",
+ "module": "Hospitality Folio",
+ "name": "Hospitality Posting Profile",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager"
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "profile_name",
+ "track_changes": 1
+}

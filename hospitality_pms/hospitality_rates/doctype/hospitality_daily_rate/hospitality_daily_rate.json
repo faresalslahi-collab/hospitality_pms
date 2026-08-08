@@ -1,0 +1,357 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2026-08-08 16:21:08.148060",
+ "description": "The date-level rate and restriction grid revenue management edits directly: one row per property, rate plan, room type and date. The controller enforces uniqueness on (property, rate_plan, room_type, rate_date) since Frappe's DocType JSON cannot express a multi-column unique key.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "property",
+  "rate_plan",
+  "identity_col",
+  "room_type",
+  "rate_date",
+  "rate_section",
+  "rate",
+  "rate_col",
+  "extra_adult_charge",
+  "extra_child_charge",
+  "currency",
+  "restrictions_section",
+  "min_length_of_stay",
+  "max_length_of_stay",
+  "closed",
+  "restrictions_col",
+  "closed_to_arrival",
+  "closed_to_departure",
+  "stop_sell",
+  "rooms_to_sell"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Property",
+   "options": "Hospitality Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "rate_plan",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Rate Plan",
+   "options": "Hospitality Rate Plan",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "identity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "room_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Room Type",
+   "options": "Room Type",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "rate_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Rate Date",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "rate_section",
+   "fieldtype": "Section Break",
+   "label": "Rate"
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Rate",
+   "options": "currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "rate_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "extra_adult_charge",
+   "fieldtype": "Currency",
+   "label": "Extra Adult Charge",
+   "options": "currency"
+  },
+  {
+   "fieldname": "extra_child_charge",
+   "fieldtype": "Currency",
+   "label": "Extra Child Charge",
+   "options": "currency"
+  },
+  {
+   "description": "Populated by the parent document's controller from its property's currency. Not user-editable; exists only so Currency fields on this row format correctly.",
+   "fieldname": "currency",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Currency",
+   "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "restrictions_section",
+   "fieldtype": "Section Break",
+   "label": "Restrictions"
+  },
+  {
+   "fieldname": "min_length_of_stay",
+   "fieldtype": "Int",
+   "label": "Min Length of Stay"
+  },
+  {
+   "fieldname": "max_length_of_stay",
+   "fieldtype": "Int",
+   "label": "Max Length of Stay"
+  },
+  {
+   "default": "0",
+   "description": "No selling at all on this date, on this plan/room type.",
+   "fieldname": "closed",
+   "fieldtype": "Check",
+   "label": "Closed"
+  },
+  {
+   "fieldname": "restrictions_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "closed_to_arrival",
+   "fieldtype": "Check",
+   "label": "Closed to Arrival"
+  },
+  {
+   "default": "0",
+   "fieldname": "closed_to_departure",
+   "fieldtype": "Check",
+   "label": "Closed to Departure"
+  },
+  {
+   "default": "0",
+   "fieldname": "stop_sell",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Stop Sell"
+  },
+  {
+   "description": "Cap on rooms sellable on this plan for this room type/date. Leave blank for no plan-level cap.",
+   "fieldname": "rooms_to_sell",
+   "fieldtype": "Int",
+   "label": "Rooms to Sell"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:18:59.344551",
+ "modified_by": "Administrator",
+ "module": "Hospitality Rates",
+ "name": "Hospitality Daily Rate",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Agent"
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Agent"
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Revenue Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Supervisor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Room Attendant"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Technician"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Food and Beverage Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen User"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Corporate Sales Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Guest Relations Officer"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "rate_plan,room_type,rate_date",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

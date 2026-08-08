@@ -1,0 +1,427 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "field:rate_plan_code",
+ "creation": "2026-08-08 16:21:07.958020",
+ "description": "A sellable rate plan: its type, validity window, per-room-type rates, restrictions and the cancellation/no-show/deposit policies that apply to bookings made on it. Per SAS section 3.6.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "rate_plan_code",
+  "rate_plan_name",
+  "property",
+  "identity_col",
+  "is_active",
+  "display_order",
+  "type_section",
+  "rate_type",
+  "validity_section",
+  "valid_from",
+  "validity_col",
+  "valid_upto",
+  "commercial_section",
+  "currency",
+  "is_refundable",
+  "includes_breakfast",
+  "includes_taxes",
+  "commercial_col",
+  "market_segment",
+  "booking_source",
+  "rates_section",
+  "room_types",
+  "restrictions_section",
+  "restrictions",
+  "policies_section",
+  "cancellation_policy",
+  "policies_col",
+  "no_show_policy",
+  "deposit_policy",
+  "terms_section",
+  "terms"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "fieldname": "rate_plan_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Rate Plan Code",
+   "length": 30,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "rate_plan_name",
+   "fieldtype": "Data",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "label": "Rate Plan Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Property",
+   "options": "Hospitality Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "identity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "default": "0",
+   "description": "Controls the sort order of this rate plan on booking screens and rate grids.",
+   "fieldname": "display_order",
+   "fieldtype": "Int",
+   "label": "Display Order"
+  },
+  {
+   "fieldname": "type_section",
+   "fieldtype": "Section Break",
+   "label": "Type"
+  },
+  {
+   "default": "Standard",
+   "fieldname": "rate_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Rate Type",
+   "options": "Standard\nCorporate\nTravel Agent\nGroup\nGovernment\nPromotional\nLong Stay\nWeekend\nSeasonal\nEvent\nPackage\nComplimentary\nHouse Use",
+   "reqd": 1
+  },
+  {
+   "fieldname": "validity_section",
+   "fieldtype": "Section Break",
+   "label": "Validity"
+  },
+  {
+   "fieldname": "valid_from",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Valid From",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "validity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Leave blank for a plan that is open ended, with no fixed end date.",
+   "fieldname": "valid_upto",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Valid Upto",
+   "search_index": 1
+  },
+  {
+   "fieldname": "commercial_section",
+   "fieldtype": "Section Break",
+   "label": "Commercial"
+  },
+  {
+   "fetch_from": "property.currency",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_refundable",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Refundable"
+  },
+  {
+   "default": "0",
+   "fieldname": "includes_breakfast",
+   "fieldtype": "Check",
+   "label": "Includes Breakfast"
+  },
+  {
+   "default": "0",
+   "description": "Warning: a tax-inclusive plan is not stored net of tax. The charge service unpacks the tax portion out of this plan's rate at posting time \u2014 the rate on this plan and on its Daily Rate rows is always the gross, tax-inclusive figure.",
+   "fieldname": "includes_taxes",
+   "fieldtype": "Check",
+   "label": "Includes Taxes"
+  },
+  {
+   "fieldname": "commercial_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "market_segment",
+   "fieldtype": "Data",
+   "label": "Market Segment"
+  },
+  {
+   "fieldname": "booking_source",
+   "fieldtype": "Data",
+   "label": "Booking Source"
+  },
+  {
+   "fieldname": "rates_section",
+   "fieldtype": "Section Break",
+   "label": "Rates"
+  },
+  {
+   "fieldname": "room_types",
+   "fieldtype": "Table",
+   "label": "Room Types",
+   "options": "Hospitality Rate Plan Room Type"
+  },
+  {
+   "fieldname": "restrictions_section",
+   "fieldtype": "Section Break",
+   "label": "Restrictions"
+  },
+  {
+   "fieldname": "restrictions",
+   "fieldtype": "Table",
+   "label": "Restrictions",
+   "options": "Hospitality Rate Restriction"
+  },
+  {
+   "fieldname": "policies_section",
+   "fieldtype": "Section Break",
+   "label": "Policies"
+  },
+  {
+   "fieldname": "cancellation_policy",
+   "fieldtype": "Link",
+   "label": "Cancellation Policy",
+   "options": "Hospitality Rate Policy"
+  },
+  {
+   "fieldname": "policies_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "no_show_policy",
+   "fieldtype": "Link",
+   "label": "No Show Policy",
+   "options": "Hospitality Rate Policy"
+  },
+  {
+   "fieldname": "deposit_policy",
+   "fieldtype": "Link",
+   "label": "Deposit Policy",
+   "options": "Hospitality Rate Policy"
+  },
+  {
+   "fieldname": "terms_section",
+   "fieldtype": "Section Break",
+   "label": "Terms"
+  },
+  {
+   "fieldname": "terms",
+   "fieldtype": "Text Editor",
+   "label": "Terms"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:18:58.628500",
+ "modified_by": "Administrator",
+ "module": "Hospitality Rates",
+ "name": "Hospitality Rate Plan",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Agent"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Agent"
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Revenue Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Supervisor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Room Attendant"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Technician"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Food and Beverage Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen User"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Corporate Sales Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Guest Relations Officer"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "rate_plan_name",
+ "track_changes": 1
+}

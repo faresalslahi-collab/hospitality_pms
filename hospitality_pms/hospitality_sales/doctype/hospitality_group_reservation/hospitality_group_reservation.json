@@ -1,0 +1,494 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-08 17:07:30.239436",
+ "description": "A group booking: header, room block by room type and date range, rooming list and billing instruction, per SAS 3.14. All status transitions are made by the group service, never by direct edit.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "naming_series",
+  "property",
+  "identity_col",
+  "group_name",
+  "group_code",
+  "status_section",
+  "group_status",
+  "status_col",
+  "group_type",
+  "sales_section",
+  "corporate_account",
+  "sales_col",
+  "travel_agent",
+  "dates_section",
+  "arrival_date",
+  "departure_date",
+  "dates_col",
+  "cutoff_date",
+  "pickup_section",
+  "total_rooms_blocked",
+  "total_rooms_picked_up",
+  "pickup_percentage",
+  "block_lines_section",
+  "block_lines",
+  "rooming_list_section",
+  "rooming_list",
+  "billing_section",
+  "billing_instruction",
+  "master_folio",
+  "contact_section",
+  "contact_name",
+  "contact_email",
+  "contact_phone",
+  "commercial_section",
+  "currency",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "default": "HPMS-GRP-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Naming Series",
+   "options": "HPMS-GRP-.YYYY.-.#####"
+  },
+  {
+   "columns": 2,
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Property",
+   "options": "Hospitality Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "identity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "group_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Group Name",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "group_code",
+   "fieldtype": "Data",
+   "label": "Group Code"
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "columns": 2,
+   "default": "Tentative",
+   "description": "Transitions go through the group service only; this field is not edited directly on the form.",
+   "fieldname": "group_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Group Status",
+   "options": "Tentative\nDefinite\nCancelled\nClosed",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "status_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "default": "Corporate",
+   "fieldname": "group_type",
+   "fieldtype": "Select",
+   "label": "Group Type",
+   "options": "Corporate\nLeisure\nConference\nWedding\nCrew\nTour Series\nOther"
+  },
+  {
+   "fieldname": "sales_section",
+   "fieldtype": "Section Break",
+   "label": "Sales"
+  },
+  {
+   "columns": 2,
+   "fieldname": "corporate_account",
+   "fieldtype": "Link",
+   "label": "Corporate Account",
+   "options": "Hospitality Corporate Account",
+   "search_index": 1
+  },
+  {
+   "fieldname": "sales_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "travel_agent",
+   "fieldtype": "Data",
+   "label": "Travel Agent"
+  },
+  {
+   "fieldname": "dates_section",
+   "fieldtype": "Section Break",
+   "label": "Dates"
+  },
+  {
+   "columns": 2,
+   "fieldname": "arrival_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Arrival Date",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "departure_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Departure Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "dates_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "description": "Unclaimed rooms in the block are released back to general inventory on this date.",
+   "fieldname": "cutoff_date",
+   "fieldtype": "Date",
+   "label": "Cutoff Date"
+  },
+  {
+   "fieldname": "pickup_section",
+   "fieldtype": "Section Break",
+   "label": "Block and Pickup"
+  },
+  {
+   "columns": 3,
+   "fieldname": "total_rooms_blocked",
+   "fieldtype": "Int",
+   "label": "Total Rooms Blocked",
+   "read_only": 1
+  },
+  {
+   "columns": 3,
+   "fieldname": "total_rooms_picked_up",
+   "fieldtype": "Int",
+   "label": "Total Rooms Picked Up",
+   "read_only": 1
+  },
+  {
+   "columns": 3,
+   "fieldname": "pickup_percentage",
+   "fieldtype": "Float",
+   "label": "Pickup Percentage",
+   "read_only": 1
+  },
+  {
+   "fieldname": "block_lines_section",
+   "fieldtype": "Section Break",
+   "label": "Room Block"
+  },
+  {
+   "fieldname": "block_lines",
+   "fieldtype": "Table",
+   "label": "Room Block",
+   "options": "Hospitality Group Block Line"
+  },
+  {
+   "fieldname": "rooming_list_section",
+   "fieldtype": "Section Break",
+   "label": "Rooming List"
+  },
+  {
+   "fieldname": "rooming_list",
+   "fieldtype": "Table",
+   "label": "Rooming List",
+   "options": "Hospitality Rooming List Entry"
+  },
+  {
+   "fieldname": "billing_section",
+   "fieldtype": "Section Break",
+   "label": "Billing"
+  },
+  {
+   "columns": 2,
+   "default": "Master Folio",
+   "fieldname": "billing_instruction",
+   "fieldtype": "Select",
+   "label": "Billing Instruction",
+   "options": "Master Folio\nIndividual Folios\nSplit Room to Master"
+  },
+  {
+   "columns": 2,
+   "fieldname": "master_folio",
+   "fieldtype": "Link",
+   "label": "Master Folio",
+   "options": "Hospitality Guest Folio",
+   "read_only": 1
+  },
+  {
+   "fieldname": "contact_section",
+   "fieldtype": "Section Break",
+   "label": "Group Contact"
+  },
+  {
+   "columns": 3,
+   "fieldname": "contact_name",
+   "fieldtype": "Data",
+   "label": "Contact Name"
+  },
+  {
+   "columns": 3,
+   "fieldname": "contact_email",
+   "fieldtype": "Data",
+   "label": "Contact Email",
+   "options": "Email"
+  },
+  {
+   "columns": 3,
+   "fieldname": "contact_phone",
+   "fieldtype": "Data",
+   "label": "Contact Phone",
+   "options": "Phone"
+  },
+  {
+   "fieldname": "commercial_section",
+   "fieldtype": "Section Break",
+   "label": "Commercial"
+  },
+  {
+   "columns": 2,
+   "fetch_from": "property.currency",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:19:07.237469",
+ "modified_by": "Administrator",
+ "module": "Hospitality Sales",
+ "name": "Hospitality Group Reservation",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Agent"
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Agent",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Revenue Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Supervisor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Room Attendant"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Technician"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Food and Beverage Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen User"
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Corporate Sales Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Guest Relations Officer"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "group_name,arrival_date,group_status",
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "group_name",
+ "track_changes": 1
+}

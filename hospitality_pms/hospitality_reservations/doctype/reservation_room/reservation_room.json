@@ -1,0 +1,148 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-08-08 16:21:10.650629",
+ "description": "One room-type line of a reservation: the dates, quantity and rate for a block of rooms of one room type. This is the line the availability engine reads to know what inventory is already committed \u2014 see hospitality_pms.services.availability._sold_by_night.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "room_type",
+  "rooms",
+  "arrival_date",
+  "departure_date",
+  "property",
+  "reservation_status",
+  "nights",
+  "rate_plan",
+  "adults",
+  "children",
+  "extra_beds",
+  "assigned_room",
+  "room_rate",
+  "total_amount",
+  "special_requests"
+ ],
+ "fields": [
+  {
+   "fieldname": "room_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Room Type",
+   "options": "Room Type",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "default": "1",
+   "description": "How many rooms of this room type this line holds.",
+   "fieldname": "rooms",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Rooms",
+   "reqd": 1
+  },
+  {
+   "fieldname": "arrival_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Arrival Date",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "departure_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Departure Date",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Denormalised from the parent reservation so availability can filter this table without joining back to Hotel Reservation. Kept in step by ReservationService.",
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "label": "Property",
+   "options": "Hospitality Property",
+   "search_index": 1
+  },
+  {
+   "description": "Denormalised copy of the parent reservation's status, kept in step by ReservationService so availability can filter on holding states (Confirmed, Guaranteed, Checked In) without joining to the parent. Not edited here.",
+   "fieldname": "reservation_status",
+   "fieldtype": "Data",
+   "label": "Reservation Status",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "nights",
+   "fieldtype": "Int",
+   "label": "Nights",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rate_plan",
+   "fieldtype": "Link",
+   "label": "Rate Plan",
+   "options": "Hospitality Rate Plan"
+  },
+  {
+   "default": "2",
+   "fieldname": "adults",
+   "fieldtype": "Int",
+   "label": "Adults"
+  },
+  {
+   "default": "0",
+   "fieldname": "children",
+   "fieldtype": "Int",
+   "label": "Children"
+  },
+  {
+   "default": "0",
+   "fieldname": "extra_beds",
+   "fieldtype": "Int",
+   "label": "Extra Beds"
+  },
+  {
+   "description": "The specific physical room, assigned at confirmation or check-in. Blank until then.",
+   "fieldname": "assigned_room",
+   "fieldtype": "Link",
+   "label": "Assigned Room",
+   "options": "Hotel Room",
+   "search_index": 1
+  },
+  {
+   "fieldname": "room_rate",
+   "fieldtype": "Currency",
+   "label": "Room Rate"
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "label": "Total Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "special_requests",
+   "fieldtype": "Small Text",
+   "label": "Special Requests"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-08 16:29:29.246563",
+ "modified_by": "Administrator",
+ "module": "Hospitality Reservations",
+ "name": "Reservation Room",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,131 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2026-08-08 16:04:55.310154",
+ "description": "Append-only audit of guest deduplication. Written only by the guest merge service, never edited.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "merged_into",
+  "merged_from",
+  "merged_from_name",
+  "merged_by",
+  "merged_at",
+  "reason",
+  "merged_fields"
+ ],
+ "fields": [
+  {
+   "fieldname": "merged_into",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Merged Into",
+   "options": "Hospitality Guest",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "merged_from",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Merged From",
+   "options": "Hospitality Guest",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Display name kept as text because the source guest record may later be deleted.",
+   "fieldname": "merged_from_name",
+   "fieldtype": "Data",
+   "label": "Merged From (Name)"
+  },
+  {
+   "fieldname": "merged_by",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Merged By",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "merged_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Merged At",
+   "reqd": 1
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason",
+   "reqd": 1
+  },
+  {
+   "description": "JSON snapshot of what the source record held before the merge.",
+   "fieldname": "merged_fields",
+   "fieldtype": "Long Text",
+   "label": "Merged Fields"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:18:58.435154",
+ "modified_by": "Administrator",
+ "module": "Hospitality Guests",
+ "name": "Hospitality Guest Merge Log",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Guest Relations Officer"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "merged_at",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

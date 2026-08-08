@@ -1,0 +1,87 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-08-08 16:04:54.922343",
+ "description": "An operational or safety alert attached to a guest profile, surfaced at booking and check-in.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "alert_type",
+  "severity",
+  "alert",
+  "is_active",
+  "valid_upto",
+  "raised_by",
+  "raised_on"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "alert_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Alert Type",
+   "options": "Operational\nAllergy\nMedical\nAccessibility\nPayment\nBehaviour\nSecurity",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "default": "Info",
+   "fieldname": "severity",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Severity",
+   "options": "Info\nWarning\nCritical",
+   "reqd": 1
+  },
+  {
+   "columns": 4,
+   "fieldname": "alert",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Alert",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Active"
+  },
+  {
+   "fieldname": "valid_upto",
+   "fieldtype": "Date",
+   "label": "Valid Upto"
+  },
+  {
+   "fieldname": "raised_by",
+   "fieldtype": "Link",
+   "label": "Raised By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "raised_on",
+   "fieldtype": "Datetime",
+   "label": "Raised On",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-08 16:04:54.922343",
+ "modified_by": "Administrator",
+ "module": "Hospitality Guests",
+ "name": "Hospitality Guest Alert",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
