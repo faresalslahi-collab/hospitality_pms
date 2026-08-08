@@ -252,6 +252,11 @@ def confirm(reservation: str, *, allow_overbooking: bool = False, reason: str | 
 			exclude_reservation=reservation,
 		)
 
+	# A corporate booking draws on the account's credit. This runs inside the
+	# same locked transaction as the availability check, so the credit movement
+	# and the booking decision commit together or not at all.
+	_consume_corporate_credit(doc)
+
 	_transition(
 		doc,
 		CONFIRMED,
@@ -335,6 +340,10 @@ def cancel(reservation: str, reason: str, *, waive_charge: bool = False) -> dict
 		# exception, not routine housekeeping.
 		require_role(CANCEL_OVERRIDE_ROLES)
 
+	# Releasing before the transition so a failure here aborts the cancellation
+	# rather than leaving the booking cancelled with its credit still consumed.
+	_release_corporate_credit(doc, charge)
+
 	_transition(doc, CANCELLED, reason=reason, details={"cancellation_charge": charge})
 
 	frappe.db.set_value(
@@ -401,6 +410,56 @@ def mark_no_show(reservation: str, *, reason: str | None = None) -> dict:
 	)
 
 	return {"status": NO_SHOW, "no_show_charge": charge}
+
+
+
+def _corporate_account(doc) -> str | None:
+	"""The corporate account a reservation bills to, if it resolves to a real one.
+
+	`corporate_account` is a Data field rather than a Link, so a typo or a
+	stale name is possible. An unresolvable value is ignored rather than
+	blocking the booking: refusing to sell a room because a reference is stale
+	would be a worse failure than not tracking the credit.
+	"""
+	name = (doc.get("corporate_account") or "").strip()
+
+	if not name or not frappe.db.exists("Hospitality Corporate Account", name):
+		return None
+
+	return name
+
+
+def _consume_corporate_credit(doc):
+	"""Draw the reservation's value against its corporate account's credit."""
+	account = _corporate_account(doc)
+
+	if not account:
+		return
+
+	from hospitality_pms.services.corporate import consume_credit
+
+	consume_credit(account, flt(doc.total_amount), reservation=doc.name)
+
+
+def _release_corporate_credit(doc, charge: float = 0.0):
+	"""Return credit when a booking is cancelled.
+
+	Only the amount that will not now be billed is released: a cancellation
+	charge is still owed by the account, so it stays consumed.
+	"""
+	account = _corporate_account(doc)
+
+	if not account:
+		return
+
+	from hospitality_pms.services.corporate import release_credit
+
+	releasable = max(flt(doc.total_amount) - flt(charge), 0.0)
+
+	if releasable <= 0:
+		return
+
+	release_credit(account, releasable, reason=_("Reservation {0} cancelled").format(doc.name))
 
 
 # ---------------------------------------------------------------------------

@@ -15,8 +15,8 @@ The front office works in two places:
 
 | Surface | Path | What it is for |
 |---|---|---|
-| Operational frontend | `/pms` | The screens in this guide: availability, reservations, the room rack, the in-house board |
-| Frappe Desk | `/desk` | Everything this guide has to send you to because the frontend does not do it yet |
+| Operational frontend | `/pms` | The screens in this guide, covering availability, taking and managing a booking, arrivals, in-house, the folio, checkout and guests |
+| Frappe Desk | `/desk` | The smaller set of workflows below that still have no `/pms` screen |
 
 ### Pages that exist today in `/pms`
 
@@ -25,31 +25,48 @@ The front office works in two places:
 | Dashboard | `/pms` | A landing page showing your session, language and role count. No operational data yet. |
 | Availability | `/pms/availability` | Search what can be sold for a date range (section 2). |
 | Reservations | `/pms/reservations` | The filtered reservation list (section 3). |
-| Reservation | `/pms/reservations/:id` | One reservation: its rooms, rate breakdown, and Confirm / Guarantee / Cancel buttons (sections 3–4). |
+| New reservation | `/pms/reservations/new` | Search or quote-and-book a stay for an existing or walk-in guest (section 3). |
+| Reservation | `/pms/reservations/:id` | One reservation: its rooms, rate breakdown, and Confirm / Guarantee / Check In / Cancel buttons (sections 3–4). |
+| Check-in | `/pms/check-in/:reservation` | Pick a room for each room line and check the party in (section 6). |
+| In House | `/pms/in-house` | Who is currently in the house, with a link through to each stay's folio and checkout (section 7). |
+| Folio | `/pms/folios/:id` | Charges and payments for one folio, with buttons to post a charge, take a payment, post an adjustment, split, reverse a charge, or move it to another status (section 8). |
+| Checkout | `/pms/checkout/:stay` | The checkout summary, its blockers, and the Check Out / Reverse buttons (section 9). |
+| Guests | `/pms/guests` | Guest search by name, email or mobile (section 5). |
+| Guest profile | `/pms/guests/:id` | One guest's contact details, preferences, alerts and (where you are cleared to see them) identification and blacklist status (section 5). |
 | Room Rack | `/pms/rooms` | Every room, its four status dimensions, and a dialog to change one (section 10). |
-| In House | `/pms/in-house` | A read-only board of who is currently in the house (section 7). |
 
-### What is not in the frontend yet, and must be done in Desk
+### What is still not in the frontend, and must be done in Desk
 
 Read this list once, because it shapes the rest of the guide:
 
-- **Creating a reservation.** There is no "new reservation" form in `/pms`. A
-  reservation is created in Desk, on the **Hotel Reservation** doctype, or
-  arrives already created from a channel import.
-- **Room assignment.** The frontend has no screen to pick a specific room for
-  a reservation line. Assign the room in Desk.
-- **Check-in.** There is no check-in screen. Check-in is done in Desk.
-- **Room changes, extending or shortening an in-house stay.** The In House
-  page is read-only — it lists who is in house but has no actions. These
-  operations are done in Desk.
-- **The folio.** There is no folio screen. Charges, payments, reversals and
-  splits are posted in Desk.
-- **Checkout.** There is no checkout screen. Checkout is done in Desk.
-- **Guest search and guest profile.** There is no guest screen in `/pms`.
-  Guest records, duplicate checks and identification are managed in Desk.
-- **Marking a no-show, moving a reservation to Waitlisted or back to
-  Tentative.** These transitions exist on the server but are not wired to any
-  button in `/pms` or in Desk yet.
+- **Creating a Hospitality Guest record.** The New reservation screen lets you
+  search for an existing guest, or type a walk-in's name straight into the
+  booking, but neither the guest search nor the reservation screen creates a
+  proper **Hospitality Guest** record with contact details, identification and
+  preferences. A guest master record — and merging a duplicate one — is
+  created and maintained in Desk.
+- **Editing a reservation's dates, or assigning a room ahead of arrival.**
+  Once a reservation is created there is no screen to change its arrival or
+  departure date (see section 4 for why), and no screen assigns a specific
+  room to a line before the guest actually checks in — room assignment
+  happens at the point of check-in (section 6). Both are Desk/API operations
+  outside that flow.
+- **Setting a deposit amount, or blacklisting a guest.** The frontend shows a
+  reservation's deposit position and a guest's blacklist status, but nothing
+  in `/pms` sets either one. Both are set in Desk.
+- **Corporate accounts, group reservations and rate plans.** Booking against
+  a rate plan is possible from the New reservation screen, but creating or
+  editing rate plans, corporate accounts and credit terms, and building a
+  multi-room-type group booking, are all Desk workflows (rate plans and
+  corporate setup are covered in the Administrator and Setup Guide).
+- **Marking an individual reservation as No Show.** The Night Audit screen
+  (section 4, and the Night Audit guide) can turn every unresolved arrival for
+  the business date into a no-show in one step, but there is no button on the
+  Reservation page to no-show a single booking outside that process — that is
+  done in Desk.
+- **Kitchen requisitions, room service, minibar orders and wastage.** These
+  are Housekeeping, Maintenance and Guest Services Guide territory (see that
+  guide, section 11) and have no `/pms` screen either.
 
 Everything the server refuses to let happen (the rules in sections 2–10) holds
 regardless of which surface you use to attempt it — the service layer is the
@@ -142,10 +159,20 @@ than zero:
 
 ### Creating a reservation
 
-There is no reservation-creation screen in `/pms` today (see section 1).
-Reservations are created in Desk as a **Hotel Reservation**, or arrive already
-created from a channel import. A few rules apply regardless of who creates it
-or how:
+**New reservation** (`/pms/reservations/new`) checks availability for a date
+range and party size, lets you choose one of the bookable room types, shows
+the quoted rate breakdown (the same pricing service Confirm itself will use,
+so the quote and the eventual charge cannot diverge), and saves the booking as
+Draft or Tentative. Room lines are still limited to one room type per
+booking on this screen — a genuine multi-room-type or group booking is built
+in Desk. The guest can be an existing one found by search, or a name typed in
+for a walk-in; typing a name here does not create a Hospitality Guest record
+(section 1), so it is only a booking-time label until someone creates the
+guest properly.
+
+Reservations can also arrive already created from a channel import, or be
+created directly in Desk as a **Hotel Reservation**. A few rules apply
+regardless of who creates it or how:
 
 - A new reservation may only be saved as **Draft** or **Tentative**. Nothing
   can be inserted directly as Confirmed — that would let someone hold
@@ -265,24 +292,33 @@ System Manager, and is refused if the reservation's arrival date is still in
 the future relative to the property's business date — *"Reservation \<name\>
 arrives on \<date\>, which is after the business date \<date\>."* A no-show
 charge is computed the same way a cancellation charge is, from the
-reservation's no-show policy. There is no button for this in `/pms` today; it
-is done in Desk (or normally raised automatically by the Night Audit).
+reservation's no-show policy. There is no button on the Reservation page to
+no-show a single booking (see section 1); it is done in Desk, or as a batch
+covering every unresolved arrival on the business date from the Night Audit
+screen (Night Audit, Finance and Reconciliation Guide, section 4).
 
 ---
 
 ## 5. Guests
 
-There is no guest search or guest profile screen in `/pms` yet (see section
-1). Guest records, searching, duplicate checks and merging are all done in
-Desk against the **Hospitality Guest** doctype and its API. This section
-describes what happens there so you know what to expect and who can see what.
+**Guests** (`/pms/guests`) searches by name, email or mobile number and opens
+onto **Guest profile** (`/pms/guests/:id`), which shows contact details,
+preferences, active alerts, and — only for a user cleared to see them —
+identification documents and blacklist status, exactly as described below.
+Neither screen has a create, edit or merge action: a guest record is created,
+corrected and merged in Desk against the **Hospitality Guest** doctype and its
+API (see section 1). This section describes the rules that apply wherever
+that is done, and what the `/pms` screens will and will not show you.
 
 ### Searching and duplicate detection
 
-A guest search matches on identification number, email, mobile number, or
-name (with or without date of birth). Each signal carries a different
-confidence weight, and a candidate is only surfaced once its total score
-reaches the threshold of 30:
+The Guests page searches only name, email and mobile number, and never
+returns a blacklisted guest to anyone who is not cleared to see the blacklist
+flag. Duplicate detection is a separate, Desk-only check (`find_matches`) run
+before creating a new guest record, and casts a wider net: it matches on
+identification number, email, mobile number, or name (with or without date of
+birth). Each signal carries a different confidence weight, and a candidate is
+only surfaced once its total score reaches the threshold of 30:
 
 | Signal | Weight |
 |---|---|
@@ -301,7 +337,8 @@ worse than leaving a duplicate in place.
 ### What to do when a guest is flagged
 
 The system never merges automatically — it returns scored candidates and
-leaves the decision to a person. If you find a genuine duplicate:
+leaves the decision to a person. Merging is done in Desk; there is no merge
+action on the Guest profile page. If you find a genuine duplicate:
 
 - Merging is restricted to a Hospitality Administrator, System Manager, Hotel
   Manager or Guest Relations Officer, and always requires a reason.
@@ -341,9 +378,12 @@ email/mobile search for anyone who is not cleared to see the blacklist flag.
 
 ## 6. Arrivals and check-in
 
-There is no check-in screen in `/pms` (see section 1); check-in is performed
-in Desk against the reservation and its room line. The checks below run in
-this exact order, and the first one that fails is the one you are shown —
+**Check-in** (`/pms/check-in/:reservation`, reached from the Check In button
+on the Reservation page) shows one panel per room line, lets you pick a room
+from the assignable list for that line, and warns you up front about the
+reservation's status, arrival date and any deposit shortfall before you try.
+The checks below run in this exact order on the server regardless of which
+surface you use, and the first one that fails is the one you are shown —
 knowing the order tells you what to fix first.
 
 1. **The room line is not already checked in.** Checking in the same line
@@ -413,10 +453,12 @@ a second time at the desk.
 
 ## 7. In house
 
-The **In House** page (`/pms/in-house`) is a read-only board: room, guest,
-arrival, departure, occupants and rate, with **In House** / **Due Out** status
-badges and summary tiles. It has no actions — room change, extend, shorten and
-notes are all done in Desk against the Hospitality Stay record.
+The **In House** page (`/pms/in-house`) is a board: room, guest, arrival,
+departure, occupants and rate, with **In House** / **Due Out** status badges,
+summary tiles, and a link from each row through to that stay's folio and to
+checkout. It carries no room-change, extend or shorten action of its own —
+those, and adding a note to a stay, are still done in Desk against the
+Hospitality Stay record.
 
 ### Room change
 
@@ -447,9 +489,14 @@ past. A reason is mandatory.
 
 ## 8. The folio
 
-There is no folio screen in `/pms` (see section 1). Charges, payments,
-reversals and splits are posted in Desk against the **Hospitality Guest
-Folio**. This section describes the rules that apply wherever it is done.
+**Folio** (`/pms/folios/:id`, reached from In House, Check-in or Checkout)
+lists charges paired with any reversal, lists payments, and shows the running
+balance alongside buttons to post a charge, take a payment, post an
+adjustment, split charges onto another folio, reverse a charge, and move the
+folio to any status the server currently allows. Everything below applies
+wherever the action is taken, whether that is this screen or Desk — merging
+two folios (`folio.merge_folio`) is the one folio operation with no screen of
+its own and remains Desk-only.
 
 ### Posting charges and payments
 

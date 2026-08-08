@@ -70,7 +70,24 @@ doc_events = {}
 # Scheduled Tasks
 # ------------------------------------------------------------------------------
 
-scheduler_events = {}
+# Nothing in this app schedules itself. Without these entries the SLA sweep
+# never escalates an overdue guest request, channels sell stale inventory, and
+# failed integration work sits in the queue unretried -- all silently, which is
+# the worst way for them to fail.
+scheduler_events = {
+	"cron": {
+		# Every 15 minutes: escalate guest requests past their due time.
+		"*/15 * * * *": [
+			"hospitality_pms.tasks.sweep_guest_service_sla",
+		],
+		# Every 30 minutes: push availability to active channels and work the
+		# integration failure queue.
+		"*/30 * * * *": [
+			"hospitality_pms.tasks.sync_channels",
+			"hospitality_pms.tasks.retry_failed_integrations",
+		],
+	},
+}
 
 # ------------------------------------------------------------------------------
 # Desk

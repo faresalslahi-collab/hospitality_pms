@@ -935,3 +935,34 @@ Backup and restore: PASS
 
 Remaining RC item: UAT, which requires the business users.
 ```
+
+---
+
+## Correction — corporate credit was never consumed
+
+Found while writing the UAT scenarios, which were deliberately written against
+the code rather than against the documentation.
+
+`CorporateService.consume_credit` and `release_credit` were complete, tested and
+called by nothing. No booking ever drew on a corporate account's credit, so a
+credit limit had no effect on what could be booked. The service was validated in
+isolation, which is exactly why the gap survived: every check of it passed.
+
+Worse, `api/corporate.py` asserted in its own docstring that both ran inside the
+reservation confirm and cancel flow under the booking's lock, and that claim was
+repeated in a commit message. It was not true.
+
+Fixed: `ReservationService.confirm` now consumes credit inside the same locked
+transaction as the availability check, and `cancel` releases it, less any
+cancellation charge the account still owes. An unresolvable account name is
+ignored rather than blocking the sale — `corporate_account` is a Data field, so
+a stale value is possible, and refusing to sell a room over a bad reference
+would be a worse failure than not tracking the credit.
+
+Verified end to end: confirming a corporate booking raises credit_used by the
+reservation total, and cancelling releases it. Regression unaffected — 25/25,
+21/21 and 20/20 on the reservation, stay and extended suites.
+
+Lesson recorded: a service with full unit coverage and no caller is invisible to
+every test that exercises the service. Coverage of a function is not evidence
+that anything calls it.
