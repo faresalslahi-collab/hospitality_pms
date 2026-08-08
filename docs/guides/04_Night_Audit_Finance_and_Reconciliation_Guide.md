@@ -20,11 +20,11 @@ screens in the operational frontend:
 | Night Audit | `/pms/night-audit` | The current audit's figures and exceptions, and the seven-step close sequence run in order, each step gated by the server's own blocking-exception rule (section 7). |
 
 Corporate credit, payments and reconciliation are still not on any frontend
-page. Corporate accounts have a read-only API (`api/corporate.py` — listing
-accounts, one account's negotiated rates and credit position, a credit check,
-and `set_credit_status`), but nothing in `/pms` calls it, so working an
-account, approving a credit exception or applying a billing split is done in
-**Desk**. Gateway payment initiation, refunds, status sync and the
+page. Corporate accounts have an API (`api/corporate.py` — listing accounts,
+one account's negotiated rates and credit position, a credit check, and
+`set_credit_status` to suspend, restore or flag an account), but nothing in
+`/pms` calls it, so working an account, approving a credit exception or
+applying a billing split is done in **Desk**. Gateway payment initiation, refunds, status sync and the
 reconciliation view have no API caller in `/pms` at all. Everything in this
 guide that has no frontend page — opening a corporate credit exception,
 retrying a failed posting, issuing a refund, reconciling a folio — is done in
@@ -268,10 +268,16 @@ unreversed charge on the folio that the rule assigns to the company, and
 splits them onto a new folio of type **Company** using the move-not-copy
 mechanism in section 5.
 
-There is no `api/corporate.py` yet — credit checks, exceptions and billing
-splits are performed from Desk, against the Hospitality Corporate Account
-doctype and its child tables, or by calling the service functions directly
-(bench console / server script).
+`api/corporate.py` exposes an account's negotiated rates and credit position,
+a read-only credit check, and `set_credit_status` for suspending, restoring or
+flagging an account, but nothing in `/pms` calls it and there is no corporate
+screen. Working an account, approving a credit exception and applying a
+billing split are performed from Desk, against the Hospitality Corporate
+Account doctype and its child tables, through that API directly, or by
+calling the service functions (bench console / server script) — credit
+consumption and release themselves (`consume_credit` / `release_credit`) are
+deliberately not exposed anywhere outside the booking flow they run under, as
+described above.
 
 ---
 
@@ -282,8 +288,10 @@ A property has exactly one business date at a time
 process allowed to move it forward. Follow this sequence in order; each step
 is safe to re-run if the shift is interrupted.
 
-Where to do this: the **Hospitality Night Audit** doctype in Desk. There is
-no frontend page for it yet.
+Where to do this: **Night Audit** (`/pms/night-audit`), which lays the steps
+out in this exact order and disables Close purely from the server's own
+blocking-exception count — or the **Hospitality Night Audit** doctype in Desk,
+which drives the same service calls.
 
 1. **Start the audit.**
    Open (or resume) the audit for the property's current business date. If

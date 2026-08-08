@@ -60,10 +60,10 @@ Read this list once, because it shapes the rest of the guide:
   multi-room-type group booking, are all Desk workflows (rate plans and
   corporate setup are covered in the Administrator and Setup Guide).
 - **Marking an individual reservation as No Show.** The Night Audit screen
-  (section 4, and the Night Audit guide) can turn every unresolved arrival for
-  the business date into a no-show in one step, but there is no button on the
-  Reservation page to no-show a single booking outside that process — that is
-  done in Desk.
+  can turn every unresolved arrival for the business date into a no-show in
+  one step (section 4 below, and the Night Audit, Finance and Reconciliation
+  Guide), but there is no button on the Reservation page to no-show a single
+  booking outside that process — that is done in Desk.
 - **Kitchen requisitions, room service, minibar orders and wastage.** These
   are Housekeeping, Maintenance and Guest Services Guide territory (see that
   guide, section 11) and have no `/pms` screen either.
