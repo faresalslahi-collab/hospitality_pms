@@ -1,7 +1,7 @@
 {
   "name": "hospitality_pms",
   "private": true,
-  "version": "0.1.0",
+  "version": "16.1.0",
   "description": "Build entry point for the Hospitality PMS operational frontend",
   "scripts": {
     "dev": "cd frontend && yarn dev",

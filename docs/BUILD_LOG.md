@@ -1042,3 +1042,57 @@ exists, established without reading a single word of the message.
 Verified: no string matching on blocker text, the action is hidden when any
 non-balance blocker is present, English and Arabic both at 487 keys with no
 difference, no directional CSS classes, and the frontend builds.
+
+---
+
+## Application version 16.1.0 — release
+
+Date: 2026-08-08
+
+The application version moves from `0.1.0` to **16.1.0** on branch `version-16`,
+adopting the Frappe ecosystem convention where the major version names the
+framework generation the application targets:
+
+```
+$ bench version
+frappe            16.30.0
+erpnext           16.31.1
+hospitality_pms   16.1.0
+```
+
+Anyone reading that list can see at a glance that all three belong together. The
+previous `0.1.0` was a scaffold default that was never advanced and said nothing
+useful — it implied pre-release software long after the application was complete,
+and gave no indication of which framework generation it ran on.
+
+Changed in `hospitality_pms/__init__.py`, `package.json` and
+`frontend/package.json`, which are now the three places the version is declared
+and are kept identical. The version is read at runtime by `api.ping`,
+`api.session` and `www/pms.py`, so `/pms` and the API report it without a rebuild.
+
+Branch `develop` renamed to `version-16`, matching Frappe and ERPNext. A future
+move to Frappe v17 becomes 17.x.y on `version-17`, leaving `version-16` for
+maintenance of this line.
+
+**The `HPMS-x.y.z` build numbers are unchanged and will not be renumbered.** They
+are identifiers from the approved v1.2 governance baseline recording which
+increment of work delivered a change; they are not application versions. Build
+HPMS-1.0.0 Production Release is delivered by application version 16.1.0. The two
+numbering systems answer different questions and mixing them would destroy the
+build log's link to the approved roadmap.
+
+Tagged `v16.1.0`.
+
+### What this tag does and does not assert
+
+It marks the code as released at version 16.1.0. It does not assert that the
+remaining HPMS-1.0.0 acceptance conditions have been met — those are decisions,
+not code, and they belong to the hotel:
+
+- UAT execution by business users against the 54 prepared scenarios — not started
+- production migration approval
+- deployment approval
+
+The known limitations in the Operations Runbook section 12 and the UAT plan
+section 6 stand as written. Verifying the Fatora endpoints before any live
+payment remains outstanding.
