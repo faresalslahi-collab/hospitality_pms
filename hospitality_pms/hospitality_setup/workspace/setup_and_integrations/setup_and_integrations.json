@@ -1,0 +1,195 @@
+{
+ "app": "hospitality_pms",
+ "charts": [],
+ "content": "[{\"id\": \"hdr1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Explore</b></span>\", \"col\": 12}}, {\"id\": \"card2\", \"type\": \"card\", \"data\": {\"card_name\": \"Property Setup\", \"col\": 4}}, {\"id\": \"card3\", \"type\": \"card\", \"data\": {\"card_name\": \"Integrations\", \"col\": 4}}]",
+ "creation": "2026-08-08 18:39:44.146861",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "hide_custom": 0,
+ "icon": "settings",
+ "idx": 0,
+ "indicator_color": "green",
+ "is_hidden": 0,
+ "label": "Setup and Integrations",
+ "link_type": "DocType",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Property Setup",
+   "link_count": 8,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Property",
+   "link_count": 0,
+   "link_to": "Hospitality Property",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Settings",
+   "link_count": 0,
+   "link_to": "Hospitality Settings",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Building",
+   "link_count": 0,
+   "link_to": "Hospitality Building",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Wing",
+   "link_count": 0,
+   "link_to": "Hospitality Wing",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Floor",
+   "link_count": 0,
+   "link_to": "Hospitality Floor",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Zone",
+   "link_count": 0,
+   "link_to": "Hospitality Zone",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Department",
+   "link_count": 0,
+   "link_to": "Hospitality Department",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Shift",
+   "link_count": 0,
+   "link_to": "Hospitality Shift",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Integrations",
+   "link_count": 4,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Payment Provider",
+   "link_count": 0,
+   "link_to": "Hospitality Payment Provider",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Channel",
+   "link_count": 0,
+   "link_to": "Hospitality Channel",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Hardware Device",
+   "link_count": 0,
+   "link_to": "Hospitality Hardware Device",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Regulatory Profile",
+   "link_count": 0,
+   "link_to": "Hospitality Regulatory Profile",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-08-08 18:39:44.146861",
+ "modified_by": "Administrator",
+ "module": "Hospitality Setup",
+ "name": "Setup and Integrations",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "Hospitality PMS",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [
+  {
+   "role": "Hospitality Administrator"
+  },
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Hotel Manager"
+  },
+  {
+   "role": "General Manager"
+  }
+ ],
+ "sequence_id": 6.0,
+ "shortcuts": [],
+ "title": "Setup and Integrations",
+ "type": "Workspace"
+}

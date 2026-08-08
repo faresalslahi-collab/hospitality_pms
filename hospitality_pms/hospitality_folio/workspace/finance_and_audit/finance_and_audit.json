@@ -1,0 +1,141 @@
+{
+ "app": "hospitality_pms",
+ "charts": [],
+ "content": "[{\"id\": \"hdr1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Explore</b></span>\", \"col\": 12}}, {\"id\": \"card2\", \"type\": \"card\", \"data\": {\"card_name\": \"Finance\", \"col\": 4}}, {\"id\": \"card3\", \"type\": \"card\", \"data\": {\"card_name\": \"Night Audit\", \"col\": 4}}]",
+ "creation": "2026-08-08 18:39:44.130649",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "hide_custom": 0,
+ "icon": "dollar-sign",
+ "idx": 0,
+ "indicator_color": "green",
+ "is_hidden": 0,
+ "label": "Finance and Audit",
+ "link_type": "DocType",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Finance",
+   "link_count": 4,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Guest Folio",
+   "link_count": 0,
+   "link_to": "Hospitality Guest Folio",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Financial Posting Log",
+   "link_count": 0,
+   "link_to": "Hospitality Financial Posting Log",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Posting Profile",
+   "link_count": 0,
+   "link_to": "Hospitality Posting Profile",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Payment Transaction",
+   "link_count": 0,
+   "link_to": "Hospitality Payment Transaction",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Night Audit",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Night Audit",
+   "link_count": 0,
+   "link_to": "Hospitality Night Audit",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Folio Log",
+   "link_count": 0,
+   "link_to": "Hospitality Folio Log",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-08-08 18:39:44.130649",
+ "modified_by": "Administrator",
+ "module": "Hospitality Folio",
+ "name": "Finance and Audit",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "Hospitality PMS",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [
+  {
+   "role": "Finance Manager"
+  },
+  {
+   "role": "Accounts User"
+  },
+  {
+   "role": "Night Auditor"
+  },
+  {
+   "role": "Hotel Manager"
+  },
+  {
+   "role": "General Manager"
+  },
+  {
+   "role": "Read-Only Auditor"
+  },
+  {
+   "role": "Hospitality Administrator"
+  },
+  {
+   "role": "System Manager"
+  }
+ ],
+ "sequence_id": 5.0,
+ "shortcuts": [],
+ "title": "Finance and Audit",
+ "type": "Workspace"
+}

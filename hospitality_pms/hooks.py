@@ -21,8 +21,35 @@ before_uninstall = "hospitality_pms.install.before_uninstall"
 # ------------------------------------------------------------------------------
 # Fixtures must stay reproducible across benches. Only export records the app
 # owns; never export site-specific or ERPNext master data.
-
-fixtures = []
+#
+# Workspaces ship as JSON under each module's workspace/ folder (developer
+# mode export), so they reach every bench automatically with the app source.
+# Number Card is not a "Document Export" doctype -- developer mode does not
+# write it to disk -- so the eight cards the "Hospitality PMS" workspace
+# displays would otherwise exist only in the database they were created in.
+# Listing them here makes `bench --site x export-fixtures` / `import-fixtures`
+# carry them to every other bench the same way the workspace JSON already does.
+fixtures = [
+	{
+		"dt": "Number Card",
+		"filters": [
+			[
+				"name",
+				"in",
+				[
+					"Arrivals Today",
+					"In House",
+					"Rooms Out of Order",
+					"Housekeeping Tasks Pending",
+					"Open Maintenance Tickets",
+					"Failed Postings",
+					"Integration Failures Pending",
+					"Overdue Guest Requests",
+				],
+			]
+		],
+	},
+]
 
 # ------------------------------------------------------------------------------
 # Permissions

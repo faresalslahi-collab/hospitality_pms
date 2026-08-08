@@ -1,0 +1,124 @@
+{
+ "app": "hospitality_pms",
+ "charts": [],
+ "content": "[{\"id\": \"hdr1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Your Shortcuts</b></span>\", \"col\": 12}}, {\"id\": \"shortcut2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Open Hospitality PMS\", \"col\": 3}}, {\"id\": \"shortcut3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Hospitality Housekeeping Task\", \"col\": 3}}, {\"id\": \"spacer4\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"hdr5\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Explore</b></span>\", \"col\": 12}}, {\"id\": \"card6\", \"type\": \"card\", \"data\": {\"card_name\": \"Housekeeping\", \"col\": 4}}]",
+ "creation": "2026-08-08 18:39:44.096125",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "hide_custom": 0,
+ "icon": "refresh-cw",
+ "idx": 0,
+ "indicator_color": "green",
+ "is_hidden": 0,
+ "label": "Housekeeping",
+ "link_type": "DocType",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Housekeeping",
+   "link_count": 4,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Housekeeping Task",
+   "link_count": 0,
+   "link_to": "Hospitality Housekeeping Task",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Room Inspection",
+   "link_count": 0,
+   "link_to": "Hospitality Room Inspection",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hotel Room",
+   "link_count": 0,
+   "link_to": "Hotel Room",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Hospitality Room Status Log",
+   "link_count": 0,
+   "link_to": "Hospitality Room Status Log",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-08-08 18:39:44.096125",
+ "modified_by": "Administrator",
+ "module": "Hospitality Housekeeping",
+ "name": "Housekeeping",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "Hospitality PMS",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [
+  {
+   "role": "Room Attendant"
+  },
+  {
+   "role": "Housekeeping Supervisor"
+  },
+  {
+   "role": "Housekeeping Manager"
+  },
+  {
+   "role": "Front Office Manager"
+  },
+  {
+   "role": "Hotel Manager"
+  },
+  {
+   "role": "General Manager"
+  },
+  {
+   "role": "Hospitality Administrator"
+  },
+  {
+   "role": "System Manager"
+  }
+ ],
+ "sequence_id": 3.0,
+ "shortcuts": [
+  {
+   "color": "Green",
+   "doc_view": "",
+   "label": "Open Hospitality PMS",
+   "type": "URL",
+   "url": "/pms"
+  },
+  {
+   "doc_view": "List",
+   "label": "Hospitality Housekeeping Task",
+   "link_to": "Hospitality Housekeeping Task",
+   "type": "DocType"
+  }
+ ],
+ "title": "Housekeeping",
+ "type": "Workspace"
+}

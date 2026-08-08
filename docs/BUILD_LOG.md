@@ -810,3 +810,41 @@ Outstanding before HPMS-1.0.0:
 - clean installation and restore validation (in progress on a scratch site)
 - UAT — requires business users
 - the three known non-blocking issues above
+
+---
+
+## HPMS-0.28.0 — Desk Workspace
+
+```text
+Build: HPMS-0.28.0 — Frappe Application Workspace
+Scope completed:
+  - main "Hospitality PMS" workspace replacing the minimal 8-link version from
+    HPMS-0.4.0, with 11 link cards covering all 50 operational DocTypes exactly
+    once, and 6 shortcuts led by "Open Hospitality PMS" -> /pms
+  - 5 role-scoped child workspaces nested under it: Front Office, Housekeeping,
+    Maintenance, Finance and Audit, Setup and Integrations, each with its own
+    role list drawn from the approved matrix
+  - 8 Number Cards reading live data: Arrivals Today, In House, Rooms Out of
+    Order, Housekeeping Tasks Pending, Open Maintenance Tickets, Failed
+    Postings, Integration Failures Pending, Overdue Guest Requests
+  - Number Card fixture entry in hooks.py so the cards reach another bench
+Migration: PASS — workspaces and cards survive bench migrate
+Validation: PASS — 10/10 focused workspace checks
+  - all 6 workspaces exist, 5 correctly nested
+  - every DocType link and shortcut resolves; no broken links
+  - every card's link_count matches its links; no duplicates anywhere
+  - the /pms shortcut is present and listed first
+  - all 50 operational DocTypes are reachable from the main workspace
+  - all 8 number cards query live data successfully
+  - role gating verified: a Room Attendant sees Housekeeping and not Finance;
+    a Finance Manager the reverse; Setup is admin-only
+  - Number Card fixture declared; 6 workspace JSON files ship with the app
+  - /desk/hospitality-pms returns 200; /pms returns 200
+Deliberately not built:
+  - the requested "Reports and Dashboards" section. The app contains zero
+    Reports, zero Dashboards and zero Dashboard Charts, so there was nothing
+    real to link. Number Cards were built instead, because they read DocType
+    data directly and need no Report behind them. Linking to reports that do
+    not exist would have produced exactly the broken links the brief forbids.
+Result: PASS WITH NOTES
+```
