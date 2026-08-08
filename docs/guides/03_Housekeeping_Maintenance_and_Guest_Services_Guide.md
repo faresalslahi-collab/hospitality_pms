@@ -2,7 +2,15 @@
 
 This guide is for housekeeping supervisors, room attendants, maintenance technicians and guest relations staff. It covers how a room gets cleaned and checked, how a broken fitting gets fixed, how a guest request or complaint is handled, and how room service, minibar and kitchen stock are recorded.
 
-**A note on where you do this work.** None of the workflows in this guide have a page on the guest-facing tablet app yet. Housekeeping tasks, maintenance tickets, guest requests, kitchen requisitions, room service orders and wastage entries are all created and moved through their steps in the Frappe Desk (the standard back-office screens), using the "Hospitality Housekeeping Task", "Hospitality Maintenance Ticket", "Hospitality Guest Request", "Hospitality Kitchen Requisition" and "Hospitality Room Service Order" doctypes. The room rack itself (occupancy, housekeeping, maintenance and inventory status at a glance) is on the frontend; the day-to-day task and ticket work behind it is not, yet.
+**A note on where you do this work.** Housekeeping tasks, maintenance tickets and guest requests now have their own boards in the operational frontend at `/pms`:
+
+| Page | Route | What it does |
+|---|---|---|
+| Housekeeping | `/pms/housekeeping` | The task board: summary tiles and one tap per task to assign, start, complete, inspect, or mark DND/Service Refused (sections 2–4). |
+| Maintenance | `/pms/maintenance` | The ticket board: raise a ticket, and one tap per ticket to assign, log work, start, take out of service, complete work, or verify and release (sections 6–8). |
+| Guest services | `/pms/guest-services` | The request board: raise a request or complaint, and one tap per request to start, assign, complete, escalate, reopen, close, or record service recovery (sections 9–10). |
+
+Each board offers exactly the actions the server currently allows from the record's status, and the server refuses anything it does not — a tap that is no longer valid by the time you make it comes back as an ordinary refusal, not a hidden button. Kitchen requisitions, room service and minibar orders, and wastage entries are the exception: they are created and moved through their steps in the Frappe Desk (the standard back-office screens), using the "Hospitality Kitchen Requisition", "Hospitality Room Service Order" and "Hospitality Wastage Entry" doctypes (section 11). The room rack itself (occupancy, housekeeping, maintenance and inventory status at a glance) is also on the frontend, at `/pms/rooms`.
 
 ---
 

@@ -10,14 +10,27 @@ that enforces it — `services/night_audit.py`, `services/folio.py`,
 `services/posting.py`, `services/payments.py`, `services/corporate.py`,
 `services/checkout.py` and `api/checkout.py` — not from intent.
 
-**Where the work happens.** As at this build, the product has no frontend
-pages for the folio, the Night Audit, corporate credit, payments or
-reconciliation (the Vue frontend currently covers only Dashboard,
-Reservations, In House, Room Rack and Availability). Everything in this guide
-— opening and correcting a folio, running the audit, approving a credit
-exception, retrying a failed posting, issuing a refund — is done in **Desk**,
-on the underlying doctypes, or through the whitelisted API endpoints directly.
-Each section below says which doctype or endpoint to use.
+**Where the work happens.** The folio and the Night Audit now have their own
+screens in the operational frontend:
+
+| Page | Route | What it does |
+|---|---|---|
+| Folio | `/pms/folios/:id` | Charges, payments and balance for one folio, with buttons to post a charge, take a payment, post an adjustment, split, reverse a charge, and move it between statuses (section 2 onward). |
+| Checkout | `/pms/checkout/:stay` | The checkout summary and its blockers, with Check Out and Reverse (section 11). |
+| Night Audit | `/pms/night-audit` | The current audit's figures and exceptions, and the seven-step close sequence run in order, each step gated by the server's own blocking-exception rule (section 7). |
+
+Corporate credit, payments and reconciliation are still not on any frontend
+page. Corporate accounts have a read-only API (`api/corporate.py` — listing
+accounts, one account's negotiated rates and credit position, a credit check,
+and `set_credit_status`), but nothing in `/pms` calls it, so working an
+account, approving a credit exception or applying a billing split is done in
+**Desk**. Gateway payment initiation, refunds, status sync and the
+reconciliation view have no API caller in `/pms` at all. Everything in this
+guide that has no frontend page — opening a corporate credit exception,
+retrying a failed posting, issuing a refund, reconciling a folio — is done in
+Desk, on the underlying doctypes, or through the whitelisted API endpoints
+directly. Each section below says which doctype, endpoint, or `/pms` screen to
+use.
 
 ---
 

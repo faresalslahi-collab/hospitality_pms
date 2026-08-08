@@ -966,3 +966,44 @@ reservation total, and cancelling releases it. Regression unaffected — 25/25,
 Lesson recorded: a service with full unit coverage and no caller is invisible to
 every test that exercises the service. Coverage of a function is not evidence
 that anything calls it.
+
+---
+
+## Correction — the kitchen Desk forms bypassed every rule
+
+Found while writing the Operations UAT scenarios.
+
+`Hospitality Room Service Order`, `Hospitality Kitchen Requisition` and
+`Hospitality Wastage Entry` had empty controllers. All their logic lived in
+`services/kitchen.py`, reachable only through `api/kitchen.py`.
+
+So a record created in Frappe Desk bypassed everything. A Room Service Order
+could be saved with any rate typed into the form, defeating the rule that price
+always comes from the menu. Totals were never derived. A charged order could be
+edited afterwards, and an issued requisition's lines could be changed after the
+stock had already moved.
+
+The service was authoritative when called. The Desk form was a second door with
+no lock on it, which contradicts the principle the app is built on: the server
+enforces the rule on every path, not on the convenient one.
+
+Fixed. The three controllers now enforce, on save:
+  - every order line repriced from Hospitality Menu Item.selling_rate, whatever
+    was typed; an inactive menu item is refused by name
+  - subtotal and total derived from the priced lines, never entered
+  - a charged order (folio_charge_row set) refuses changes to its lines, totals
+    and folio, including to the marker itself, so clearing it cannot unlock the
+    record on the next save
+  - a requisition refuses same-warehouse transfers, and refuses line or
+    warehouse changes once stock_entry is set
+  - wastage requires a manager, using the service's own WASTAGE_APPROVAL_ROLES
+    rather than a second copy of the list
+
+One deliberate choice: a locked record is not re-priced. Recomputing against a
+menu rate that changed after the charge posted would drift the already-billed
+total away from what the guest was actually charged, so the guard verifies no
+illegal edit was made and stops.
+
+Verified: a Desk-path save with a typed rate of 1 against a menu rate of 25 is
+stored at 25 with the total derived; a charged order refuses a line edit.
+Extended suite still 20/20.

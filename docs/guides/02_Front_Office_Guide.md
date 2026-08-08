@@ -556,9 +556,12 @@ Administrator or System Manager, plus a reason.
 
 ## 9. Checkout
 
-There is no checkout screen in `/pms` (see section 1); checkout is performed
-in Desk against the Hospitality Stay. The blockers below are exactly what a
-checkout summary reports before you attempt it, so read the summary first.
+**Checkout** (`/pms/checkout/:stay`, reached from In House or the folio) loads
+the checkout summary first and lists its blockers before offering the Check
+Out button at all — Check Out stays disabled while any blocker remains. It
+also carries the Reverse action described below. The blockers below are
+exactly what that summary reports before you attempt it, so read the summary
+first, whether you are working from this screen or from Desk.
 
 ### Blockers you may see, and how to clear each
 
@@ -578,7 +581,10 @@ folio still stops checkout outright). This requires Front Office Manager,
 Finance Manager, Hotel Manager, General Manager, Hospitality Administrator or
 System Manager, and a mandatory reason: *"A reason is required to check out
 with an open balance."* Letting a guest leave owing money is treated as a
-credit decision, not a routine checkout.
+credit decision, not a routine checkout. The Checkout screen does not
+currently offer this override — its Check Out button stays disabled while any
+blocker, including an outstanding balance, is showing — so use Desk or the
+API directly when a balance genuinely needs to travel to accounts receivable.
 
 ### What checkout does, in order
 
