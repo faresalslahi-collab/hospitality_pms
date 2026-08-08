@@ -8,6 +8,26 @@ app_license = "mit"
 # ERPNext is the financial and enterprise system of record (HPMS-DEC-002).
 required_apps = ["frappe/erpnext"]
 
+app_logo_url = "/assets/hospitality_pms/images/hospitality-pms-logo.svg"
+
+# ------------------------------------------------------------------------------
+# Desk apps screen
+# ------------------------------------------------------------------------------
+# Without this the app is installed but invisible: Desk lists only ERPNext, and
+# a member of staff has no way to reach /pms except by typing the URL. The tile
+# points at the operational frontend rather than the Desk workspace because that
+# is the app's front door -- the workspace stays reachable from Desk itself for
+# the configuration and administration work that belongs there.
+add_to_apps_screen = [
+	{
+		"name": app_name,
+		"logo": app_logo_url,
+		"title": app_title,
+		"route": "/pms",
+		"has_permission": "hospitality_pms.check_app_permission",
+	}
+]
+
 # ------------------------------------------------------------------------------
 # Installation
 # ------------------------------------------------------------------------------
