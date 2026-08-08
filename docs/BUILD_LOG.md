@@ -662,3 +662,72 @@ Known non-blocking issues carried into production readiness:
 Result: PASS WITH NOTES — three RC items blocked on environment access and
 business sign-off, listed above.
 ```
+
+---
+
+## Correction to HPMS-0.18.0, 0.19.0 and 0.22.0
+
+Recorded during operational guide authoring, which audited the delivered
+surfaces against the roadmap.
+
+The Master Development Roadmap lists a **Vue housekeeping board** under
+HPMS-0.18.0, a **Vue maintenance board** under HPMS-0.19.0, and guest services
+screens under HPMS-0.22.0. Those builds were recorded as PASS on the strength
+of their server-side validation. That was incorrect: the domain services and
+DocTypes are complete and validated, but the operational frontend for these
+domains was not delivered.
+
+Delivered today:
+
+| Domain | Service | DocTypes | Whitelisted API | Vue page |
+|---|---|---|---|---|
+| Rooms / room rack | yes | yes | yes | yes, with status change |
+| Availability | yes | n/a | yes | yes |
+| Reservations | yes | yes | yes | list and detail only: view, confirm, guarantee, cancel. **No create form.** |
+| Stay / in house | yes | yes | yes | read-only board. **No check-in, room change, extend or shorten.** |
+| Guests | yes | yes | yes | no |
+| Folio | yes | yes | yes | no |
+| Checkout | yes | n/a | yes | no |
+| Night audit | yes | yes | no | no |
+| Housekeeping | yes | yes | no | no |
+| Maintenance | yes | yes | no | no |
+| Guest services | yes | yes | no | no |
+| Kitchen / room service / minibar | yes | yes | no | no |
+| Corporate / groups | yes | yes | no | no |
+
+Everything without a Vue page is operable in Frappe Desk today, and the guides
+say so explicitly rather than implying a screen exists.
+
+Revised results: **HPMS-0.18.0, 0.19.0 and 0.22.0 are PASS WITH NOTES**, the
+note being the missing operational frontend. HPMS-0.13.0 (Folio) and 0.16.0
+(Checkout) also have server-complete implementations with no dedicated Vue
+page; the folio is reachable through the reservation and in-house screens.
+
+This does not affect any financial or operational integrity result: all 155
+checks stand. It affects delivered scope, and is listed here so the Release
+Candidate decision is made on an accurate picture.
+
+A second pass over the front office surface, prompted by the Front Office
+guide, found the gap is wider than first recorded. The reservation pages read
+and transition a booking but cannot create one; the in-house board is
+read-only. Taking a booking, assigning a room, checking a guest in, changing
+or extending a stay, working the folio and checking out are all server-complete
+and API-complete, but are performed in Desk today.
+
+Outstanding frontend work before HPMS-1.0.0:
+
+- reservation create and edit; room assignment
+- check-in screen; room change, extend and shorten
+- folio screen and checkout screen
+- guest search and profile
+- housekeeping board, maintenance board, guest services board
+- night audit screen; reconciliation screen
+- kitchen, room service and corporate screens
+- the whitelisted APIs the housekeeping, maintenance, guest services, kitchen,
+  corporate and night audit screens will need — those services have no API
+  layer at all yet
+
+This is a material scope finding. Under Master Development Roadmap section 4 it
+is escalated rather than absorbed: HPMS-1.0.0 should not be approved until the
+operational frontend covers the workflows the approved documents place in the
+Vue surface (Project Overview section 4.4).
