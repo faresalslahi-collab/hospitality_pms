@@ -403,6 +403,12 @@
   "page.checkout.reverse_success": "Checkout reversed.",
   "page.checkout.go_to_folio": "Go to folio",
   "page.checkout.reason": "Reason",
+  "page.checkout.city_ledger": "Check out on city ledger",
+  "page.checkout.city_ledger_title": "Check out with an open balance",
+  "page.checkout.city_ledger_warning": "The guest is leaving with the folio unsettled. The outstanding amount will transfer to the corporate account's receivable instead of being collected now.",
+  "page.checkout.city_ledger_outstanding": "Outstanding balance",
+  "page.checkout.city_ledger_manager_notice": "This needs manager authority. The server will refuse the request if your role does not permit it.",
+  "page.checkout.city_ledger_confirm": "Check out on city ledger",
 
   "page.check_in.title": "Check in",
   "page.check_in.select_room": "Room",

@@ -1007,3 +1007,38 @@ illegal edit was made and stops.
 Verified: a Desk-path save with a typed rate of 1 against a menu rate of 25 is
 stored at 25 with the total derived; a charged order refuses a line edit.
 Extended suite still 20/20.
+
+---
+
+## Correction — city ledger checkout was unreachable from the frontend
+
+Found while correcting the operational guides against the completed frontend.
+
+`api/checkout.check_out` accepts `allow_open_balance` and a reason, and the
+service honours them for the city ledger case: a corporate guest departs, the
+balance transfers to the account's receivable rather than being collected at the
+desk. It requires a manager role and a reason.
+
+`Checkout.vue` never sent either. When a folio had a balance, Check Out was
+simply disabled, so a hotel with corporate business could not complete a
+legitimate corporate departure from /pms at all — it had to be done in Desk or
+through the API directly.
+
+Fixed. The checkout screen now offers a secondary "Check out on city ledger"
+action, separate from the normal Check Out and never a replacement for it, shown
+only when every outstanding blocker is a balance blocker. It opens a dialog that
+states the guest is leaving unsettled and the amount transfers to receivable,
+shows the outstanding figure, requires a reason, and warns that manager
+authority is needed. A user without the role sees the server's own refusal.
+
+The blocker test is deliberately numeric, not textual. The server returns
+translated blocker strings; matching against them would have broken the moment a
+user switched to Arabic, which this product ships with. The screen instead
+recomputes from the summary's own `balance` and `related_folios[].balance`
+figures how many blockers pure balance conditions would produce, and compares
+that count with the actual number. Equal counts mean no non-balance blocker
+exists, established without reading a single word of the message.
+
+Verified: no string matching on blocker text, the action is hidden when any
+non-balance blocker is present, English and Arabic both at 487 keys with no
+difference, no directional CSS classes, and the frontend builds.

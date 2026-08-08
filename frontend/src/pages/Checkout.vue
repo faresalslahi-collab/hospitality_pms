@@ -98,6 +98,22 @@
               {{ t('page.checkout.check_out') }}
             </Button>
 
+            <!--
+              Offered only when every blocker is a balance blocker (see
+              isBalanceOnlyBlocked): a button that cannot work server-side is
+              worse than no button. Kept visually secondary - it is never a
+              substitute for the normal Check out button above.
+            -->
+            <Button
+              v-if="isBalanceOnlyBlocked"
+              class="w-full"
+              variant="subtle"
+              theme="orange"
+              @click="openCityLedger"
+            >
+              {{ t('page.checkout.city_ledger') }}
+            </Button>
+
             <Button class="w-full" variant="subtle" theme="red" @click="openReverse">
               {{ t('page.checkout.reverse') }}
             </Button>
@@ -125,6 +141,48 @@
               @click="doReverse"
             >
               {{ t('page.checkout.reverse_confirm') }}
+            </Button>
+          </div>
+        </div>
+      </template>
+    </Dialog>
+
+    <!--
+      City ledger: a corporate guest may leave with a balance that transfers
+      to accounts receivable instead of being collected at the desk. The
+      server (services/checkout.py::check_out) requires a manager role and a
+      non-empty reason; this dialog states both plainly rather than promising
+      an outcome the server may still refuse.
+    -->
+    <Dialog v-model="cityLedgerOpen" :options="{ title: t('page.checkout.city_ledger_title') }">
+      <template #body-content>
+        <div class="space-y-3">
+          <p class="text-p-sm text-ink-red-4">{{ t('page.checkout.city_ledger_warning') }}</p>
+
+          <div>
+            <p class="text-xs uppercase tracking-wide text-ink-gray-5">
+              {{ t('page.checkout.city_ledger_outstanding') }}
+            </p>
+            <p class="mt-0.5 text-p-base font-medium text-ink-gray-9">
+              {{ formatCurrency(summary.data.balance, summary.data.currency) }}
+            </p>
+          </div>
+
+          <p class="text-p-sm text-ink-amber-3">{{ t('page.checkout.city_ledger_manager_notice') }}</p>
+
+          <FormControl v-model="cityLedgerReason" type="textarea" :label="t('page.checkout.reason')" rows="3" />
+          <ErrorMessage :message="cityLedgerError" />
+
+          <div class="flex justify-end gap-2">
+            <Button variant="subtle" @click="cityLedgerOpen = false">{{ t('common.close') }}</Button>
+            <Button
+              variant="solid"
+              theme="orange"
+              :loading="busy === 'city_ledger'"
+              :disabled="!cityLedgerReason.trim()"
+              @click="doCityLedgerCheckOut"
+            >
+              {{ t('page.checkout.city_ledger_confirm') }}
             </Button>
           </div>
         </div>
@@ -161,6 +219,43 @@ const reverseOpen = ref(false)
 const reverseReason = ref('')
 const reverseError = ref('')
 const reverseResult = ref(null)
+
+const cityLedgerOpen = ref(false)
+const cityLedgerReason = ref('')
+const cityLedgerError = ref('')
+
+// Whether the ONLY thing stopping checkout is money outstanding, so the
+// city-ledger override (services/checkout.py::check_out, `allow_open_balance`)
+// could actually apply. The server itself decides this by checking whether
+// every blocker string contains the (already-translated) word "balance" -
+// something we deliberately do not copy client-side, because matching
+// translated text is fragile and would silently break in Arabic.
+//
+// Instead we rebuild the same count from the numeric fields the summary
+// already returns: get_checkout_summary appends exactly one blocker for the
+// folio's own balance when it exceeds 0.005, and exactly one more per related
+// (split) folio whose balance also exceeds 0.005 - nothing else contributes
+// more than one blocker per condition. So if the number of blockers that
+// balance data alone would explain equals the total blocker count, no other
+// kind of blocker (stay status, disputed folio) can be present.
+const balanceBlockerCount = computed(() => {
+  const s = summary.data
+  if (!s) return 0
+
+  const ownBalance = Math.abs(s.balance) > 0.005 ? 1 : 0
+  const relatedBalances = (s.related_folios || []).filter(
+    (row) => Math.abs(row.balance) > 0.005,
+  ).length
+
+  return ownBalance + relatedBalances
+})
+
+const isBalanceOnlyBlocked = computed(() => {
+  const s = summary.data
+  if (!s || !s.blockers.length) return false
+
+  return balanceBlockerCount.value === s.blockers.length
+})
 
 const details = computed(() => {
   const s = summary.data
@@ -218,6 +313,38 @@ async function doReverse() {
     toast.success(t('page.checkout.reverse_success'))
   } catch (error) {
     reverseError.value = normaliseError(error).message
+  } finally {
+    busy.value = ''
+  }
+}
+
+function openCityLedger() {
+  cityLedgerError.value = ''
+  cityLedgerReason.value = ''
+  cityLedgerOpen.value = true
+}
+
+async function doCityLedgerCheckOut() {
+  busy.value = 'city_ledger'
+  cityLedgerError.value = ''
+
+  try {
+    checkoutResult.value = await checkOut.submit({
+      stay: route.params.stay,
+      post_to_erp: postToErp.value ? 1 : 0,
+      allow_open_balance: 1,
+      reason: cityLedgerReason.value.trim(),
+    })
+
+    reverseResult.value = null
+    cityLedgerOpen.value = false
+    await load()
+    toast.success(t('page.checkout.checkout_success_title'))
+  } catch (error) {
+    // A refusal here (missing role, empty reason once trimmed to nothing,
+    // more than a balance actually blocking) is the server's own message -
+    // surfaced as-is rather than guessed at client-side.
+    cityLedgerError.value = normaliseError(error).message
   } finally {
     busy.value = ''
   }
