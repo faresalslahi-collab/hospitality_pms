@@ -907,3 +907,31 @@ Known limitations, recorded rather than hidden:
 
 Result: PASS WITH NOTES
 ```
+
+---
+
+## HPMS-0.90.0 — Release Candidate, remaining items closed
+
+```text
+Clean installation: PASS
+  hospitality_pms installed onto a freshly created site carrying only frappe
+  and erpnext, from the repository alone. bench migrate returned zero errors.
+  The app reproduces on another environment without manual steps.
+
+Backup and restore: PASS
+  A full backup with public and private files was taken from the live site and
+  restored onto the scratch site, then migrated and cache-cleared per the
+  runbook procedure.
+
+  Verified by comparing the restored site against the source rather than
+  trusting the command's exit code:
+    property 1/1, rooms 4/4, guests 4/4, reservations 9/9, stays 5/5,
+    folios 6/6, folio charges 12/12, workspaces 6/6, reports 21/21,
+    number cards 8/8, business date 2026-08-08 on both
+  And by proving the restored site works, not just that it matches:
+    21/21 reports executed, 10/10 workspace checks passed
+
+  Restore requires the MariaDB root password.
+
+Remaining RC item: UAT, which requires the business users.
+```

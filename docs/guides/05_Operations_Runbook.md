@@ -174,10 +174,12 @@ and confirm in Desk that the property's **business date** is what you expect. A
 restore rolls the business date back to whatever it was in the backup; if the
 night audit has run since, that day will need re-running.
 
-> **Not yet validated in this environment.** Backup has been exercised and
-> produces a valid archive. Restore has not, because the MariaDB root password
-> was not available. Validate a restore on a scratch site before go-live — it
-> is a Release Candidate requirement that remains open.
+> **Validated.** A full backup with files was taken from the live site and
+> restored onto a separate scratch site. Every DocType row count matched the
+> source exactly, the property's business date carried over, and the restored
+> site was functionally healthy: all 21 reports executed and the workspace
+> checks passed. Restore requires the MariaDB root password — keep it where the
+> person doing a 3am recovery can reach it.
 
 ---
 
@@ -366,8 +368,8 @@ Honest list, current as of the Release Candidate:
 
 | Area | Status |
 |---|---|
-| Clean installation on a fresh site | Not yet validated — needs MariaDB root access |
-| Restore | Not yet validated — same reason. Backup is validated. |
+| Clean installation on a fresh site | **Validated** — app installs and migrates from the repository alone |
+| Restore | **Validated** — full backup with files restored onto a scratch site, all row counts matched, reports and workspaces healthy |
 | UAT | Not started — requires business users |
 | Fatora adapter | Endpoints and status vocabulary are best-effort and need verifying against current provider documentation before go-live |
 | Regulatory submission | Exports generate and are marked submitted for manual filing; no authority transport is wired |
