@@ -1,0 +1,45 @@
+@import 'frappe-ui/style.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-surface-white text-ink-gray-8;
+  }
+
+  /* Arabic operational text needs a slightly larger line box to stay legible
+     at front-desk density. */
+  html[dir='rtl'] body {
+    @apply leading-relaxed;
+  }
+
+  /* Keyboard focus must stay visible: front desk workflows are keyboard driven
+     and housekeeping uses assistive settings. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-outline-gray-3 ring-offset-1;
+  }
+}
+
+@layer utilities {
+  /* Directional helpers so layouts never hardcode left/right. */
+  .ps-page {
+    padding-inline-start: 1rem;
+  }
+
+  .pe-page {
+    padding-inline-end: 1rem;
+  }
+
+  /* Icons that encode direction (arrows, chevrons) flip under RTL. */
+  html[dir='rtl'] .flip-rtl {
+    transform: scaleX(-1);
+  }
+}
