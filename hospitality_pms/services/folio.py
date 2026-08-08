@@ -447,6 +447,23 @@ def transition(folio: str, target: str, *, reason: str | None = None) -> str:
 		if not reason or not reason.strip():
 			throw(_("A reason is required to reopen a closed folio."), exc=FolioError)
 
+	# Closing is the final state, and a closed folio is never revisited. Letting
+	# one close with charges that never reached ERPNext would strand that
+	# revenue outside the ledger, which is exactly the discrepancy the night
+	# audit then has to chase. Settled is deliberately not guarded: money can
+	# legitimately be collected before the posting run catches up.
+	if target == CLOSED:
+		unposted = [row.name for row in doc.charges if not row.is_posted_to_erp]
+
+		if unposted:
+			throw(
+				_(
+					"Folio {0} has {1} charge(s) that have not reached ERPNext. Post the folio "
+					"before closing it."
+				).format(folio, len(unposted)),
+				exc=FolioError,
+			)
+
 	if target in (SETTLED, CLOSED) and abs(flt(doc.balance)) > 0.005:
 		throw(
 			_("Folio {0} has an outstanding balance of {1} and cannot be {2}.").format(

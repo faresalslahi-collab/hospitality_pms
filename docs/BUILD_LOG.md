@@ -591,3 +591,74 @@ Remaining: **HPMS-0.90.0 Release Candidate** — the first phase at which the fu
 test programme (regression, E2E, security, performance, localisation/RTL, full
 permission matrix, clean install, migration, backup/restore, UAT) is mandatory —
 and **HPMS-1.0.0 Production Release**.
+
+---
+
+## HPMS-0.90.0 — Release Candidate
+
+```text
+Build: HPMS-0.90.0 — Release Candidate
+Scope completed:
+  - full automated regression: 139 checks across seven consolidated suites
+  - RC programme: 16 additional checks covering the complete permission matrix,
+    financial reconciliation, localisation/RTL, performance and cross-module
+    integration
+Migration: PASS
+Frontend build: PASS
+
+Full permission matrix: PASS
+  - all 50 operational DocTypes carry the approved matrix; all 23 roles are in
+    use and none is dead
+  - the Read-Only Auditor holds write on nothing
+  - guest identification sits at permlevel 1, the blacklist flag at 2 and its
+    reason at 3; property accounting mapping at 1
+  - every provider credential uses the encrypted Password fieldtype
+  - payments.webhook is the only endpoint reachable without a session
+
+Financial reconciliation: PASS
+  - no closed folio is out of step with ERPNext
+  - every folio balance equals the sum of its own lines
+  - no posting failed silently; all 4 failed postings carry an error to act on
+
+Localisation and RTL: PASS
+  - 121 keys at full English/Arabic parity, no empty or untranslated values
+  - document direction switches on locale; no .vue file uses a non-mirroring
+    directional class
+  - server-raised messages all go through the translation function
+
+Performance (design baseline 500 rooms, ~100 concurrent users): PASS
+  - availability across 200 rooms x 30 nights: 8 ms
+  - room rack across 200 rooms: 151 ms
+  - every hot operational filter column is indexed
+
+Cross-module integration: PASS
+  - install and migrate hooks converge idempotently (13 modules, 22 roles)
+  - all four audit trails refuse edits
+  - the business date remains reachable only through the night audit
+
+Defect found and fixed during RC:
+  - FolioService.transition allowed a folio to reach Closed with charges that
+    had never reached ERPNext, stranding revenue outside the ledger. Closing
+    now requires the charges to have posted and names the endpoint to post
+    them. Settled is deliberately not guarded: money can legitimately be
+    collected before the posting run catches up, and the night audit already
+    raises that as a blocking exception.
+
+BLOCKED — cannot be executed in this environment:
+  - Clean installation on a fresh site: `bench new-site` requires the MariaDB
+    root password, which is not available here.
+  - Restore: `bench backup` succeeds and produces a valid archive (1.3 MiB
+    database + site config), but `bench restore` also requires the MariaDB
+    root password. Backup is validated; restore is not.
+  - UAT: requires the business users, not the implementation agent.
+
+Known non-blocking issues carried into production readiness:
+  - Fatora endpoints and status vocabulary need verifying against current
+    provider documentation.
+  - Regulatory submission has no authority transport; exports generate and are
+    marked submitted for manual filing.
+  - Group pickup and cutoff release remain schema-level.
+
+Result: PASS WITH NOTES — three RC items blocked on environment access and
+business sign-off, listed above.
+```
