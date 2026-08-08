@@ -32,6 +32,7 @@
               <th class="p-2 text-start">{{ t('page.in_house.pax') }}</th>
               <th class="p-2 text-start">{{ t('page.reservations.status') }}</th>
               <th class="p-2 text-end">{{ t('page.in_house.rate') }}</th>
+              <th class="p-2 text-end">{{ t('page.in_house.actions') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -51,6 +52,21 @@
               <td class="p-2 text-end whitespace-nowrap">
                 {{ formatCurrency(row.room_rate, property.currency.value) }}
               </td>
+              <td class="p-2 text-end whitespace-nowrap">
+                <RouterLink
+                  v-if="row.folio"
+                  :to="{ name: 'Folio', params: { id: row.folio } }"
+                  class="text-ink-blue-3 hover:underline"
+                >
+                  {{ t('page.in_house.folio') }}
+                </RouterLink>
+                <RouterLink
+                  :to="{ name: 'Checkout', params: { stay: row.name } }"
+                  class="ms-3 text-ink-blue-3 hover:underline"
+                >
+                  {{ t('page.in_house.checkout') }}
+                </RouterLink>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -62,6 +78,7 @@
 <script setup>
 import { Badge, Button, FeatherIcon } from 'frappe-ui'
 import { computed, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 
 import PageHeader from '@/components/PageHeader.vue'
 import EmptyState from '@/components/states/EmptyState.vue'

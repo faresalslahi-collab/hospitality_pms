@@ -31,6 +31,11 @@ const routes = [
     component: () => import('@/pages/Reservations.vue'),
   },
   {
+    path: '/reservations/new',
+    name: 'ReservationNew',
+    component: () => import('@/pages/ReservationNew.vue'),
+  },
+  {
     path: '/reservations/:id',
     name: 'Reservation',
     component: () => import('@/pages/Reservation.vue'),
@@ -39,6 +44,94 @@ const routes = [
     path: '/in-house',
     name: 'InHouse',
     component: () => import('@/pages/InHouse.vue'),
+  },
+  {
+    path: '/check-in/:reservation',
+    name: 'CheckIn',
+    component: () => import('@/pages/CheckIn.vue'),
+  },
+  {
+    path: '/checkout/:stay',
+    name: 'Checkout',
+    component: () => import('@/pages/Checkout.vue'),
+  },
+  {
+    path: '/folios/:id',
+    name: 'Folio',
+    component: () => import('@/pages/Folio.vue'),
+  },
+  {
+    path: '/guests',
+    name: 'Guests',
+    component: () => import('@/pages/Guests.vue'),
+  },
+  {
+    path: '/guests/:id',
+    name: 'GuestProfile',
+    component: () => import('@/pages/GuestProfile.vue'),
+  },
+  {
+    path: '/guest-services',
+    name: 'GuestServices',
+    component: () => import('@/pages/GuestServices.vue'),
+    meta: {
+      roles: [
+        'Front Office Agent',
+        'Front Office Manager',
+        'Guest Relations Officer',
+        'Hotel Manager',
+        'General Manager',
+        'Hospitality Administrator',
+        'System Manager',
+      ],
+    },
+  },
+  {
+    path: '/night-audit',
+    name: 'NightAudit',
+    component: () => import('@/pages/NightAudit.vue'),
+    meta: {
+      roles: [
+        'Night Auditor',
+        'Finance Manager',
+        'Hotel Manager',
+        'General Manager',
+        'Hospitality Administrator',
+        'System Manager',
+      ],
+    },
+  },
+  {
+    path: '/housekeeping',
+    name: 'Housekeeping',
+    component: () => import('@/pages/Housekeeping.vue'),
+    meta: {
+      roles: [
+        'Room Attendant',
+        'Housekeeping Supervisor',
+        'Housekeeping Manager',
+        'Front Office Manager',
+        'Hotel Manager',
+        'General Manager',
+        'Hospitality Administrator',
+        'System Manager',
+      ],
+    },
+  },
+  {
+    path: '/maintenance',
+    name: 'Maintenance',
+    component: () => import('@/pages/Maintenance.vue'),
+    meta: {
+      roles: [
+        'Maintenance Technician',
+        'Maintenance Manager',
+        'Hotel Manager',
+        'General Manager',
+        'Hospitality Administrator',
+        'System Manager',
+      ],
+    },
   },
   {
     path: '/forbidden',

@@ -731,3 +731,82 @@ This is a material scope finding. Under Master Development Roadmap section 4 it
 is escalated rather than absorbed: HPMS-1.0.0 should not be approved until the
 operational frontend covers the workflows the approved documents place in the
 Vue surface (Project Overview section 4.4).
+
+---
+
+## HPMS-0.27.0 — Operational Frontend Completion
+
+Added to the roadmap after the Release Candidate audit found that several
+workflows the approved documents place in the Vue surface (Project Overview
+section 4.4) had server-complete implementations but no API and no screen.
+
+Scope:
+
+- whitelisted APIs for housekeeping, maintenance, guest services, night audit,
+  corporate and kitchen — six services that had no API layer at all
+- Vue screens: housekeeping board, maintenance board, guest services board,
+  night audit, folio, checkout, reservation create, check-in, guest search
+- routes, navigation entries and English/Arabic translations for each
+
+Principle carried from the earlier builds: the screens expose the services and
+decide nothing. Allowed transitions, role gates and refusals all come from the
+server, so a screen can never offer an action the domain forbids.
+
+### Result
+
+```text
+Build: HPMS-0.27.0 — Operational Frontend Completion
+Scope completed:
+  - six whitelisted API modules for services that had none: housekeeping,
+    maintenance, guest services, night audit, corporate, kitchen
+  - nine Vue screens: housekeeping board, maintenance board, guest services
+    board, night audit, folio, checkout, check-in, reservation create, guests
+  - routes, role-gated navigation, and 481 translation keys at full EN/AR parity
+Migration: PASS
+Frontend build: PASS
+Validation: PASS
+  - full regression 139/139 across seven suites
+  - release candidate checks 16/16, including the RTL and locale-parity
+    assertions that the new screens had to satisfy
+  - API smoke 10/10: boards read without mutating, and a user restricted to one
+    property cannot read another's board
+Design decisions:
+  - the housekeeping, maintenance and guest service detail endpoints now return
+    `allowed_transitions` from the service's own table. Three screen authors had
+    independently mirrored the transition tables in JavaScript; a mirrored state
+    machine drifts, so the rule was published from the server instead.
+  - credit consumption and release are deliberately not exposed as endpoints.
+    They run under a lock inside the booking flow so the credit movement and the
+    booking decision are atomic; a standalone endpoint would reopen that race and
+    let a user self-approve a credit exception.
+  - optional integers keep None distinct from 0, so an unsupplied inspection
+    requirement still falls through to the Hospitality Settings default.
+Known non-blocking issues:
+  - `text-ink-amber-4` is used in Availability.vue but does not exist in this
+    frappe-ui build, so that colour does not render. Pre-existing.
+  - The four board screens still carry client-side action maps written before
+    `allowed_transitions` was published; they work, and should be simplified to
+    consume the server value.
+  - guests.get_guest returns aggregate stay statistics only; there is no
+    itemised stay history endpoint yet.
+Process note:
+  - Two agents were run concurrently against the shared router, navigation and
+    locale files. Their writes collided: the housekeeping and maintenance routes
+    and nav entries were silently dropped and Arabic fell 112 keys behind. Found
+    by verification, repaired, and the remaining screens were then built by a
+    single agent owning those files. Parallelism does not pay where the work
+    converges on the same files.
+Result: PASS
+```
+
+---
+
+## Roadmap status
+
+All 27 implementation builds complete. HPMS-0.90.0 Release Candidate passes at
+16/16 with 139 regression checks behind it.
+
+Outstanding before HPMS-1.0.0:
+- clean installation and restore validation (in progress on a scratch site)
+- UAT — requires business users
+- the three known non-blocking issues above

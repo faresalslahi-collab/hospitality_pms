@@ -111,7 +111,7 @@
 <script setup>
 import { Badge, Button, Dialog, ErrorMessage, FormControl, toast } from 'frappe-ui'
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import PageHeader from '@/components/PageHeader.vue'
 import ErrorState from '@/components/states/ErrorState.vue'
@@ -128,6 +128,7 @@ import { formatCurrency, formatDate } from '@/utils/format'
 import { t } from '@/utils/i18n'
 
 const route = useRoute()
+const router = useRouter()
 
 const detail = reservationResource()
 const confirmResource = confirmReservationResource()
@@ -159,6 +160,16 @@ const summary = computed(() => {
 
 const actions = computed(() => {
   const list = []
+
+  if (allowed.value.includes('Checked In')) {
+    list.push({
+      key: 'check_in',
+      label: t('page.reservation.check_in'),
+      variant: 'solid',
+      theme: 'gray',
+      run: () => router.push({ name: 'CheckIn', params: { reservation: route.params.id } }),
+    })
+  }
 
   if (allowed.value.includes('Confirmed')) {
     list.push({
