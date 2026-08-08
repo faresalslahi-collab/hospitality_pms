@@ -55,9 +55,40 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Reports",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "dependencies": "Hotel Room",
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Rooms Out of Service",
+   "link_count": 0,
+   "link_to": "Rooms Out of Service",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "Hospitality Maintenance Ticket",
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Maintenance Response Times",
+   "link_count": 0,
+   "link_to": "Maintenance Response Times",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
   }
  ],
- "modified": "2026-08-08 18:39:44.117405",
+ "modified": "2026-08-08 18:57:28.862142",
  "modified_by": "Administrator",
  "module": "Hospitality Maintenance",
  "name": "Maintenance",

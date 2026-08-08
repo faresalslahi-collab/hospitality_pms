@@ -387,7 +387,16 @@ def mark_no_show(reservation: str, *, reason: str | None = None) -> dict:
 	frappe.db.set_value(
 		RESERVATION_DOCTYPE,
 		reservation,
-		{"no_show_on": now_datetime(), "cancellation_charge": charge},
+		{
+			"no_show_on": now_datetime(),
+			"cancellation_charge": charge,
+			# A no-show ends a booking just as a cancellation does, so it records
+			# who and why in the same fields. Without this the actor and reason
+			# existed only in the reservation log, which reporting cannot read
+			# without crossing that log's own permission boundary.
+			"cancelled_by": frappe.session.user,
+			"cancellation_reason": reason or _("Recorded as a no-show"),
+		},
 		update_modified=False,
 	)
 

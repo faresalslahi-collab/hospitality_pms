@@ -86,9 +86,84 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Reports",
+   "link_count": 6,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "dependencies": "Hotel Reservation",
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Arrivals",
+   "link_count": 0,
+   "link_to": "Arrivals",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "Hospitality Stay",
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Departures",
+   "link_count": 0,
+   "link_to": "Departures",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "Hospitality Stay",
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "In House",
+   "link_count": 0,
+   "link_to": "In House",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "Hotel Room",
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Room Status",
+   "link_count": 0,
+   "link_to": "Room Status",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "Room Type",
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Availability Forecast",
+   "link_count": 0,
+   "link_to": "Availability Forecast",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "Hospitality Guest Request",
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Guest Request SLA",
+   "link_count": 0,
+   "link_to": "Guest Request SLA",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
   }
  ],
- "modified": "2026-08-08 18:39:44.052202",
+ "modified": "2026-08-08 18:57:28.784191",
  "modified_by": "Administrator",
  "module": "Hospitality Front Office",
  "name": "Front Office",

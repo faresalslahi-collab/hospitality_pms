@@ -848,3 +848,62 @@ Deliberately not built:
     not exist would have produced exactly the broken links the brief forbids.
 Result: PASS WITH NOTES
 ```
+
+---
+
+## HPMS-0.29.0 — Reports
+
+```text
+Build: HPMS-0.29.0 — Operational and Financial Reports
+Scope completed: 21 Script Reports covering SAS section 6
+
+  Front office (Hospitality Front Office / Rooms)
+    Arrivals, Departures, In House, Room Status, Availability Forecast
+  Revenue (Night Audit / Rates / Reservations / Sales)
+    Occupancy and Revenue, Revenue by Room Type, Revenue by Source,
+    Corporate Production, Cancellations and No Shows
+  Finance (Hospitality Folio / Sales)
+    Folio vs Invoice, Failed Postings, Payment Reconciliation, Guest Ledger,
+    Corporate Credit Exposure
+  Operations (Housekeeping / Maintenance / Services / Integrations)
+    Housekeeping Productivity, Rooms Out of Service, Maintenance Response
+    Times, Guest Request SLA, Kitchen Consumption and Wastage,
+    Regulatory Submissions
+
+Migration: PASS — all 21 Report records register from the app source
+Validation: PASS
+  - 21/21 reports execute against live data through query_report.run and
+    return columns; none raises on an empty result
+  - workspace validation still 10/10 after the Reports cards were added
+  - 38 report links across six workspaces, all resolving
+
+Consistency rule applied: a report never redefines what a service defines.
+  - Occupancy, ADR and RevPAR use the expressions in night_audit._refresh_figures,
+    and source occupied rooms and room revenue from the posted Room Charge folio
+    lines the audit itself writes, rather than re-deriving from stay date ranges
+  - Folio vs Invoice calls posting.reconcile_folio per folio instead of writing
+    its own comparison, so it cannot contradict the reconciliation screen
+  - Availability Forecast calls availability.get_availability
+  - Room Status imports the room rack's _blocking_reason so the precedence
+    cannot drift between report and screen
+  - Corporate Production mirrors corporate.get_production_report's aggregation
+
+Defect found and fixed while building:
+  - mark_no_show recorded only no_show_on and the charge, leaving the actor and
+    reason available solely in the reservation log, which reporting cannot read
+    without crossing that log's permission boundary. A no-show ends a booking as
+    a cancellation does, so it now records cancelled_by and cancellation_reason
+    in the same fields.
+
+Known limitations, recorded rather than hidden:
+  - Guest Request has no explicit raised-on field; the report uses the document
+    creation timestamp, which is when the SLA clock actually starts
+  - is_breached is stamped only at completion, so the SLA report computes an
+    effective breach for still-open overdue requests without writing to the field
+  - Rooms Out of Service shows a blank verified_by for nearly every row, because
+    verification releases the room and removes it from the list. Noted, not hidden.
+  - Two filter-declaration conventions are in use (filters in the report JSON, and
+    companion .js files). Both work in v16; worth normalising.
+
+Result: PASS WITH NOTES
+```

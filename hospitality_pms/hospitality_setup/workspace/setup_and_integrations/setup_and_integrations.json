@@ -163,9 +163,29 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Reports",
+   "link_count": 1,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "dependencies": "Hospitality Regulatory Export",
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Regulatory Submissions",
+   "link_count": 0,
+   "link_to": "Regulatory Submissions",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
   }
  ],
- "modified": "2026-08-08 18:39:44.146861",
+ "modified": "2026-08-08 18:57:28.945549",
  "modified_by": "Administrator",
  "module": "Hospitality Setup",
  "name": "Setup and Integrations",

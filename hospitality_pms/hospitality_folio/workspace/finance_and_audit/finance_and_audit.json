@@ -97,9 +97,84 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Reports",
+   "link_count": 6,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "dependencies": "Hospitality Guest Folio",
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Folio vs Invoice",
+   "link_count": 0,
+   "link_to": "Folio vs Invoice",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "Hospitality Folio Payment",
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Payment Reconciliation",
+   "link_count": 0,
+   "link_to": "Payment Reconciliation",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "Hospitality Financial Posting Log",
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Failed Postings",
+   "link_count": 0,
+   "link_to": "Failed Postings",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "Hospitality Guest Folio",
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Guest Ledger",
+   "link_count": 0,
+   "link_to": "Guest Ledger",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "Hospitality Corporate Account",
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Corporate Credit Exposure",
+   "link_count": 0,
+   "link_to": "Corporate Credit Exposure",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "dependencies": "Hospitality Stay",
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Occupancy and Revenue",
+   "link_count": 0,
+   "link_to": "Occupancy and Revenue",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
   }
  ],
- "modified": "2026-08-08 18:39:44.130649",
+ "modified": "2026-08-08 18:57:28.907341",
  "modified_by": "Administrator",
  "module": "Hospitality Folio",
  "name": "Finance and Audit",
