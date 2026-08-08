@@ -1,5 +1,7 @@
 # Hospitality PMS — Front Office Guide
 
+**Applies to:** Hospitality PMS 16.1.0 (branch `version-16`)
+
 For reservation agents, front desk agents and front office managers.
 
 Written against the implementation as built, not against the specification.

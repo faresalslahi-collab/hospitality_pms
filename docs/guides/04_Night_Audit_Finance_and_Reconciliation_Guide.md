@@ -1,5 +1,7 @@
 # Night Audit, Finance and Reconciliation Guide
 
+**Applies to:** Hospitality PMS 16.1.0 (branch `version-16`)
+
 Audience: night auditor, accounts user, finance manager.
 
 This guide describes exactly what the system does with a hotel's money: how a

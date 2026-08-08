@@ -1,5 +1,7 @@
 # Hospitality PMS — Front Office UAT Scenarios
 
+**Applies to:** Hospitality PMS 16.1.0 (branch `version-16`)
+
 **Signed by:** Front Office Manager · **Surface under test:** `/pms` (the operational
 frontend), with Desk (`/desk`) used only where a step has no `/pms` screen —
 each such step says so explicitly.

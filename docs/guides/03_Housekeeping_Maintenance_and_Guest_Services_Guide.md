@@ -1,5 +1,7 @@
 # Housekeeping, maintenance and guest services guide
 
+**Applies to:** Hospitality PMS 16.1.0 (branch `version-16`)
+
 This guide is for housekeeping supervisors, room attendants, maintenance technicians and guest relations staff. It covers how a room gets cleaned and checked, how a broken fitting gets fixed, how a guest request or complaint is handled, and how room service, minibar and kitchen stock are recorded.
 
 **A note on where you do this work.** Housekeeping tasks, maintenance tickets and guest requests now have their own boards in the operational frontend at `/pms`:

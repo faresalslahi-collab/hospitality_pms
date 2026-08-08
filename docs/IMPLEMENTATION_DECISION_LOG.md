@@ -1,5 +1,7 @@
 # Hospitality PMS — Implementation Decision Log
 
+**Current application version:** 16.1.0 (branch `version-16`)
+
 Continues the approved governance Decision Log
 (`docs/hospitality-pms/08_Hospitality_PMS_Decision_Log_v1.2_APPROVED.md`, HPMS-DEC-001..048).
 

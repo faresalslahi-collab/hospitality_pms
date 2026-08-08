@@ -1,5 +1,7 @@
 # Hospitality PMS — Build Acceptance Log
 
+**Current application version:** 16.1.0 (branch `version-16`)
+
 One record per completed build, in the format required by
 `09_Hospitality_PMS_Build_Test_and_Acceptance_Standard_v1.2_APPROVED.md` section 4.
 

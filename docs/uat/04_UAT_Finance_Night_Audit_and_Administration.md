@@ -1,5 +1,7 @@
 # UAT — Finance, Night Audit and Administration
 
+**Applies to:** Hospitality PMS 16.1.0 (branch `version-16`)
+
 Audience: finance manager, accounts user, night auditor, hotel/general manager,
 read-only auditor.
 

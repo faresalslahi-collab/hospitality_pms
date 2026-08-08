@@ -1,6 +1,6 @@
 # Hospitality PMS — User Acceptance Testing
 
-**Version:** 1.0 · **Prepared for:** Mr. Waheed · **Governing baseline:** v1.2 approved document set
+**Document version:** 1.0 · **Applies to:** Hospitality PMS 16.1.0 (branch `version-16`) · **Governing baseline:** v1.2 approved document set
 
 UAT is the last requirement before HPMS-1.0.0 Production Release. It is the one
 form of validation the implementation team cannot perform on the hotel's behalf:

@@ -1,5 +1,7 @@
 # Hospitality PMS — Administrator and setup guide
 
+**Applies to:** Hospitality PMS 16.1.0 (branch `version-16`)
+
 This guide is for the person configuring Hospitality PMS for a property: setting up
 ERPNext prerequisites, installing the app, building the physical and commercial
 structure of the hotel, and preparing the system for go-live. It assumes you can

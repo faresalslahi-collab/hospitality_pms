@@ -1,5 +1,7 @@
 # Operations UAT — housekeeping, maintenance, guest services, kitchen
 
+**Applies to:** Hospitality PMS 16.1.0 (branch `version-16`)
+
 **Signed by:** Housekeeping Supervisor / Housekeeping Manager, Maintenance Manager, and Guest Relations staff.
 **Governing baseline:** v1.2 approved document set (SAS = Software Architecture Specification, Workflow Matrix, Roles and Permissions Matrix, Decision Log).
 

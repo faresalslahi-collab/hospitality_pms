@@ -1,5 +1,7 @@
 # Hospitality PMS — Operations Runbook
 
+**Applies to:** Hospitality PMS 16.1.0 (branch `version-16`)
+
 For whoever keeps the system running: deployment, backup and restore, upgrades,
 failure recovery and the checks worth doing before anyone notices a problem.
 
@@ -14,7 +16,7 @@ automated, this says so rather than implying it is.
 Frappe Cloud private bench, or a self-hosted Frappe Bench
 ├── Frappe Framework v16
 ├── ERPNext v16                 the financial and inventory system of record
-├── hospitality_pms             this app
+├── hospitality_pms 16.1.0      this app
 │   ├── Python backend          DocTypes, services, whitelisted API
 │   └── compiled Vue frontend   served from the site at /pms
 ├── MariaDB                     all data

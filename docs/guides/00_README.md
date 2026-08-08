@@ -1,5 +1,7 @@
 # Hospitality PMS — Operational Guides
 
+**Applies to:** Hospitality PMS 16.1.0 (branch `version-16`)
+
 Written against the implementation as built, not against the specification.
 Where a workflow is not yet available in the `/pms` frontend, the guides say so
 and point at Desk instead.
