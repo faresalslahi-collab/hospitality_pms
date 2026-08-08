@@ -1,1 +1,13 @@
-Hospitality PMS
+Hospitality Setup
+Hospitality Rooms
+Hospitality Guests
+Hospitality Rates
+Hospitality Reservations
+Hospitality Front Office
+Hospitality Folio
+Hospitality Night Audit
+Hospitality Housekeeping
+Hospitality Maintenance
+Hospitality Sales
+Hospitality Services
+Hospitality Integrations
