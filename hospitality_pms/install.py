@@ -11,6 +11,7 @@ def after_install():
 	"""Run once when the app is installed on a site."""
 	sync_module_defs()
 	sync_roles()
+	sync_desktop_presence()
 
 
 def after_migrate():
@@ -23,6 +24,19 @@ def after_migrate():
 	"""
 	sync_module_defs()
 	sync_roles()
+	sync_desktop_presence()
+
+
+def sync_desktop_presence():
+	"""Make the Desk apps screen show the Hospitality PMS tile.
+
+	A site whose users arranged their Desk before this app existed keeps a
+	frozen copy of that arrangement, and the tile cannot reach them through the
+	Desktop Icon alone. See `setup.desktop` for the full reasoning.
+	"""
+	from hospitality_pms.setup.desktop import sync_desktop_presence as _sync
+
+	_sync()
 
 
 def sync_roles():
