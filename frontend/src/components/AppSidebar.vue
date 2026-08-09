@@ -25,22 +25,28 @@
     <PropertySelector />
 
     <nav class="flex-1 overflow-y-auto px-2 pb-4">
-      <component
-        :is="item.href ? 'a' : RouterLink"
-        v-for="item in items"
-        :key="item.key"
-        v-bind="item.href ? { href: item.href } : { to: item.to }"
-        class="mb-0.5 flex items-center gap-2 rounded px-2.5 py-1.5 text-p-base text-ink-gray-7 hover:bg-surface-gray-2"
-        :active-class="item.href ? undefined : 'bg-surface-selected font-medium text-ink-gray-9'"
-      >
-        <FeatherIcon :name="item.icon" class="size-4 shrink-0" />
-        <span class="truncate">{{ t(item.labelKey) }}</span>
-        <FeatherIcon
-          v-if="item.href"
-          name="external-link"
-          class="ms-auto size-3.5 shrink-0 text-ink-gray-4 flip-rtl"
-        />
-      </component>
+      <div v-for="group in groups" :key="group.key" class="mb-3">
+        <p class="px-2.5 pb-1 text-xs font-medium uppercase tracking-wide text-ink-gray-4">
+          {{ t(group.labelKey) }}
+        </p>
+
+        <component
+          :is="item.href ? 'a' : RouterLink"
+          v-for="item in group.items"
+          :key="item.key"
+          v-bind="item.href ? { href: item.href } : { to: item.to }"
+          class="mb-0.5 flex items-center gap-2 rounded px-2.5 py-1.5 text-p-base text-ink-gray-7 hover:bg-surface-gray-2"
+          :active-class="item.href ? undefined : 'bg-surface-selected font-medium text-ink-gray-9'"
+        >
+          <FeatherIcon :name="item.icon" class="size-4 shrink-0" />
+          <span class="truncate">{{ t(item.labelKey) }}</span>
+          <FeatherIcon
+            v-if="item.href"
+            name="external-link"
+            class="ms-auto size-3.5 shrink-0 text-ink-gray-4 flip-rtl"
+          />
+        </component>
+      </div>
     </nav>
 
     <div class="space-y-1 border-t border-outline-gray-1 p-2">
@@ -68,11 +74,11 @@ import { RouterLink } from 'vue-router'
 
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 import PropertySelector from '@/components/PropertySelector.vue'
-import { visibleNavigation } from '@/router/navigation'
+import { visibleNavigationGroups } from '@/router/navigation'
 import { session } from '@/stores/session'
 import { t } from '@/utils/i18n'
 
-const items = computed(() => visibleNavigation(session))
+const groups = computed(() => visibleNavigationGroups(session))
 const user = computed(() => session.user.value)
 
 const userOptions = computed(() => [

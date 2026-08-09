@@ -72,7 +72,9 @@ def get_room_rack(property: str | None = None, room_type: str | None = None) -> 
 	grouped = {room_type_row["name"]: {**room_type_row, "rooms": []} for room_type_row in types}
 
 	for room in rooms:
-		room["assignable"] = is_assignable(room["name"])
+		# The row already carries every dimension assignability depends on, so
+		# this stays one query for the whole rack rather than one per room.
+		room["assignable"] = is_assignable(room["name"], state=room)
 		room["blocking_reason"] = _blocking_reason(room)
 
 		bucket = grouped.setdefault(

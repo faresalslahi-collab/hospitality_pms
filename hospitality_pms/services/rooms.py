@@ -234,10 +234,15 @@ def assert_assignable(room: str, *, allow_unready_housekeeping: bool = False, st
 		)
 
 
-def is_assignable(room: str, *, allow_unready_housekeeping: bool = False) -> bool:
-	"""Non-raising form of `assert_assignable`, for filtering lists."""
+def is_assignable(room: str, *, allow_unready_housekeeping: bool = False, state: dict | None = None) -> bool:
+	"""Non-raising form of `assert_assignable`, for filtering lists.
+
+	Pass `state` when the caller already holds the room's four dimensions —
+	a rack or a board reads every room at once, and re-fetching each one turns
+	a single query into five hundred (SAD section 13).
+	"""
 	try:
-		assert_assignable(room, allow_unready_housekeeping=allow_unready_housekeeping)
+		assert_assignable(room, allow_unready_housekeeping=allow_unready_housekeeping, state=state)
 	except RoomNotAssignableError:
 		return False
 

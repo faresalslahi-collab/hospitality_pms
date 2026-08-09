@@ -35,6 +35,41 @@ STAY_DOCTYPE = "Hospitality Stay"
 REVERSAL_ROLES = stay_service.CHECKOUT_REVERSAL_ROLES
 
 
+def get_departure_blockers(stay_status: str, folio, related_folios: list[dict]) -> list[str]:
+	"""What stands between this stay and the door, worst first.
+
+	One rule, two readers: `get_checkout_summary()` calls it for a single stay
+	with loaded documents, and the departures board calls it for a whole day
+	with rows fetched in bulk. Keeping it here is what stops the board from
+	telling the desk a guest is ready to leave while the checkout screen
+	refuses them (SAD section 6).
+
+	`folio` is anything with `folio_status` and `balance` — a Document or a
+	plain row from a bulk query.
+	"""
+	blockers = []
+
+	if stay_status not in (stay_service.IN_HOUSE, stay_service.DUE_OUT):
+		blockers.append(_("The stay is {0}.").format(_(stay_status)))
+
+	folio_status = folio.get("folio_status") if isinstance(folio, dict) else folio.folio_status
+	balance = folio.get("balance") if isinstance(folio, dict) else folio.balance
+
+	if folio_status == folio_service.DISPUTED:
+		blockers.append(_("The folio is disputed and must be resolved first."))
+
+	if abs(flt(balance)) > 0.005:
+		blockers.append(_("The folio has an outstanding balance of {0}.").format(flt(balance, 2)))
+
+	for row in related_folios or []:
+		if abs(flt(row["balance"])) > 0.005:
+			blockers.append(
+				_("Split folio {0} still has a balance of {1}.").format(row["name"], flt(row["balance"], 2))
+			)
+
+	return blockers
+
+
 def get_checkout_summary(stay: str) -> dict:
 	"""What the guest owes and what stands in the way of leaving.
 
@@ -49,19 +84,6 @@ def get_checkout_summary(stay: str) -> dict:
 
 	folio_doc = frappe.get_doc(folio_service.FOLIO_DOCTYPE, folio)
 
-	blockers = []
-
-	if doc.stay_status not in (stay_service.IN_HOUSE, stay_service.DUE_OUT):
-		blockers.append(_("The stay is {0}.").format(_(doc.stay_status)))
-
-	if folio_doc.folio_status == folio_service.DISPUTED:
-		blockers.append(_("The folio is disputed and must be resolved first."))
-
-	if abs(flt(folio_doc.balance)) > 0.005:
-		blockers.append(
-			_("The folio has an outstanding balance of {0}.").format(flt(folio_doc.balance, 2))
-		)
-
 	# Other folios split off this stay must also be settled, or a company-pay
 	# balance would walk out of the door with the guest.
 	related = frappe.get_all(
@@ -70,11 +92,7 @@ def get_checkout_summary(stay: str) -> dict:
 		fields=["name", "folio_type", "balance", "folio_status"],
 	)
 
-	for row in related:
-		if abs(flt(row["balance"])) > 0.005:
-			blockers.append(
-				_("Split folio {0} still has a balance of {1}.").format(row["name"], flt(row["balance"], 2))
-			)
+	blockers = get_departure_blockers(doc.stay_status, folio_doc, related)
 
 	return {
 		"stay": stay,

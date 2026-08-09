@@ -1,6 +1,6 @@
 # Hospitality PMS — Build Acceptance Log
 
-**Current application version:** 16.1.1 (branch `version-16`)
+**Current application version:** 16.2.0 (branch `version-16`)
 
 One record per completed build, in the format required by
 `09_Hospitality_PMS_Build_Test_and_Acceptance_Standard_v1.2_APPROVED.md` section 4.
@@ -1164,3 +1164,118 @@ touch, so they were left as written rather than restamped for a patch.
 $ bench version
 hospitality_pms 16.1.1
 ```
+
+---
+
+## Front Office Frontend Completion
+
+```text
+Build: Front Office operational frontend — dashboard, arrivals, departures, calendar
+  Released as application version 16.2.0.
+Scope completed:
+  - front office dashboard replacing the 45-line placeholder at /pms: 7 front
+    desk tiles, 9 room tiles across the four status dimensions, last-audited
+    performance, money posted so far today, open work per department, and 8
+    role-aware quick actions
+  - /pms/arrivals — arrivals board, one row per room line arriving on the
+    business date, with VIP and blacklist flags, room assignment, housekeeping
+    readiness, guarantee, deposit position, and 9 filters
+  - /pms/departures — departures board, one row per stay leaving, with folio
+    balance, split-folio balance, and the checkout service's own blocker list
+  - /pms/calendar — room-by-date grid, native Vue, no calendar dependency
+  - navigation regrouped into Front desk / Bookings / Rooms and service /
+    Guests / Administration; no route removed
+Backend added (all read-only):
+  - services/front_office.py, api/front_office.py: dashboard, arrivals,
+    departures, calendar. Every state change still goes through the existing
+    reservation, stay, checkout and folio services; nothing was duplicated.
+Backend changed (behaviour-preserving):
+  - checkout.get_departure_blockers() extracted from get_checkout_summary and
+    shared with the departures board, so the board cannot promise a checkout
+    the checkout screen refuses. Output verified byte-identical on 4 stays
+    covering In House, Checked Out, zero balance, negative balance and a split
+    folio still carrying 60.00.
+  - rooms.is_assignable() accepts a pre-fetched state dict; api/rooms.py passes
+    it. get_room_rack drops from 3 + one-query-per-room to 3 queries flat, with
+    an identical summary. At the 500-room baseline that is 503 queries -> 3.
+Efficiency: dashboard 16 SQL statements, arrivals 9, departures 7, calendar 11 —
+  fixed, none growing with row count. No endpoint issues a query per row.
+Bounds: the calendar is capped server-side at 31 days and 100 rooms. A request
+  for 366 days and 999 rooms returned 31 days and limit 100.
+Validation: PASS
+  - frontend production build: PASS, 14.8s, every new page code-split
+    (Arrivals 7.28 kB, Departures 6.53 kB, Dashboard 7.24 kB, Calendar 9.65 kB)
+  - all 18 routes of the required route map resolve to files that exist; no
+    route points at a missing component
+  - /pms, /pms/arrivals, /pms/departures, /pms/calendar, /pms/in-house,
+    /pms/reservations all return 200; all four new chunks serve
+  - all four endpoints return 200 over HTTP as Administrator and as a Front
+    Office Agent; POST to a read-only endpoint returns 403
+  - an unpermitted property is refused with PropertyAccessError, not silently
+    swapped for another
+  - existing chain intact: in_house -> get_folio -> checkout.summary all 200,
+    room rack summary unchanged
+  - locales: 636 keys, en and ar sets identical, zero placeholder mismatches,
+    zero untranslated values; every t() key used by the new pages resolves in
+    both languages
+  - RTL: zero physical-direction utilities in any new or changed file; the
+    built stylesheet emits inset-inline-start, margin-inline-start,
+    padding-inline-start/end, border-inline-end, text-align:start/end and the
+    flip-rtl rule
+  - role visibility: Front Office Agent 11 sections, Room Attendant 9,
+    Night Auditor 9, Maintenance Technician 9, Hotel Manager 14
+Not validated by clicking: no browser is available on this bench, so "the page
+  loads" was established by the production build, by every route resolving to a
+  real component, by the chunks serving over HTTP, and by each page's single
+  endpoint returning a valid payload — not by rendering it in a browser.
+Deliberately not built:
+  - live ADR and RevPAR. Both are authoritative only once the Night Audit has
+    posted the day's room charges. The dashboard shows the last closed audit's
+    figures stamped with their business date, and refuses to render a number
+    at all until an audit has closed.
+  - weekend shading on the calendar. The weekend is Friday-Saturday in Qatar
+    and Saturday-Sunday elsewhere; there is no server signal for it and
+    guessing would be wrong half the time.
+Observed, not changed: a negative folio balance (the hotel owes the guest)
+  blocks checkout, because the existing rule tests abs(balance). Pre-existing
+  behaviour, preserved exactly; correcting it is a finance decision.
+Result: PASS
+```
+
+---
+
+## Application version 16.2.0 — release
+
+Minor release over 16.1.1. Additive throughout: four new operational screens,
+one new read-only API module, and a regrouped sidebar. No schema change, no
+DocType touched, no change to any state-changing service, so nothing an
+existing site depends on moves.
+
+Two existing modules were changed without changing their behaviour, both
+verified against live data before release:
+
+* `services/checkout.py` — the departure blocker rule is extracted to
+  `get_departure_blockers()` so the departures board and the checkout screen
+  share one rule. Output confirmed identical across In House, Checked Out,
+  zero, negative and split-folio cases.
+* `services/rooms.py` / `api/rooms.py` — `is_assignable()` accepts a pre-fetched
+  state dict, removing an N+1 in the room rack. Identical summary, 503 queries
+  down to 3 at the 500-room baseline.
+
+Version bumped in the three places it is declared — `hospitality_pms/__init__.py`,
+`package.json`, `frontend/package.json` — and stamped on the README and on the
+headers of this log and the Implementation Decision Log.
+
+```bash
+$ bench version
+hospitality_pms 16.2.0
+```
+
+Known documentation gap, carried deliberately: the guides and the UAT set still
+read "Applies to 16.1.0". Unlike the 16.1.1 patch, this release *does* change
+behaviour they cover — `02_Front_Office_Guide.md` and `02_UAT_Front_Office.md`
+describe a front office that now has an arrivals board, a departures board and
+a reservation calendar it does not mention. They were left at their existing
+stamp rather than restamped, because restamping them to 16.2.0 would assert
+they document this release when they do not. Writing that content is its own
+piece of work and was not part of this build.

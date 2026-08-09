@@ -26,6 +26,21 @@ const routes = [
     component: () => import('@/pages/Availability.vue'),
   },
   {
+    path: '/arrivals',
+    name: 'Arrivals',
+    component: () => import('@/pages/Arrivals.vue'),
+  },
+  {
+    path: '/departures',
+    name: 'Departures',
+    component: () => import('@/pages/Departures.vue'),
+  },
+  {
+    path: '/calendar',
+    name: 'Calendar',
+    component: () => import('@/pages/Calendar.vue'),
+  },
+  {
     path: '/reservations',
     name: 'Reservations',
     component: () => import('@/pages/Reservations.vue'),
