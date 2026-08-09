@@ -16,8 +16,8 @@ from hospitality_pms.services.base import assert_transition, lock_document, requ
 from hospitality_pms.services.exceptions import HospitalityPMSError, throw
 from hospitality_pms.services.property import get_business_date
 
-TICKET_DOCTYPE = "Hospitality Maintenance Ticket"
-BLOCK_DOCTYPE = "Hospitality Room Block"
+TICKET_DOCTYPE = "Maintenance Ticket"
+BLOCK_DOCTYPE = "Room Block"
 
 OPEN = "Open"
 IN_PROGRESS = "In Progress"

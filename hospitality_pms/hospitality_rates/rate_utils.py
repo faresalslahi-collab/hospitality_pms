@@ -4,8 +4,8 @@
 """Small helpers shared by more than one Rates controller (HPMS-0.8.0).
 
 Kept outside `doctype/` because it belongs to no single DocType - it is
-imported by both `hospitality_rate_plan.py` and `hospitality_daily_rate.py`
-and `hospitality_room_inventory_restriction.py`. Resolution logic itself stays
+imported by `rate_plan.py`, `daily_rate.py` and
+`room_inventory_restriction.py`. Resolution logic itself stays
 in `services/rates.py`; these controllers only stop contradictory
 configuration from being saved in the first place.
 """

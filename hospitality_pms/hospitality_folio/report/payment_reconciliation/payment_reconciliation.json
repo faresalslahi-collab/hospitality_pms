@@ -14,7 +14,7 @@
  "name": "Payment Reconciliation",
  "owner": "Administrator",
  "prepared_report": 0,
- "ref_doctype": "Hospitality Folio Payment",
+ "ref_doctype": "Folio Payment",
  "report_name": "Payment Reconciliation",
  "report_type": "Script Report",
  "roles": [

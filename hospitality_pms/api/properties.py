@@ -14,7 +14,7 @@ from hospitality_pms.services.property import (
 	require_property_access,
 )
 
-PROPERTY_DOCTYPE = "Hospitality Property"
+PROPERTY_DOCTYPE = "Property"
 
 #: Fields the operational shell needs. Deliberately narrow: accounts, policies
 #: and warehouse mappings are configuration and never reach the frontend.

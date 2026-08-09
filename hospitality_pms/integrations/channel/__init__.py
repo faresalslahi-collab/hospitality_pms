@@ -12,9 +12,9 @@ from frappe import _
 
 from hospitality_pms.services.exceptions import ConfigurationError, throw
 
-CHANNEL_DOCTYPE = "Hospitality Channel"
+CHANNEL_DOCTYPE = "Booking Channel"
 
-#: `Hospitality Channel.provider` -> adapter class path. Every provider maps to
+#: `Booking Channel.provider` -> adapter class path. Every provider maps to
 #: the neutral `GenericChannelAdapter` today (HPMS-DEC-018): the connections
 #: differ only by configuration (base URL, hotel code, credentials, room
 #: mapping), not by code. A vendor whose real API needs its own adapter slots

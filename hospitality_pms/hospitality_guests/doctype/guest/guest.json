@@ -1,0 +1,827 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-08 16:04:55.025415",
+ "description": "The primary individual guest record (HPMS-DEC-011). Not hard property-scoped: a guest may stay at more than one property. An ERPNext Customer is linked or created only when financially necessary (HPMS-DEC-012).",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "identity_section",
+  "salutation",
+  "first_name",
+  "middle_name",
+  "last_name",
+  "identity_col",
+  "guest_name",
+  "gender",
+  "date_of_birth",
+  "nationality",
+  "preferred_language",
+  "contact_section",
+  "mobile_no",
+  "phone",
+  "email_id",
+  "contact_col",
+  "address_line_1",
+  "address_line_2",
+  "city",
+  "state",
+  "country",
+  "pincode",
+  "classification_section",
+  "guest_type",
+  "vip_status",
+  "classification_col",
+  "market_segment",
+  "source",
+  "corporate_account",
+  "identification_section",
+  "identifications",
+  "preferences_section",
+  "preferences",
+  "dietary_requirements",
+  "allergies",
+  "accessibility_requirements",
+  "consents_section",
+  "consents",
+  "alerts_section",
+  "alerts",
+  "restrictions_section",
+  "is_blacklisted",
+  "blacklist_reason",
+  "restrictions_col",
+  "blacklisted_by",
+  "blacklisted_on",
+  "erpnext_section",
+  "customer",
+  "stay_history_section",
+  "originating_property",
+  "total_stays",
+  "stay_history_col",
+  "total_nights",
+  "last_stay_on",
+  "lifetime_value",
+  "notes_section",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Series",
+   "options": "HPMS-GST-.#####"
+  },
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "fieldname": "salutation",
+   "fieldtype": "Link",
+   "label": "Salutation",
+   "options": "Salutation"
+  },
+  {
+   "fieldname": "first_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "First Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "middle_name",
+   "fieldtype": "Data",
+   "label": "Middle Name"
+  },
+  {
+   "fieldname": "last_name",
+   "fieldtype": "Data",
+   "label": "Last Name"
+  },
+  {
+   "fieldname": "identity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Full name, composed by the controller from first/middle/last name.",
+   "fieldname": "guest_name",
+   "fieldtype": "Data",
+   "label": "Guest Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gender",
+   "fieldtype": "Link",
+   "label": "Gender",
+   "options": "Gender"
+  },
+  {
+   "fieldname": "date_of_birth",
+   "fieldtype": "Date",
+   "label": "Date of Birth"
+  },
+  {
+   "fieldname": "nationality",
+   "fieldtype": "Link",
+   "label": "Nationality",
+   "options": "Country"
+  },
+  {
+   "fieldname": "preferred_language",
+   "fieldtype": "Link",
+   "label": "Preferred Language",
+   "options": "Language"
+  },
+  {
+   "fieldname": "contact_section",
+   "fieldtype": "Section Break",
+   "label": "Contact"
+  },
+  {
+   "fieldname": "mobile_no",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Mobile No",
+   "options": "Phone",
+   "search_index": 1
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "label": "Phone",
+   "options": "Phone"
+  },
+  {
+   "fieldname": "email_id",
+   "fieldtype": "Data",
+   "label": "Email",
+   "options": "Email",
+   "search_index": 1
+  },
+  {
+   "fieldname": "contact_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "address_line_1",
+   "fieldtype": "Data",
+   "label": "Address Line 1"
+  },
+  {
+   "fieldname": "address_line_2",
+   "fieldtype": "Data",
+   "label": "Address Line 2"
+  },
+  {
+   "fieldname": "city",
+   "fieldtype": "Data",
+   "label": "City"
+  },
+  {
+   "fieldname": "state",
+   "fieldtype": "Data",
+   "label": "State"
+  },
+  {
+   "fieldname": "country",
+   "fieldtype": "Link",
+   "label": "Country",
+   "options": "Country"
+  },
+  {
+   "fieldname": "pincode",
+   "fieldtype": "Data",
+   "label": "Pincode"
+  },
+  {
+   "fieldname": "classification_section",
+   "fieldtype": "Section Break",
+   "label": "Classification"
+  },
+  {
+   "default": "Individual",
+   "fieldname": "guest_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Guest Type",
+   "options": "Individual\nCorporate Guest\nTravel Agent Guest\nGroup Guest\nStaff\nOwner"
+  },
+  {
+   "fieldname": "vip_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "VIP Status",
+   "options": "\nVIP\nVVIP\nLoyalty Member\nRepeat Guest"
+  },
+  {
+   "fieldname": "classification_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "market_segment",
+   "fieldtype": "Data",
+   "label": "Market Segment"
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Data",
+   "label": "Source"
+  },
+  {
+   "description": "Free text for now. Becomes a link to Corporate Account in HPMS-0.20.0.",
+   "fieldname": "corporate_account",
+   "fieldtype": "Data",
+   "label": "Corporate Account"
+  },
+  {
+   "description": "ID/passport documents. These fields are permission-restricted (see the central permission script) and retention-limited per SAS section 8.",
+   "fieldname": "identification_section",
+   "fieldtype": "Section Break",
+   "label": "Identification"
+  },
+  {
+   "fieldname": "identifications",
+   "fieldtype": "Table",
+   "label": "Identifications",
+   "options": "Guest Identification",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "preferences_section",
+   "fieldtype": "Section Break",
+   "label": "Preferences and Care"
+  },
+  {
+   "fieldname": "preferences",
+   "fieldtype": "Table",
+   "label": "Preferences",
+   "options": "Guest Preference"
+  },
+  {
+   "fieldname": "dietary_requirements",
+   "fieldtype": "Small Text",
+   "label": "Dietary Requirements"
+  },
+  {
+   "fieldname": "allergies",
+   "fieldtype": "Small Text",
+   "label": "Allergies"
+  },
+  {
+   "fieldname": "accessibility_requirements",
+   "fieldtype": "Small Text",
+   "label": "Accessibility Requirements"
+  },
+  {
+   "fieldname": "consents_section",
+   "fieldtype": "Section Break",
+   "label": "Consents"
+  },
+  {
+   "fieldname": "consents",
+   "fieldtype": "Table",
+   "label": "Consents",
+   "options": "Guest Consent"
+  },
+  {
+   "fieldname": "alerts_section",
+   "fieldtype": "Section Break",
+   "label": "Alerts"
+  },
+  {
+   "fieldname": "alerts",
+   "fieldtype": "Table",
+   "label": "Alerts",
+   "options": "Guest Alert"
+  },
+  {
+   "description": "Blacklisting requires elevated approval and is audited (SAS section 7).",
+   "fieldname": "restrictions_section",
+   "fieldtype": "Section Break",
+   "label": "Restrictions"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_blacklisted",
+   "fieldtype": "Check",
+   "label": "Blacklisted",
+   "permlevel": 2,
+   "search_index": 1
+  },
+  {
+   "fieldname": "blacklist_reason",
+   "fieldtype": "Small Text",
+   "label": "Blacklist Reason",
+   "permlevel": 3
+  },
+  {
+   "fieldname": "restrictions_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "blacklisted_by",
+   "fieldtype": "Link",
+   "label": "Blacklisted By",
+   "options": "User",
+   "permlevel": 2,
+   "read_only": 1
+  },
+  {
+   "fieldname": "blacklisted_on",
+   "fieldtype": "Datetime",
+   "label": "Blacklisted On",
+   "permlevel": 2,
+   "read_only": 1
+  },
+  {
+   "fieldname": "erpnext_section",
+   "fieldtype": "Section Break",
+   "label": "ERPNext Link"
+  },
+  {
+   "description": "Created or linked only when financially necessary (HPMS-DEC-012). Never required.",
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer",
+   "search_index": 1
+  },
+  {
+   "description": "Read only. Maintained by the stay and folio builds, not editable here.",
+   "fieldname": "stay_history_section",
+   "fieldtype": "Section Break",
+   "label": "Stay History"
+  },
+  {
+   "fieldname": "originating_property",
+   "fieldtype": "Link",
+   "label": "Originating Property",
+   "options": "Property",
+   "search_index": 1
+  },
+  {
+   "fieldname": "total_stays",
+   "fieldtype": "Int",
+   "label": "Total Stays",
+   "read_only": 1
+  },
+  {
+   "fieldname": "stay_history_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_nights",
+   "fieldtype": "Int",
+   "label": "Total Nights",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_stay_on",
+   "fieldtype": "Date",
+   "label": "Last Stay On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "lifetime_value",
+   "fieldtype": "Currency",
+   "label": "Lifetime Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text Editor",
+   "label": "Notes"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:18:58.020127",
+ "modified_by": "Administrator",
+ "module": "Hospitality Guests",
+ "name": "Guest",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Agent",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Agent",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Guest Relations Officer",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Agent",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Guest Relations Officer",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager"
+  },
+  {
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 2,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 2,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 2,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Guest Relations Officer",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 2,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 2,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "permlevel": 2,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Manager"
+  },
+  {
+   "permlevel": 2,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Agent"
+  },
+  {
+   "permlevel": 2,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Manager"
+  },
+  {
+   "permlevel": 2,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Agent"
+  },
+  {
+   "permlevel": 2,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "permlevel": 2,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 3,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 3,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 3,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Guest Relations Officer",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 3,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 3,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "permlevel": 3,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "guest_name,mobile_no,email_id",
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "guest_name",
+ "track_changes": 1
+}

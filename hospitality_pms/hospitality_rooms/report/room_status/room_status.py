@@ -44,7 +44,7 @@ def get_columns():
 			"options": "Room Type",
 			"width": 120,
 		},
-		{"label": _("Floor"), "fieldname": "floor", "fieldtype": "Link", "options": "Hospitality Floor", "width": 100},
+		{"label": _("Floor"), "fieldname": "floor", "fieldtype": "Link", "options": "Floor", "width": 100},
 		{"label": _("Occupancy Status"), "fieldname": "occupancy_status", "fieldtype": "Data", "width": 110},
 		{"label": _("Housekeeping Status"), "fieldname": "housekeeping_status", "fieldtype": "Data", "width": 130},
 		{"label": _("Maintenance Status"), "fieldname": "maintenance_status", "fieldtype": "Data", "width": 130},

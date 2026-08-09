@@ -65,7 +65,7 @@ calculation, collision prevention, Night Audit closure.
 
 ## Data model
 
-- Every operational DocType carries `property` (Link: Hospitality Property).
+- Every operational DocType carries `property` (Link: Property).
 - Index the fields we filter on at scale: property, status, arrival/departure dates.
 - Naming series are explicit and readable; no auto-hash names on operational records.
 - DocType names follow SAD section 7 verbatim, no prefix.

@@ -23,23 +23,23 @@ all done in Desk. `/pms` is for running the floor, not for setting the property 
 
 Hospitality PMS does not replace ERPNext's financial and enterprise setup — it
 sits on top of it. The following must exist in ERPNext **before** you create a
-Hospitality Property, or property setup will fail validation or, worse, save
+Property, or property setup will fail validation or, worse, save
 with gaps that surface later as posting errors.
 
 | ERPNext master | Why it is needed |
 |---|---|
-| **Company** | Every Hospitality Property links to exactly one Company, and every Hospitality Posting Profile links to exactly one Company. All accounting for the property is booked under this Company. |
+| **Company** | Every Property links to exactly one Company, and every Posting Profile links to exactly one Company. All accounting for the property is booked under this Company. |
 | **Chart of Accounts / Account** | The property's Default Receivable Account, Room Revenue Account and Deposit Liability Account, the posting profile's income/receivable/deposit accounts, each Property Fee's Income Account, and each Payment Provider's Payment Account are all Account links. They must exist in the Company's chart before you can save these forms. |
 | **Cost Center** | The property's Cost Center and the posting profile's Default Cost Center attribute room and folio revenue to the right cost centre for P&L reporting. |
 | **Warehouse** | The property's Warehouses table maps each stock purpose (General Store, Kitchen Store, Minibar, Housekeeping Store, Laundry, Maintenance Store) to an ERPNext Warehouse. Minibar consumption, kitchen requisitions and housekeeping/laundry stock all post against these. Without a mapped warehouse for a purpose, the service refuses the transaction rather than guessing. |
-| **Item Group** | Required by ERPNext before you can create the Items you will map in the Hospitality Posting Profile's Charge Item Mapping (Room Charge, Minibar, Laundry, and so on) and any stock items used for kitchen or minibar. |
+| **Item Group** | Required by ERPNext before you can create the Items you will map in the Posting Profile's Charge Item Mapping (Room Charge, Minibar, Laundry, and so on) and any stock items used for kitchen or minibar. |
 | **Customer Group** and **Territory** | When a guest folio needs to raise its first financial document, the system creates an ERPNext Customer for the guest automatically. It uses the Customer Group and Territory set in Selling Settings if present, otherwise the first non-group Customer Group and Territory it finds. If neither exists anywhere in the system, guest-to-Customer creation fails outright. Set Selling Settings defaults explicitly rather than relying on "whichever one exists". |
-| **Mode of Payment** | Each Hospitality Payment Provider (Fatora, Stripe, or a manual/offline provider) links to a Mode of Payment for how its receipts post in ERPNext. |
+| **Mode of Payment** | Each Payment Provider (Fatora, Stripe, or a manual/offline provider) links to a Mode of Payment for how its receipts post in ERPNext. |
 | **Sales Taxes and Charges Template** | Used as the property's Default Sales Taxes and Charges Template and the posting profile's Default Tax Template, and optionally per charge-type mapping row. |
 | **Price List** | Used as the property's Default Selling Price List. |
 
 Have all of these ready — including the actual account numbers, cost centre and
-warehouse names you intend to use — before opening the Hospitality Property form.
+warehouse names you intend to use — before opening the Property form.
 Retrofitting them later means correcting every record that already used the wrong
 one.
 
@@ -83,7 +83,7 @@ done by filling in Desk forms.
 
 ## 3. Setting up your property
 
-Create the record at **Desk → Hospitality Property → New**. The form is
+Create the record at **Desk → Property → New**. The form is
 organised into sections; fields are listed below in the order the form
 presents them.
 
@@ -121,7 +121,7 @@ presents them.
 | Field | Notes |
 |---|---|
 | Default Language | Required, defaults to `en`. |
-| Supported Languages | A table of additional languages (Hospitality Property Language: Language, Default, Guest Communication) for guest-facing communication. |
+| Supported Languages | A table of additional languages (Property Language: Language, Default, Guest Communication) for guest-facing communication. |
 
 ### Operations
 
@@ -169,7 +169,7 @@ the same care you would give a live chart-of-accounts change.
 
 ### Fees and charges
 
-A table of **Hospitality Property Fee** rows — hospitality-specific charges
+A table of **Property Fee** rows — hospitality-specific charges
 such as service charge, municipality fee, tourism fee or city tax. Statutory
 VAT stays in the ERPNext tax template, not here.
 
@@ -184,7 +184,7 @@ VAT stays in the ERPNext tax template, not here.
 
 ### Warehouses
 
-A table of **Hospitality Property Warehouse** rows mapping a stock purpose
+A table of **Property Warehouse** rows mapping a stock purpose
 (General Store, Kitchen Store, Minibar, Housekeeping Store, Laundry,
 Maintenance Store) to an ERPNext Warehouse, with one row per purpose marked
 Default for Purpose. Map every purpose you intend to use operationally —
@@ -205,7 +205,7 @@ property-scoped and are administered under **Hospitality Administrator** /
 **System Manager** only (every other role, including General Manager and
 Hotel Manager, has read-only access to these four).
 
-**Hospitality Building** — a physical building on the property.
+**Building** — a physical building on the property.
 
 | Field | Notes |
 |---|---|
@@ -216,7 +216,7 @@ Hotel Manager, has read-only access to these four).
 | Address | Optional link to an ERPNext Address. |
 | Description | |
 
-**Hospitality Wing** — a wing within a building, for wayfinding and reporting.
+**Wing** — a wing within a building, for wayfinding and reporting.
 
 | Field | Notes |
 |---|---|
@@ -226,7 +226,7 @@ Hotel Manager, has read-only access to these four).
 | Building | Required. |
 | Active | |
 
-**Hospitality Floor** — a floor within a building, optionally within a wing.
+**Floor** — a floor within a building, optionally within a wing.
 
 | Field | Notes |
 |---|---|
@@ -239,7 +239,7 @@ Hotel Manager, has read-only access to these four).
 | Active | |
 | Smoking Floor / Executive Floor / Has Elevator Access | Flags used by room search and wayfinding. |
 
-**Hospitality Zone** — a cross-building grouping of rooms used to assign
+**Zone** — a cross-building grouping of rooms used to assign
 housekeeping, maintenance, service or security responsibility. A zone is
 **not** tied to a building — it exists specifically to group rooms that share
 an operational responsibility regardless of where they physically sit.
@@ -262,7 +262,7 @@ that apply to the room directly.
 
 ## 5. Departments and shifts
 
-**Hospitality Department** — an operational department within the property.
+**Property Department** — an operational department within the property.
 Writable by General Manager, Hotel Manager, Hospitality Administrator and
 System Manager; everyone else operational is read-only.
 
@@ -277,7 +277,7 @@ System Manager; everyone else operational is read-only.
 | Manager | A User. |
 | ERPNext Department | Optional link to the ERPNext Department, so HR data ties in without duplication. |
 
-**Hospitality Shift** — a recurring duty shift, for staff scheduling and
+**Property Shift** — a recurring duty shift, for staff scheduling and
 shift-scoped permissions. Same writer roles as Department.
 
 | Field | Notes |
@@ -286,10 +286,10 @@ shift-scoped permissions. Same writer roles as Department.
 | Shift Name | Required. |
 | Property | Required. |
 | Active | |
-| Department | Optional link to Hospitality Department. |
+| Department | Optional link to Property Department. |
 | Start Time / End Time | Required, default 07:00–15:00. |
 | Crosses Midnight | Tick for a night shift that ends the following day. |
-| Days Run | A table of individual weekdays (Hospitality Shift Day) this shift runs on. |
+| Days Run | A table of individual weekdays (Property Shift Day) this shift runs on. |
 
 ---
 
@@ -316,7 +316,7 @@ operational.
 | Smoking / Accessible / Allows Connecting Rooms | Flags. |
 | Currency | Read-only, fetched from the property. |
 | Base Rate / Extra Adult Charge / Extra Child Charge / Extra Bed Charge | **Fallback defaults only**, used where no Rate Plan applies. Once rate plans exist (section 7), they are the authoritative source of sellable rates — do not expect a change here to move a live rack rate. |
-| Amenities | A table (Hospitality Room Type Amenity: Amenity, Quantity, Notes) of what comes with the room type. |
+| Amenities | A table (Room Type Amenity: Amenity, Quantity, Notes) of what comes with the room type. |
 | Description | |
 
 ### Hotel Room
@@ -335,7 +335,7 @@ and System Manager. Note carefully what that write access covers.
 | Building / Wing / Floor / Zone | Location links, set independently (section 4). |
 | Occupancy Status, Housekeeping Status, Maintenance Status, Inventory Status | **Read-only on this form.** See below. |
 | Smoking / Accessible / Has Balcony / View Type | Attributes. |
-| Features | A table (Hospitality Room Feature: Feature, Notes) for room-specific features such as "Sea View" or "Corner Room". |
+| Features | A table (Room Feature: Feature, Notes) for room-specific features such as "Sea View" or "Corner Room". |
 | Housekeeping Credits | Cleaning effort units, used for workload balancing. |
 | Last Cleaned On | Read-only, set by housekeeping completion. |
 | Notes | |
@@ -387,8 +387,8 @@ Two points worth knowing when something looks "stuck":
 
 ## 7. Rates
 
-Configure **Hospitality Rate Plan**, its **Hospitality Rate Policy** links,
-**Hospitality Room Inventory Restriction** rows, and the **Hospitality Daily
+Configure **Rate Plan**, its **Rate Policy** links,
+**Room Inventory Restriction** rows, and the **Hospitality Daily
 Rate** grid. Rate plan and policy write access is Revenue Manager, General
 Manager, Hotel Manager, Hospitality Administrator and System Manager (Rate
 Policy also allows Finance Manager to write).
@@ -410,9 +410,9 @@ Policy also allows Finance Manager to write).
 | Includes Breakfast | |
 | Includes Taxes | **If ticked, the rate on this plan and on every Daily Rate row under it is the gross, tax-inclusive figure — it is not stored net of tax.** The charge service extracts the tax portion at posting time. Do not enter a net rate here expecting tax to be added on top; that will overcharge the guest. |
 | Market Segment / Booking Source | Free text, for reporting. |
-| Room Types | A table (Hospitality Rate Plan Room Type) of the per-room-type rate this plan sells at — see below. |
-| Restrictions | A table (Hospitality Rate Restriction) of stay-shape rules — see below. |
-| Cancellation Policy / No Show Policy / Deposit Policy | Links to Hospitality Rate Policy. |
+| Room Types | A table (Rate Plan Room Type) of the per-room-type rate this plan sells at — see below. |
+| Restrictions | A table (Rate Restriction) of stay-shape rules — see below. |
+| Cancellation Policy / No Show Policy / Deposit Policy | Links to Rate Policy. |
 | Terms | Free text. |
 
 **The 13 rate types** (Select field `rate_type`): Standard, Corporate, Travel
@@ -421,12 +421,12 @@ Package, Complimentary, House Use. Complimentary and House Use are always
 sold at zero regardless of any rate configured underneath them — they never
 fall back to a positive rate.
 
-**Room Types row** (Hospitality Rate Plan Room Type): Room Type, Base Rate,
+**Room Types row** (Rate Plan Room Type): Room Type, Base Rate,
 Single Occupancy Rate, Extra Adult Charge, Extra Child Charge, Extra Bed
 Charge, Active. One row per room type this plan covers — a plan with no row
 for a room type does not sell that room type at all.
 
-**Restrictions row** (Hospitality Rate Restriction): Room Type (blank = every
+**Restrictions row** (Rate Restriction): Room Type (blank = every
 room type on the plan), Min/Max Length of Stay, Closed to Arrival, Closed to
 Departure, Min/Max Advance Days, Applies From/Upto, Days of Week
 (comma-separated, e.g. "Fri,Sat"; blank = every day).
@@ -481,10 +481,10 @@ directly — one row per property, rate plan, room type and date.
 For a given night, the system prices a room type in this order, most
 specific first:
 
-1. **Hospitality Daily Rate** for the exact property, rate plan, room type
+1. **Daily Rate** for the exact property, rate plan, room type
    and date, if one exists.
 2. Failing that, the **rate plan's own room-type row** (Base Rate on
-   Hospitality Rate Plan Room Type).
+   Rate Plan Room Type).
 3. Failing that, the **room type's fallback Base Rate**.
 
 A deliberately entered zero at any level is respected as a real decision (for
@@ -546,17 +546,17 @@ reason to also grant them Desk access.
 ### Restricting a user to one property
 
 Hospitality PMS's own access model is deliberately just Frappe's **User
-Permission** mechanism applied to Hospitality Property, so that Desk, the
+Permission** mechanism applied to Property, so that Desk, the
 REST API and the `/pms` frontend all obey the same restriction without a
 parallel access model of their own. To confine a user to a single property:
 
 1. Go to **Desk → User Permission → New**.
 2. Set **User** to the person you are restricting.
-3. Set **Allowed Document Type** to `Hospitality Property`.
+3. Set **Allowed Document Type** to `Property`.
 4. Set **Value** to the specific property.
 5. Save.
 
-A user with **no** User Permission on Hospitality Property is unrestricted
+A user with **no** User Permission on Property is unrestricted
 and can operate in every active property — this is Frappe's own default
 behaviour and is what keeps a single-property site simple: you do not need to
 create a User Permission at all if you only run one property. Once a
@@ -570,7 +570,7 @@ and every operation is checked against the same list — there is no separate
 ## 9. ERPNext posting profile
 
 Before any folio charge can be invoiced against ERPNext, create a
-**Hospitality Posting Profile** for the property. Nothing posts without one —
+**Posting Profile** for the property. Nothing posts without one —
 this is a hard prerequisite, not an optional refinement. Write access is
 Finance Manager, Hospitality Administrator and System Manager; General
 Manager, Hotel Manager and Accounts User can only view it.
@@ -587,7 +587,7 @@ Manager, Hotel Manager and Accounts User can only view it.
 | Default Receivable Account | |
 | Default Tax Template | |
 | Default Item | Used to post a charge whose charge type has no explicit mapping below. |
-| Charge Item Mapping | A table (Hospitality Charge Item Map) of Charge Type → Item, Income Account, Cost Center, Tax Template, Active. See charge types below. |
+| Charge Item Mapping | A table (Charge Item Map) of Charge Type → Item, Income Account, Cost Center, Tax Template, Active. See charge types below. |
 | Deposit Liability Account | |
 | Update Stock on Posting | Only applies to charges carrying an item with stock (minibar, room service); a plain room charge or fee never touches stock regardless of this setting. |
 
@@ -739,7 +739,7 @@ Work through this in order — later steps depend on earlier ones.
 
 **Property**
 
-- [ ] Hospitality Property created, with a correct Company, Currency, Country and Time Zone.
+- [ ] Property created, with a correct Company, Currency, Country and Time Zone.
 - [ ] Business Date set to the correct opening operating day.
 - [ ] Accounting mapping (Receivable, Room Revenue, Deposit Liability accounts, Tax Template) checked by finance before anything is invoiced.
 - [ ] Property Fees configured, if applicable (service charge, tourism fee, municipality fee, city tax).
@@ -771,11 +771,11 @@ Work through this in order — later steps depend on earlier ones.
 
 - [ ] Staff accounts created and assigned the correct roles from the 22-role list.
 - [ ] `/pms`-only roles (Front Office Agent, Reservation Agent, Room Attendant, Maintenance Technician, Kitchen User, Guest Relations Officer) are not also given unnecessary Desk access.
-- [ ] User Permissions on Hospitality Property created for any user who must be confined to a single property.
+- [ ] User Permissions on Property created for any user who must be confined to a single property.
 
 **Posting profile**
 
-- [ ] Hospitality Posting Profile created and marked Active for the property.
+- [ ] Posting Profile created and marked Active for the property.
 - [ ] Every charge type your property actually raises is mapped to a specific Item, Income Account and Cost Centre — nothing left to the fallback that does not need to be.
 
 **Integrations**

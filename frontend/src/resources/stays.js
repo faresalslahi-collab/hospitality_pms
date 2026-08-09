@@ -32,7 +32,7 @@ export function addStayNoteResource() {
 }
 
 /**
- * Note types, mirrored from the Hospitality Stay Note record.
+ * Note types, mirrored from the Stay Note record.
  *
  * Shift Handover is first because it is what the note field is most used for:
  * the thing the next shift has to know about this guest.
@@ -61,7 +61,7 @@ export function stayStatusTheme(status) {
 /**
  * Roles the server accepts for changing a stay — moving a room, extending,
  * shortening or noting. Mirrored only to decide whether to offer the controls;
- * the server enforces it regardless (Hospitality Stay write permission).
+ * the server enforces it regardless (Stay write permission).
  */
 export const STAY_OPERATION_ROLES = [
   'Front Office Agent',

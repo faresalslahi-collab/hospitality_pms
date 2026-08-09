@@ -6,7 +6,7 @@ from hospitality_pms.services import maintenance as service
 from hospitality_pms.services.base import require_permission
 from hospitality_pms.services.property import resolve_property
 
-TICKET_DOCTYPE = "Hospitality Maintenance Ticket"
+TICKET_DOCTYPE = "Maintenance Ticket"
 
 TICKET_FIELDS = (
 	"name",

@@ -32,7 +32,7 @@ exactly one role each, as set up in **A-07**.
 
 | # | Step | Expected result |
 |---|---|---|
-| 1 | Sign in and open a Hotel Reservation, a Stay, a Folio, a Night Audit and a Corporate Account in Desk. | All readable. |
+| 1 | Sign in and open a Reservation, a Stay, a Folio, a Night Audit and a Corporate Account in Desk. | All readable. |
 | 2 | Try to save a change on each. | Each refused. |
 | 3 | Try to create a new record of any hospitality type. | Refused. |
 | 4 | Try to delete anything. | Refused. |

@@ -41,10 +41,10 @@ The front office works in two places:
 
 Read this list once, because it shapes the rest of the guide:
 
-- **Creating a Hospitality Guest record.** The New reservation screen lets you
+- **Creating a Guest record.** The New reservation screen lets you
   search for an existing guest, or type a walk-in's name straight into the
   booking, but neither the guest search nor the reservation screen creates a
-  proper **Hospitality Guest** record with contact details, identification and
+  proper **Guest** record with contact details, identification and
   preferences. A guest master record — and merging a duplicate one — is
   created and maintained in Desk.
 - **Editing a reservation's dates, or assigning a room ahead of arrival.**
@@ -168,12 +168,12 @@ so the quote and the eventual charge cannot diverge), and saves the booking as
 Draft or Tentative. Room lines are still limited to one room type per
 booking on this screen — a genuine multi-room-type or group booking is built
 in Desk. The guest can be an existing one found by search, or a name typed in
-for a walk-in; typing a name here does not create a Hospitality Guest record
+for a walk-in; typing a name here does not create a Guest record
 (section 1), so it is only a booking-time label until someone creates the
 guest properly.
 
 Reservations can also arrive already created from a channel import, or be
-created directly in Desk as a **Hotel Reservation**. A few rules apply
+created directly in Desk as a **Reservation**. A few rules apply
 regardless of who creates it or how:
 
 - A new reservation may only be saved as **Draft** or **Tentative**. Nothing
@@ -308,7 +308,7 @@ onto **Guest profile** (`/pms/guests/:id`), which shows contact details,
 preferences, active alerts, and — only for a user cleared to see them —
 identification documents and blacklist status, exactly as described below.
 Neither screen has a create, edit or merge action: a guest record is created,
-corrected and merged in Desk against the **Hospitality Guest** doctype and its
+corrected and merged in Desk against the **Guest** doctype and its
 API (see section 1). This section describes the rules that apply wherever
 that is done, and what the `/pms` screens will and will not show you.
 
@@ -440,7 +440,7 @@ check the guest in anyway:
 
 Once every check above clears: the room is assigned to the reservation line
 (re-checking that no other holding reservation already claims it for these
-dates), a **Hospitality Stay** record is created, a **Guest Folio** is opened
+dates), a **Stay** record is created, a **Guest Folio** is opened
 for it (or the existing one reused, so a retried check-in never produces a
 second folio), the room is marked Occupied, and — once every room line on the
 reservation has a stay — the reservation itself moves to **Checked In**. A
@@ -460,7 +460,7 @@ departure, occupants and rate, with **In House** / **Due Out** status badges,
 summary tiles, and a link from each row through to that stay's folio and to
 checkout. It carries no room-change, extend or shorten action of its own —
 those, and adding a note to a stay, are still done in Desk against the
-Hospitality Stay record.
+Stay record.
 
 ### Room change
 

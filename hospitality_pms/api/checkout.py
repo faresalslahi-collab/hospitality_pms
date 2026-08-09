@@ -7,8 +7,8 @@ from hospitality_pms.services import posting as posting_service
 from hospitality_pms.services.base import require_permission, require_role
 from hospitality_pms.services.property import resolve_property
 
-STAY_DOCTYPE = "Hospitality Stay"
-FOLIO_DOCTYPE = "Hospitality Guest Folio"
+STAY_DOCTYPE = "Stay"
+FOLIO_DOCTYPE = "Guest Folio"
 
 RECONCILIATION_ROLES = (
 	"Finance Manager",
@@ -68,8 +68,8 @@ def reconciliation(property: str | None = None) -> dict:
 	unposted = frappe.db.sql(
 		"""
 		select distinct f.name, f.guest_name, f.folio_status, f.total_charges, f.balance
-		from `tabHospitality Guest Folio` f
-		inner join `tabHospitality Folio Charge` c on c.parent = f.name
+		from `tabGuest Folio` f
+		inner join `tabFolio Charge` c on c.parent = f.name
 		where f.property = %(property)s
 		  and f.folio_status in ('Settled', 'Closed')
 		  and ifnull(c.is_posted_to_erp, 0) = 0

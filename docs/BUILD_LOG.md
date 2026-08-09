@@ -1,6 +1,6 @@
 # Hospitality PMS — Build Acceptance Log
 
-**Current application version:** 16.3.0 (branch `version-16`)
+**Current application version:** 16.4.0 (branch `version-16`)
 
 One record per completed build, in the format required by
 `09_Hospitality_PMS_Build_Test_and_Acceptance_Standard_v1.2_APPROVED.md` section 4.
@@ -94,13 +94,13 @@ Result: PASS
 ```text
 Build: HPMS-0.3.0 — Property and Operating Structure
 Scope completed:
-  - Hospitality Property with identity, ERPNext mapping, locale, languages,
+  - Property with identity, ERPNext mapping, locale, languages,
     operations (business date, check-in/out, overbooking limit, readiness
     overrides), accounting mapping, fees and warehouse mapping, policies
   - child tables: Property Warehouse, Property Fee, Property Language
   - physical structure: Building, Wing, Floor, Zone
   - organisation: Department, Shift, Shift Day
-  - Hospitality Settings (single): property default, reservation defaults,
+  - PMS Settings (single): property default, reservation defaults,
     housekeeping/night audit switches, retention periods
   - PropertyService: property resolution, permitted-property access, business
     date, warehouse and fee lookups, company resolution
@@ -162,7 +162,7 @@ Frontend build: PASS
 Primary workflow validation: PASS — 13/13 checks
 Critical permission validation: PASS
   - Front Office Agent reads the property, cannot write/create it, cannot read
-    Hospitality Settings
+    PMS Settings
   - Read-Only Auditor reads all setup records, cannot write or delete any
   - a user restricted to DOHA01 cannot list another property's building, and
     the property APIs refuse the other property server side
@@ -193,8 +193,8 @@ Scope completed:
   - Hotel Room with the four independent status dimensions from SAS 3.2
     (Occupancy, Housekeeping, Maintenance, Inventory), location links,
     connecting rooms, features, housekeeping credits
-  - Hospitality Room Block (submittable; specific room or room-type quantity)
-  - Hospitality Room Status Log (append-only audit of every transition)
+  - Room Block (submittable; specific room or room-type quantity)
+  - Room Status Log (append-only audit of every transition)
   - RoomStatusService: per-dimension transition tables, locked transitions,
     composite transitions (checkout -> Vacant + Dirty), assignability rules,
     per-dimension role gating, bulk state reads
@@ -203,11 +203,11 @@ Scope completed:
 
 Build: HPMS-0.6.0 — Guest
 Scope completed:
-  - Hospitality Guest with identity, contact, classification, identification,
+  - Guest with identity, contact, classification, identification,
     preferences, consents, alerts, restrictions, ERPNext customer link and
     read-only stay statistics
   - child tables: Identification, Preference, Consent, Alert
-  - Hospitality Guest Merge Log (append-only)
+  - Guest Merge Log (append-only)
   - GuestService: name composition, weighted duplicate detection, deferred
     Customer creation, schema-discovered reference repointing on merge,
     blacklist and alert checks
@@ -261,7 +261,7 @@ Result: PASS
 ```text
 Build: HPMS-0.8.0 — Rate Plans
 Scope completed:
-  - Hospitality Rate Plan (13 rate types from SAS 3.6), Rate Plan Room Type,
+  - Rate Plan (13 rate types from SAS 3.6), Rate Plan Room Type,
     Rate Restriction, reusable Rate Policy (cancellation/no-show/deposit/
     guarantee), Daily Rate grid, Room Inventory Restriction
   - RateService: three-level resolution (daily rate > plan row > room type
@@ -270,7 +270,7 @@ Scope completed:
 
 Build: HPMS-0.9.0 — Reservation Core
 Scope completed:
-  - Hotel Reservation with the 10 approved statuses, Reservation Room (the
+  - Reservation with the 10 approved statuses, Reservation Room (the
     inventory-consuming line), Reservation Rate Line snapshot, Reservation
     Guest, append-only Reservation Log
   - ReservationService: state machine from the Workflow Matrix, confirmation
@@ -332,7 +332,7 @@ Scope completed:
 
 Build: HPMS-0.12.0 — Stay Management
 Scope completed:
-  - Hospitality Stay with the five approved states, companions, shift notes,
+  - Stay with the five approved states, companions, shift notes,
     room move history
   - StayService: room change (both rooms locked, old room to Vacant Dirty, new
     to Occupied, move recorded), extend with availability re-check, shorten
@@ -341,7 +341,7 @@ Scope completed:
 
 Build: HPMS-0.13.0 — Folio
 Scope completed:
-  - Hospitality Guest Folio (operational subledger), Folio Charge, Folio
+  - Guest Folio (operational subledger), Folio Charge, Folio
     Payment, append-only Folio Log
   - FolioService: idempotent charge and payment posting, reversal-only
     corrections, derived totals, the seven-state machine from the Workflow
@@ -385,8 +385,8 @@ Result: PASS
 ```text
 Build: HPMS-0.14.0 — ERP Financial Posting
 Scope completed:
-  - Hospitality Posting Profile with per-charge-type item and account mapping
-  - Hospitality Financial Posting Log: unique idempotency key, attempt count,
+  - Posting Profile with per-charge-type item and account mapping
+  - Financial Posting Log: unique idempotency key, attempt count,
     payload snapshot, error, ERP document reference, reconciliation stamps
   - PostingService: Sales Invoice from folio charges, Payment Entry per folio
     payment, retry under the original key, folio-to-ERPNext reconciliation,
@@ -397,7 +397,7 @@ Scope completed:
   - PaymentProvider interface (initiate, status, refund, verify callback) with
     shared request logging and encrypted credential access
   - Fatora (primary), Stripe (fallback) and Manual adapters
-  - Hospitality Payment Provider, Payment Transaction, Integration Request Log,
+  - Payment Provider, Payment Transaction, Integration Request Log,
     Integration Failure Queue
   - PaymentService: idempotent initiation, signature-verified callbacks,
     status sync for lost callbacks, partial refunds, retry queue with backoff
@@ -411,7 +411,7 @@ Scope completed:
 
 Build: HPMS-0.17.0 — Night Audit
 Scope completed:
-  - Hospitality Night Audit with the five approved states and an exception table
+  - Night Audit with the five approved states and an exception table
   - NightAuditService: exception gathering, no-show marking, idempotent room
     charge posting, due-out marking, ERPNext reconciliation, business date
     close and controlled reopen, occupancy/ADR/RevPAR
@@ -533,7 +533,7 @@ Result: PASS WITH NOTES
 ```text
 Build: HPMS-0.24.0 — Channel Adapter
 Scope completed:
-  - Hospitality Channel (channel-manager-neutral config with encrypted
+  - Booking Channel (channel-manager-neutral config with encrypted
     credentials and per-room-type code mapping), Channel Reservation (raw
     inbound message), Channel Sync Log
   - ChannelAdapter interface + GenericChannelAdapter; provider registry so a
@@ -547,13 +547,13 @@ Build: HPMS-0.25.0 — Hardware Adapter Contracts
 Scope completed:
   - DoorLockAdapter and IDScannerAdapter interfaces, mock implementations so
     check-in and key issuance are testable before a vendor is chosen
-  - Hospitality Hardware Device, Hospitality Key Card
+  - Hardware Device, Key Card
   - HardwareService: issue_key, cancel_key, cancel_keys_for_stay, scan_id
     (returns normalised fields without persisting them)
 
 Build: HPMS-0.26.0 — Regulatory Framework
 Scope completed:
-  - Hospitality Regulatory Profile (per-country activation flags), Regulatory
+  - Regulatory Profile (per-country activation flags), Regulatory
     Export, Guest Registration
   - RegulatoryService: get_profile as the single activation gate, idempotent
     per-stay guest registration snapshotting identity at the time, night-audit
@@ -782,7 +782,7 @@ Design decisions:
     booking decision are atomic; a standalone endpoint would reopen that race and
     let a user self-approve a credit exception.
   - optional integers keep None distinct from 0, so an unsupplied inspection
-    requirement still falls through to the Hospitality Settings default.
+    requirement still falls through to the PMS Settings default.
 Known non-blocking issues:
   - `text-ink-amber-4` is used in Availability.vue but does not exist in this
     frappe-ui build, so that colour does not render. Pre-existing.
@@ -975,8 +975,8 @@ that anything calls it.
 
 Found while writing the Operations UAT scenarios.
 
-`Hospitality Room Service Order`, `Hospitality Kitchen Requisition` and
-`Hospitality Wastage Entry` had empty controllers. All their logic lived in
+`Room Service Order`, `Kitchen Requisition` and
+`Wastage Entry` had empty controllers. All their logic lived in
 `services/kitchen.py`, reachable only through `api/kitchen.py`.
 
 So a record created in Frappe Desk bypassed everything. A Room Service Order
@@ -990,7 +990,7 @@ no lock on it, which contradicts the principle the app is built on: the server
 enforces the rule on every path, not on the convenient one.
 
 Fixed. The three controllers now enforce, on save:
-  - every order line repriced from Hospitality Menu Item.selling_rate, whatever
+  - every order line repriced from Menu Item.selling_rate, whatever
     was typed; an inactive menu item is refused by name
   - subtotal and total derived from the priced lines, never entered
   - a charged order (folio_charge_row set) refuses changes to its lines, totals
@@ -1351,3 +1351,58 @@ register rewritten: the two capabilities above move out of "implemented and not
 covered" into covered scenarios (D-20 to D-22, D-25, D-26), and the sign-off
 summary now carries one open decision instead of three — the payment gateway,
 which no scenario covers because no sandbox exists.
+
+---
+
+## HPMS-16.4.0 — Commercial DocType naming
+
+Scope: naming only. No business logic, no schema fields, no naming series, no
+permission or workflow change.
+
+76 of 81 DocTypes lost the "Hospitality" prefix (HPMS-DEC-109). Six kept a
+qualifier for collision reasons (HPMS-DEC-110); `Hotel Room` kept its name by
+owner decision (HPMS-DEC-111); Room Type, Reservation Room, Reservation Guest
+and Reservation Rate Line were already clean.
+
+Executed as `hospitality_pms.patches.v1_0.rename_doctypes_to_commercial_names`
+in pre_model_sync, calling `frappe.model.rename_doc.rename_doc` per DocType so
+the framework moved the tables, Link/Table field options, child-row
+`parenttype`, link *values*, dynamic links, Custom DocPerm, attachments and
+Version rows. No raw SQL rename. The patch is guarded on `exists(old)` and is a
+no-op on re-run, and on a fresh install. Source folders, controller and test
+class names, workspace and sidebar JSON, the Number Card fixture and report
+`ref_doctype` were rewritten in the app so `bench migrate` converges instead of
+re-importing the old names.
+
+Validation: PASS — targeted, per the owner's instruction; no full regression.
+
+  Both sites migrated clean: mysite.localhost and rc.localhost, 76 renames
+  each. rc.localhost has developer_mode off; the patch runs there because
+  `frappe.flags.in_patch` bypasses the developer-mode guard.
+
+  - 81 DocTypes resolve through `get_meta` and `get_controller`, every
+    controller class named for its DocType; 0 old names survive in `tabDocType`
+  - 78 of 80 row counts identical before and after; the two that moved are the
+    Channel Sync Log and Integration Failure Queue, both append-only, both +48
+    from the scheduler running between the two counts
+  - 0 stale Link/Table options in DocField or Custom Field; 0 unresolved link
+    options across the PMS schema; 0 stale `parenttype` on eight sampled child
+    tables; PMS Settings survived as a Single; Room Block kept its docstatus rows
+  - 21 of 21 reports execute against their renamed ref_doctype, with rows
+    (Guest Ledger 14, Occupancy and Revenue 33, Corporate Production 15,
+    Folio vs Invoice 5, Payment Reconciliation 4, Failed Postings 4)
+  - Workspace: 118 links resolve, 0 failures. Sidebar: 48 links, 0 failures.
+    Desktop Icon intact. All 8 Number Cards resolve and compute, including the
+    doctype names embedded in `filters_json`, which no rename touches.
+  - 22 of 22 `/pms` read endpoints return, plus the three that need real
+    arguments (property context, availability search and check); the one Vue
+    resource that names a DocType directly, `Rate Plan`, returns rows
+  - `/pms` route resolves to page `pms`; frontend rebuilt from source, bundle
+    and CSS served 200, no old DocType name anywhere in the built assets
+  - 0 stale references left in the app tree — the only remaining occurrences of
+    old names are the rename map inside the patch itself, and the phrase
+    "Hospitality Property Management System" in `pyproject.toml`, which is prose
+
+Not verified by rendering: no browser on this bench, so the renamed labels have
+  not been read on screen. The link targets behind them are all confirmed.
+Result: PASS

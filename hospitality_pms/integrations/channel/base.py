@@ -6,7 +6,7 @@ stops one channel's quirks leaking into `ReservationService` (SAD section 10).
 
 Neutral protocol
 -----------------
-`Hospitality Channel.provider` records who the connection is with -
+`Booking Channel.provider` records who the connection is with -
 Booking.com, Expedia, Agoda - but the adapter contract itself is
 channel-manager-neutral (HPMS-DEC-018): every adapter speaks one normalised
 message shape in both directions. A vendor that needs its own field names or
@@ -16,9 +16,9 @@ adapter; nothing above this layer ever sees a vendor-specific key.
 Rules that hold for every provider:
 
 * An inbound reservation message (pulled or pushed to us) is normalised to a
-  dict shaped like a `Hospitality Channel Reservation` row - the domain
+  dict shaped like a `Channel Reservation` row - the domain
   service decides what a duplicate or a modify means, never the adapter.
-* An adapter never writes a `Hotel Reservation` or touches availability. It
+* An adapter never writes a `Reservation` or touches availability. It
   only talks to the channel and reports what happened.
 * Every call is logged, success or failure, through `log_request`.
 """
@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 import frappe
 from frappe.utils import now_datetime
 
-INTEGRATION_LOG = "Hospitality Integration Request Log"
+INTEGRATION_LOG = "PMS Integration Log"
 
 
 @dataclass
@@ -67,7 +67,7 @@ class ChannelAdapter(ABC):
 	def pull_reservations(self, since) -> list[dict]:
 		"""Fetch reservation messages received since `since`.
 
-		Returns a list of dicts normalised to the `Hospitality Channel
+		Returns a list of dicts normalised to the `Booking Channel
 		Reservation` shape (`channel_reservation_id`, `message_type`, guest and
 		stay fields, `raw`), one per message. An empty list means nothing new,
 		never a partial or best-effort read.

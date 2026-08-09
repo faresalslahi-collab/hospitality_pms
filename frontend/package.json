@@ -1,7 +1,7 @@
 {
   "name": "hospitality-pms-frontend",
   "private": true,
-  "version": "16.3.0",
+  "version": "16.4.0",
   "type": "module",
   "engines": {
     "node": ">=24"

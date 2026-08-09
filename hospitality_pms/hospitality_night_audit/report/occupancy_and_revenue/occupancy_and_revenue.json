@@ -14,7 +14,7 @@
  "name": "Occupancy and Revenue",
  "owner": "Administrator",
  "prepared_report": 0,
- "ref_doctype": "Hospitality Stay",
+ "ref_doctype": "Stay",
  "report_name": "Occupancy and Revenue",
  "report_type": "Script Report",
  "roles": [

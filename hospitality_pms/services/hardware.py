@@ -1,6 +1,6 @@
 """Key issuance and ID capture, independent of any hardware vendor.
 
-`Hospitality Hardware Device` is a contract-only configuration (HPMS-DEC-020):
+`Hardware Device` is a contract-only configuration (HPMS-DEC-020):
 this module resolves whichever door lock or scanner adapter a property has
 configured - real or, until one is chosen, the deterministic mock - and never
 assumes a specific vendor's behaviour.
@@ -25,9 +25,9 @@ from hospitality_pms.services.base import lock_document
 from hospitality_pms.services.exceptions import ConfigurationError, HospitalityPMSError, IntegrationError, throw
 from hospitality_pms.services.property import get_property
 
-KEY_CARD_DOCTYPE = "Hospitality Key Card"
-STAY_DOCTYPE = "Hospitality Stay"
-DEVICE_DOCTYPE = "Hospitality Hardware Device"
+KEY_CARD_DOCTYPE = "Key Card"
+STAY_DOCTYPE = "Stay"
+DEVICE_DOCTYPE = "Hardware Device"
 
 #: Stay states in which a key still makes sense to issue or matters to cancel.
 LIVE_STAY_STATES = ("Expected", "In House", "Due Out")
@@ -94,7 +94,7 @@ def issue_key(stay: str, valid_until=None, *, is_duplicate: bool = False) -> dic
 	A second call for the same stay is not refused: a lost or additional card
 	is a normal front desk request, not an error. The caller says so with
 	`is_duplicate` and the card carries that flag rather than hiding it
-	(per the Hospitality Key Card doctype's own description).
+	(per the Key Card doctype's own description).
 	"""
 	stay_doc = frappe.get_doc(STAY_DOCTYPE, stay)
 

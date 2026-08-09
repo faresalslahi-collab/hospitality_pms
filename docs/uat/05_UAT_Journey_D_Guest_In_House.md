@@ -19,8 +19,8 @@ end of Journey C.
 **Test data to prepare:**
 
 - The in-house stay and folio from **C-09**.
-- Hospitality Settings → **Create Housekeeping Task on Checkout** on (default), and **Require Inspection Before Room Release** on (default). Confirm both in Desk before starting the housekeeping section.
-- For the kitchen section: warehouse mappings for **General Store** and **Kitchen Store** on the property, stock on hand in the General Store, and one active **Hospitality Menu Item** with a known selling rate.
+- PMS Settings → **Create Housekeeping Task on Checkout** on (default), and **Require Inspection Before Room Release** on (default). Confirm both in Desk before starting the housekeeping section.
+- For the kitchen section: warehouse mappings for **General Store** and **Kitchen Store** on the property, stock on hand in the General Store, and one active **Menu Item** with a known selling rate.
 
 ---
 
@@ -151,7 +151,7 @@ end of Journey C.
 |---|---|
 | **Role** | Front Office Manager |
 | **Surface** | `/pms/checkout/<stay>` then `/pms/housekeeping` |
-| **Prerequisites** | An in-house stay with a **zero** folio balance, ready to check out. Hospitality Settings → Create Housekeeping Task on Checkout is on. |
+| **Prerequisites** | An in-house stay with a **zero** folio balance, ready to check out. PMS Settings → Create Housekeeping Task on Checkout is on. |
 | **Test data** | Use a second in-house stay if you want to keep C-09's guest for Journey E |
 | **Severity if failed** | High — rooms are checked out and never cleaned because nobody was told |
 
@@ -249,7 +249,7 @@ end of Journey C.
 | 2 | Optionally add a note, and confirm. | Closes without error. |
 | 3 | Re-open the task. | Status is **Completed**. |
 | 4 | Open the room on the rack. | Housekeeping is **Inspected**. |
-| 5 | In Desk, open **Hospitality Room Inspection** filtered by this task. | A record exists: result Passed, inspected by you, linked to both the room and the task. |
+| 5 | In Desk, open **Room Inspection** filtered by this task. | A record exists: result Passed, inspected by you, linked to both the room and the task. |
 
 **Pass criteria:** Passing completes the task, moves the room to Inspected, and leaves a permanent inspection record.
 
@@ -366,7 +366,7 @@ end of Journey C.
 | 3 | Leave status at **Out of Service**, enter a reason, and confirm. | Closes without error; the ticket carries the out-of-service flag. |
 | 4 | Open the room on the rack. | Maintenance is **Out of Service**, Inventory is **Blocked**, the tile is marked and not assignable. |
 | 5 | Repeat the availability search. | Minimum available is exactly **one lower** than the baseline. |
-| 6 | In Desk, open **Hospitality Room Block** filtered by that room. | A **submitted**, **Active** block exists, of type Maintenance, covering the date range, referencing this ticket. |
+| 6 | In Desk, open **Room Block** filtered by that room. | A **submitted**, **Active** block exists, of type Maintenance, covering the date range, referencing this ticket. |
 
 **Pass criteria:** A real, submitted, Active room block exists; availability falls by exactly one; and the room's Maintenance and Inventory statuses both move — not just a flag on the ticket.
 
@@ -593,7 +593,7 @@ end of Journey C.
 | **Role** | Kitchen User (or Food and Beverage Manager) |
 | **Surface** | `/pms/kitchen` |
 | **Prerequisites** | At least one in-house stay with an open folio |
-| **Test data** | One active **Hospitality Menu Item** flagged available for room service, with a known selling rate |
+| **Test data** | One active **Menu Item** flagged available for room service, with a known selling rate |
 | **Severity if failed** | **High** — the kitchen cannot see what it has to cook |
 
 | # | Step | Expected result |

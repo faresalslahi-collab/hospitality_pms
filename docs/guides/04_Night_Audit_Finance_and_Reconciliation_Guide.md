@@ -38,7 +38,7 @@ use.
 
 ## 1. What the folio is, and is not
 
-The **Hospitality Guest Folio** is the operational subledger: the itemised,
+The **Guest Folio** is the operational subledger: the itemised,
 running account of what a guest (or a company) has been charged and has paid
 during a stay. It is what the front desk and the auditor work with.
 
@@ -111,7 +111,7 @@ Closed refuse new charges outright.** This is what stops a late minibar
 charge landing on a folio after the guest has paid and left: post it to a new
 folio, or reopen the closed one under finance authority first.
 
-Every folio operation writes a **Hospitality Folio Log** row — action, actor,
+Every folio operation writes a **Folio Log** row — action, actor,
 timestamp, before/after status, amount and reason where one applies. This is
 the audit trail an auditor reads to answer "who did what to this folio,
 when."
@@ -218,7 +218,7 @@ Settled or Closed.
 
 ## 6. Corporate credit
 
-A **Hospitality Corporate Account** carries a credit limit, and every booking
+A **Corporate Account** carries a credit limit, and every booking
 that draws on it is checked against that limit under a row lock
 (`corporate.consume_credit`), so two bookings confirmed at the same instant
 cannot both read the same remaining credit and both fit inside it.
@@ -286,13 +286,13 @@ described above.
 ## 7. The night audit, step by step
 
 A property has exactly one business date at a time
-(`Hospitality Property.business_date`), and the Night Audit is the only
+(`Property.business_date`), and the Night Audit is the only
 process allowed to move it forward. Follow this sequence in order; each step
 is safe to re-run if the shift is interrupted.
 
 Where to do this: **Night Audit** (`/pms/night-audit`), which lays the steps
 out in this exact order and disables Close purely from the server's own
-blocking-exception count — or the **Hospitality Night Audit** doctype in Desk,
+blocking-exception count — or the **Night Audit** doctype in Desk,
 which drives the same service calls.
 
 1. **Start the audit.**
@@ -417,7 +417,7 @@ that key:
   child table for a row with that `idempotency_key`. If one exists, the
   original row is returned with `duplicate: true` and nothing new is
   appended.
-- On the ERPNext boundary, the **Hospitality Financial Posting Log** carries
+- On the ERPNext boundary, the **Financial Posting Log** carries
   a database-level unique constraint on `idempotency_key`. `_claim` looks up
   the key first; if a log row already exists and is Posted or Reconciled,
   the original result is returned. If two requests somehow race past that
@@ -438,7 +438,7 @@ ERPNext posting (section 11) safe to do as many times as it takes.
 ## 10. Closing and reopening the business date
 
 **Closing** (`night_audit.close`) does exactly three things once every
-blocking exception is clear: it advances `Hospitality Property.business_date`
+blocking exception is clear: it advances `Property.business_date`
 by one day (the *only* place in the system that field is permitted to move —
 enforced by a dedicated flag the property document checks), it moves the
 audit to **Closed**, and it stamps who closed it and when.
@@ -512,7 +512,7 @@ three points:
   explicitly in comments — it would post the payment to the wrong side of
   the ledger.
 
-Both raise against the property's active **Hospitality Posting Profile**,
+Both raise against the property's active **Posting Profile**,
 which supplies the receivable account, income accounts, cost centre, tax
 template and item mapping per charge type. **A property with no active
 posting profile cannot post at all** — the system refuses rather than
@@ -520,13 +520,13 @@ guessing a default account, because posting to an account nobody chose is
 how a hotel's revenue ends up in the wrong place for a month.
 
 **When a posting fails.** Every attempt — success or failure — writes a
-**Hospitality Financial Posting Log** row first, before the ERPNext document
+**Financial Posting Log** row first, before the ERPNext document
 is created, so the attempt is on record regardless of outcome. On failure,
 the log row is marked **Failed** with the attempt count incremented and the
 full error message recorded, and the original exception is re-raised to the
 caller. To recover:
 
-1. Open the failed log row (Desk: **Hospitality Financial Posting Log**, or
+1. Open the failed log row (Desk: **Financial Posting Log**, or
    the reconciliation view in section 12) and read `error_message` — this is
    the actual exception from ERPNext (a missing account, a missing item
    mapping, a validation error), not a generic failure.
@@ -606,7 +606,7 @@ the exact discrepancy finance is meant to see and act on.
 ## 13. Payments and refunds
 
 **Gateway transactions.** Every card or online payment is tracked as a
-**Hospitality Payment Transaction**, separate from the folio payment it
+**Payment Transaction**, separate from the folio payment it
 eventually produces. `payments.initiate_payment` starts one under its own
 idempotency key; replaying that key returns the original transaction rather
 than starting a second charge attempt. A provider that captures immediately
@@ -632,7 +632,7 @@ sync), the guest is credited exactly once.
 A callback that names a transaction the system has no record of, or one
 addressed to a transaction already in a terminal state (Captured, Failed,
 Cancelled, Refunded), is not treated as an error: an unmatched callback is
-parked in the **Hospitality Integration Failure Queue** for someone to
+parked in the **PMS Integration Failure Queue** for someone to
 reconcile by hand, and a callback replayed against a transaction already
 finished is reported back as a duplicate and otherwise ignored.
 

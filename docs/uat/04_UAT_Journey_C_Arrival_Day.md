@@ -21,7 +21,7 @@ at check-in** and **Allow Vacant Dirty check-in**. C-10 and C-11 branch on them.
 **Test data to prepare before you start:**
 
 - 2–3 reservations arriving on the business date, at least one with **more than one room**, so the boards can be seen counting rooms rather than bookings.
-- One arriving guest whose Hospitality Guest record has **VIP status** set (Desk).
+- One arriving guest whose Guest record has **VIP status** set (Desk).
 - One arriving reservation with a **required deposit not yet received** (from the deposit policy in A-05), for **C-06** and **C-11**.
 - One room set to **Dirty** in Desk or on the Room Rack, for **C-10**.
 

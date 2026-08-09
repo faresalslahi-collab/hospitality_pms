@@ -1,0 +1,46 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-08-08 16:04:51.208618",
+ "description": "A feature specific to one physical room (e.g. Sea View, Corner Room). Used on Hotel Room.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "feature",
+  "notes"
+ ],
+ "fields": [
+  {
+   "columns": 5,
+   "fieldname": "feature",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Feature",
+   "reqd": 1
+  },
+  {
+   "columns": 7,
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Notes"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-08 16:04:51.208618",
+ "modified_by": "Administrator",
+ "module": "Hospitality Rooms",
+ "name": "Room Feature",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

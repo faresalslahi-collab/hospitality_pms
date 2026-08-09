@@ -6,7 +6,7 @@ from hospitality_pms.services import stays as service
 from hospitality_pms.services.base import require_permission
 from hospitality_pms.services.property import resolve_property
 
-STAY_DOCTYPE = "Hospitality Stay"
+STAY_DOCTYPE = "Stay"
 
 
 @frappe.whitelist(methods=["GET"])
@@ -92,7 +92,7 @@ def check_in(
 	billing_instructions: str | None = None,
 ) -> dict:
 	"""Check a reservation room line into a room."""
-	require_permission("Hotel Reservation", "write")
+	require_permission("Reservation", "write")
 
 	return service.check_in(
 		reservation,

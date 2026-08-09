@@ -1,0 +1,615 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-08 16:54:55.917802",
+ "description": "One housekeeping task against a room: departure clean, stayover clean, turndown, deep clean, linen change, minibar check, inspection or special request, per SAS 3.11. The automatic checkout flow (Checkout -> Vacant Dirty -> Housekeeping Task -> In Progress -> Cleaning Complete -> Inspection if required -> Vacant Clean/Inspected -> Available) creates rows of this DocType directly, so `property`, `room`, `task_type`, `priority`, `task_status` and `source_stay` are fixed field names. All status transitions are made by HousekeepingService, never by direct edit.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "naming_series",
+  "property",
+  "identity_col",
+  "task_status",
+  "location_section",
+  "room",
+  "room_type",
+  "location_col",
+  "zone",
+  "task_section",
+  "task_type",
+  "priority",
+  "task_col",
+  "scheduled_date",
+  "source_section",
+  "source_stay",
+  "source_col",
+  "due_in_reservation",
+  "assignment_section",
+  "assigned_to",
+  "assigned_on",
+  "assignment_col",
+  "assigned_by",
+  "execution_section",
+  "started_on",
+  "completed_on",
+  "execution_col",
+  "completed_by",
+  "duration_section",
+  "estimated_minutes",
+  "actual_minutes",
+  "duration_col",
+  "housekeeping_credits",
+  "inspection_section",
+  "requires_inspection",
+  "inspected_by",
+  "inspected_on",
+  "inspection_col",
+  "inspection_passed",
+  "inspection_notes",
+  "checks_section",
+  "minibar_checked",
+  "damage_found",
+  "damage_notes",
+  "checks_col",
+  "lost_and_found",
+  "lost_and_found_notes",
+  "maintenance_section",
+  "maintenance_required",
+  "maintenance_col",
+  "maintenance_ticket",
+  "notes_section",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "default": "HPMS-HK-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Naming Series",
+   "options": "HPMS-HK-.YYYY.-.#####"
+  },
+  {
+   "columns": 2,
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Property",
+   "options": "Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "identity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "default": "Pending",
+   "description": "Transitions go through HousekeepingService only; this field is not edited directly on the form.",
+   "fieldname": "task_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Task Status",
+   "options": "Pending\nAssigned\nIn Progress\nInspection Pending\nCompleted\nCancelled\nService Refused\nDND",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "location_section",
+   "fieldtype": "Section Break",
+   "label": "Location"
+  },
+  {
+   "columns": 2,
+   "fieldname": "room",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Room",
+   "options": "Hotel Room",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "room_type",
+   "fieldtype": "Link",
+   "label": "Room Type",
+   "options": "Room Type"
+  },
+  {
+   "fieldname": "location_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "zone",
+   "fieldtype": "Link",
+   "label": "Zone",
+   "options": "Zone",
+   "search_index": 1
+  },
+  {
+   "fieldname": "task_section",
+   "fieldtype": "Section Break",
+   "label": "Task"
+  },
+  {
+   "columns": 2,
+   "default": "Departure Clean",
+   "fieldname": "task_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Task Type",
+   "options": "Departure Clean\nStayover Clean\nTurndown\nDeep Clean\nLinen Change\nMinibar Check\nInspection\nSpecial Request",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "default": "Normal",
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Priority",
+   "options": "Low\nNormal\nHigh\nUrgent",
+   "reqd": 1
+  },
+  {
+   "fieldname": "task_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "scheduled_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Scheduled Date",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "source_section",
+   "fieldtype": "Section Break",
+   "label": "Source"
+  },
+  {
+   "columns": 2,
+   "fieldname": "source_stay",
+   "fieldtype": "Link",
+   "label": "Source Stay",
+   "options": "Stay",
+   "search_index": 1
+  },
+  {
+   "fieldname": "source_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "description": "Marks that this room is needed for an arriving guest, which drives task priority.",
+   "fieldname": "due_in_reservation",
+   "fieldtype": "Link",
+   "label": "Due-In Reservation",
+   "options": "Reservation"
+  },
+  {
+   "fieldname": "assignment_section",
+   "fieldtype": "Section Break",
+   "label": "Assignment"
+  },
+  {
+   "columns": 2,
+   "fieldname": "assigned_to",
+   "fieldtype": "Link",
+   "label": "Assigned To",
+   "options": "User",
+   "search_index": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "assigned_on",
+   "fieldtype": "Datetime",
+   "label": "Assigned On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "assignment_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "assigned_by",
+   "fieldtype": "Link",
+   "label": "Assigned By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "execution_section",
+   "fieldtype": "Section Break",
+   "label": "Execution"
+  },
+  {
+   "columns": 2,
+   "fieldname": "started_on",
+   "fieldtype": "Datetime",
+   "label": "Started On",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "completed_on",
+   "fieldtype": "Datetime",
+   "label": "Completed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "execution_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "completed_by",
+   "fieldtype": "Link",
+   "label": "Completed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "duration_section",
+   "fieldtype": "Section Break",
+   "label": "Duration and Productivity"
+  },
+  {
+   "columns": 2,
+   "fieldname": "estimated_minutes",
+   "fieldtype": "Int",
+   "label": "Estimated Minutes"
+  },
+  {
+   "columns": 2,
+   "fieldname": "actual_minutes",
+   "fieldtype": "Int",
+   "label": "Actual Minutes",
+   "read_only": 1
+  },
+  {
+   "fieldname": "duration_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "housekeeping_credits",
+   "fieldtype": "Int",
+   "label": "Housekeeping Credits"
+  },
+  {
+   "fieldname": "inspection_section",
+   "fieldtype": "Section Break",
+   "label": "Inspection"
+  },
+  {
+   "columns": 2,
+   "default": "1",
+   "fieldname": "requires_inspection",
+   "fieldtype": "Check",
+   "label": "Requires Inspection"
+  },
+  {
+   "columns": 2,
+   "fieldname": "inspected_by",
+   "fieldtype": "Link",
+   "label": "Inspected By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "inspected_on",
+   "fieldtype": "Datetime",
+   "label": "Inspected On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "inspection_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "inspection_passed",
+   "fieldtype": "Check",
+   "label": "Inspection Passed"
+  },
+  {
+   "fieldname": "inspection_notes",
+   "fieldtype": "Small Text",
+   "label": "Inspection Notes"
+  },
+  {
+   "fieldname": "checks_section",
+   "fieldtype": "Section Break",
+   "label": "Checks and Findings"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "minibar_checked",
+   "fieldtype": "Check",
+   "label": "Minibar Checked"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "damage_found",
+   "fieldtype": "Check",
+   "label": "Damage Found"
+  },
+  {
+   "fieldname": "damage_notes",
+   "fieldtype": "Small Text",
+   "label": "Damage Notes"
+  },
+  {
+   "fieldname": "checks_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "lost_and_found",
+   "fieldtype": "Check",
+   "label": "Lost and Found"
+  },
+  {
+   "fieldname": "lost_and_found_notes",
+   "fieldtype": "Small Text",
+   "label": "Lost and Found Notes"
+  },
+  {
+   "fieldname": "maintenance_section",
+   "fieldtype": "Section Break",
+   "label": "Maintenance"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "maintenance_required",
+   "fieldtype": "Check",
+   "label": "Maintenance Required"
+  },
+  {
+   "fieldname": "maintenance_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "description": "The Maintenance Ticket raised from this cleaning task, when housekeeping finds a maintenance issue.",
+   "fieldname": "maintenance_ticket",
+   "fieldtype": "Link",
+   "label": "Maintenance Ticket",
+   "options": "Maintenance Ticket",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:19:04.986663",
+ "modified_by": "Administrator",
+ "module": "Hospitality Housekeeping",
+ "name": "Housekeeping Task",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Agent"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Agent"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Revenue Manager"
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Supervisor",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Room Attendant",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Technician"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Food and Beverage Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen User"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Corporate Sales Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Guest Relations Officer"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "room,task_status,scheduled_date",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

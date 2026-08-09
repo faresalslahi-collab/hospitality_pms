@@ -1,0 +1,319 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-08 17:07:20.924408",
+ "description": "The per-guest statutory registration record many jurisdictions require (SAS section 5 Regulatory). The identification fields here deliberately duplicate guest data: this is a statutory record of what was reported to the authority at the time, and it must not change if the guest profile is later corrected \u2014 only a fresh registration reflects a correction.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "naming_series",
+  "property",
+  "identity_col",
+  "guest",
+  "stay",
+  "room_section",
+  "room",
+  "room_col",
+  "registration_status",
+  "stay_section",
+  "arrival_date",
+  "stay_col",
+  "departure_date",
+  "identification_section",
+  "nationality",
+  "id_type",
+  "id_number",
+  "identification_col",
+  "id_expiry",
+  "date_of_birth",
+  "purpose_of_visit",
+  "submission_section",
+  "regulatory_export",
+  "submission_col",
+  "submitted_on",
+  "acknowledgement_reference",
+  "error_section",
+  "error_message"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "default": "HPMS-GREG-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Naming Series",
+   "options": "HPMS-GREG-.YYYY.-.#####"
+  },
+  {
+   "columns": 2,
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Property",
+   "options": "Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "identity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "guest",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Guest",
+   "options": "Guest",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "stay",
+   "fieldtype": "Link",
+   "label": "Stay",
+   "options": "Stay",
+   "search_index": 1
+  },
+  {
+   "fieldname": "room_section",
+   "fieldtype": "Section Break",
+   "label": "Room and Status"
+  },
+  {
+   "columns": 2,
+   "fieldname": "room",
+   "fieldtype": "Link",
+   "label": "Room",
+   "options": "Hotel Room"
+  },
+  {
+   "fieldname": "room_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "default": "Pending",
+   "fieldname": "registration_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Registration Status",
+   "options": "Pending\nSubmitted\nAcknowledged\nRejected\nNot Required",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "stay_section",
+   "fieldtype": "Section Break",
+   "label": "Stay Dates"
+  },
+  {
+   "columns": 2,
+   "fieldname": "arrival_date",
+   "fieldtype": "Date",
+   "label": "Arrival Date",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "stay_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "departure_date",
+   "fieldtype": "Date",
+   "label": "Departure Date"
+  },
+  {
+   "fieldname": "identification_section",
+   "fieldtype": "Section Break",
+   "label": "Identification (As Reported)"
+  },
+  {
+   "columns": 2,
+   "fieldname": "nationality",
+   "fieldtype": "Link",
+   "label": "Nationality",
+   "options": "Country"
+  },
+  {
+   "columns": 2,
+   "fieldname": "id_type",
+   "fieldtype": "Data",
+   "label": "ID Type"
+  },
+  {
+   "columns": 2,
+   "fieldname": "id_number",
+   "fieldtype": "Data",
+   "label": "ID Number"
+  },
+  {
+   "fieldname": "identification_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "id_expiry",
+   "fieldtype": "Date",
+   "label": "ID Expiry"
+  },
+  {
+   "columns": 2,
+   "fieldname": "date_of_birth",
+   "fieldtype": "Date",
+   "label": "Date of Birth"
+  },
+  {
+   "columns": 2,
+   "fieldname": "purpose_of_visit",
+   "fieldtype": "Select",
+   "label": "Purpose of Visit",
+   "options": "\nLeisure\nBusiness\nTransit\nMedical\nEducation\nOther"
+  },
+  {
+   "fieldname": "submission_section",
+   "fieldtype": "Section Break",
+   "label": "Submission"
+  },
+  {
+   "columns": 2,
+   "fieldname": "regulatory_export",
+   "fieldtype": "Link",
+   "label": "Regulatory Export",
+   "options": "Regulatory Export",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "submission_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "submitted_on",
+   "fieldtype": "Datetime",
+   "label": "Submitted On",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "acknowledgement_reference",
+   "fieldtype": "Data",
+   "label": "Acknowledgement Reference"
+  },
+  {
+   "fieldname": "error_section",
+   "fieldtype": "Section Break",
+   "label": "Error"
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Small Text",
+   "label": "Error Message"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:19:11.174284",
+ "modified_by": "Administrator",
+ "module": "Hospitality Integrations",
+ "name": "Guest Registration",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Agent",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

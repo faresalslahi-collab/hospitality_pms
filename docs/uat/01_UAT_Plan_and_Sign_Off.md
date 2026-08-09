@@ -145,8 +145,8 @@ answers here — scenarios in Journeys C and D branch on them.
 
 | Setting | Where | Value for this UAT |
 |---|---|---|
-| Require ID at check-in | Hospitality Property (Desk) | ☐ On ☐ Off |
-| Allow Vacant Dirty check-in | Hospitality Property (Desk) | ☐ On ☐ Off |
+| Require ID at check-in | Property (Desk) | ☐ On ☐ Off |
+| Allow Vacant Dirty check-in | Property (Desk) | ☐ On ☐ Off |
 
 ---
 

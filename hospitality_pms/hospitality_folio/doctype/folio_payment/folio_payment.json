@@ -1,0 +1,196 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-08-08 16:35:16.875710",
+ "description": "A receipt, deposit, refund or credit recorded against a guest folio. Like Folio Charge, this is the property's own operational record; ERPNext Payment Entry posting, when required, is recorded back onto this row rather than the row being derived from ERPNext.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "payment_date",
+  "business_date",
+  "payment_type",
+  "payment_method",
+  "amount_section",
+  "amount",
+  "reference",
+  "amount_col",
+  "payer",
+  "receipt_section",
+  "received_by",
+  "received_on",
+  "receipt_col",
+  "payment_entry",
+  "is_posted_to_erp",
+  "gateway_section",
+  "idempotency_key",
+  "gateway_col",
+  "provider_reference",
+  "reversal_section",
+  "is_reversed",
+  "reversal_reason"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "payment_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Payment Date",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "business_date",
+   "fieldtype": "Date",
+   "label": "Business Date",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "payment_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Payment Type",
+   "options": "Deposit\nPayment\nRefund\nCredit",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "payment_method",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Payment Method",
+   "options": "Cash\nCredit Card\nDebit Card\nBank Transfer\nCheque\nCity Ledger\nVoucher\nOnline Gateway",
+   "reqd": 1
+  },
+  {
+   "fieldname": "amount_section",
+   "fieldtype": "Section Break",
+   "label": "Amount"
+  },
+  {
+   "columns": 2,
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "reference",
+   "fieldtype": "Data",
+   "label": "Reference"
+  },
+  {
+   "fieldname": "amount_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "default": "Guest",
+   "fieldname": "payer",
+   "fieldtype": "Select",
+   "label": "Payer",
+   "options": "Guest\nCompany\nTravel Agent"
+  },
+  {
+   "fieldname": "receipt_section",
+   "fieldtype": "Section Break",
+   "label": "Receipt"
+  },
+  {
+   "columns": 2,
+   "fieldname": "received_by",
+   "fieldtype": "Link",
+   "label": "Received By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "received_on",
+   "fieldtype": "Datetime",
+   "label": "Received On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "receipt_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "payment_entry",
+   "fieldtype": "Link",
+   "label": "Payment Entry",
+   "options": "Payment Entry",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "is_posted_to_erp",
+   "fieldtype": "Check",
+   "label": "Posted to ERPNext",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gateway_section",
+   "fieldtype": "Section Break",
+   "label": "Gateway"
+  },
+  {
+   "columns": 2,
+   "description": "Stops a retried payment callback from duplicating this receipt.",
+   "fieldname": "idempotency_key",
+   "fieldtype": "Data",
+   "label": "Idempotency Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "gateway_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "description": "The payment gateway's own reference for this transaction.",
+   "fieldname": "provider_reference",
+   "fieldtype": "Data",
+   "label": "Provider Reference"
+  },
+  {
+   "fieldname": "reversal_section",
+   "fieldtype": "Section Break",
+   "label": "Reversal"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_reversed",
+   "fieldtype": "Check",
+   "label": "Reversed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reversal_reason",
+   "fieldtype": "Small Text",
+   "label": "Reversal Reason"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-08 16:35:34.520121",
+ "modified_by": "Administrator",
+ "module": "Hospitality Folio",
+ "name": "Folio Payment",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

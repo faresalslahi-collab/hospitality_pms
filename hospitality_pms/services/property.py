@@ -15,7 +15,7 @@ from hospitality_pms.services.exceptions import (
 	throw,
 )
 
-PROPERTY_DOCTYPE = "Hospitality Property"
+PROPERTY_DOCTYPE = "Property"
 
 #: Set while the Night Audit service moves the business date forward. Nothing
 #: else may change it, so a mis-click in Desk cannot re-open a closed day.
@@ -23,12 +23,12 @@ BUSINESS_DATE_FLAG = "hpms_business_date_transition"
 
 
 def get_settings():
-	"""System wide Hospitality Settings (cached single)."""
-	return frappe.get_cached_doc("Hospitality Settings")
+	"""System wide PMS Settings (cached single)."""
+	return frappe.get_cached_doc("PMS Settings")
 
 
 def get_property(name: str):
-	"""Cached Hospitality Property document."""
+	"""Cached Property document."""
 	if not name:
 		throw(_("A property is required for this operation."), exc=ConfigurationError)
 
@@ -48,11 +48,11 @@ def get_active_properties() -> list[str]:
 def get_permitted_properties(user: str | None = None) -> list[str]:
 	"""Active properties the user may operate in.
 
-	Access is expressed as Frappe User Permissions on Hospitality Property, so
+	Access is expressed as Frappe User Permissions on Property, so
 	Desk, the REST API and the Vue frontend all obey the same restriction
 	without a parallel access model (HPMS-DEC-052).
 
-	A user with no User Permission on Hospitality Property is unrestricted,
+	A user with no User Permission on Property is unrestricted,
 	which is Frappe's own semantics and keeps single-property sites simple.
 	"""
 	user = user or frappe.session.user
@@ -135,7 +135,7 @@ def get_business_date(property_name: str):
 def assert_business_date_change_allowed(doc):
 	"""Guard the business date against edits outside the Night Audit.
 
-	Called from the Hospitality Property controller. The Night Audit service
+	Called from the Property controller. The Night Audit service
 	sets the flag around its own update; every other caller is refused.
 	"""
 	if not doc.has_value_changed("business_date"):

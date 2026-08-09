@@ -15,8 +15,8 @@ rates loaded, at least eight rooms, a cancellation policy and a deposit policy.
 
 **Test data to prepare before you start:**
 
-- One **existing** Hospitality Guest, not blacklisted — created in Desk.
-- One Hospitality Guest with **Is Blacklisted** ticked and a reason recorded, for **B-07**. There is no blacklist control in `/pms`; set it up in Desk.
+- One **existing** Guest, not blacklisted — created in Desk.
+- One Guest with **Is Blacklisted** ticked and a reason recorded, for **B-07**. There is no blacklist control in `/pms`; set it up in Desk.
 - A date range 5–10 days out where you know both room types have rooms free.
 
 Wording in angle brackets (`<name>`, `<date>`) is a placeholder the server fills
@@ -240,14 +240,14 @@ if so it is **High**, not Low.
 | | |
 |---|---|
 | **Role** | Revenue Manager (to set), Reservation Agent (to hit) |
-| **Surface** | Desk → Rates and Revenue → Hospitality Room Inventory Restriction, then `/pms/reservations/new` |
+| **Surface** | Desk → Rates and Revenue → Room Inventory Restriction, then `/pms/reservations/new` |
 | **Prerequisites** | A-05 passed |
 | **Test data** | One night in your test range on which you will set a restriction, then remove it |
 | **Severity if failed** | High — revenue management cannot close a date, and the hotel sells inventory it meant to hold |
 
 | # | Step | Expected result |
 |---|---|---|
-| 1 | As Revenue Manager, create a **Hospitality Room Inventory Restriction** for one room type on one night, with **Stop sell** ticked. | Saves. |
+| 1 | As Revenue Manager, create a **Room Inventory Restriction** for one room type on one night, with **Stop sell** ticked. | Saves. |
 | 2 | As Reservation Agent, try to quote a stay covering that night for that room type. | **Refused** with a message that the room type is closed for sale on that date. |
 | 3 | Change the restriction: untick Stop sell, tick **Closed to arrival**. | Saves. |
 | 4 | Quote a stay **arriving** on that night. | Refused — arrivals are closed on that date. |
@@ -299,7 +299,7 @@ if so it is **High**, not Low.
 | | |
 |---|---|
 | **Role** | Reservation Agent |
-| **Surface** | Desk → Reservations → Hotel Reservation (this rule is enforced wherever the record is edited) |
+| **Surface** | Desk → Reservations → Reservation (this rule is enforced wherever the record is edited) |
 | **Prerequisites** | A Confirmed reservation from B-04 |
 | **Test data** | None |
 | **Severity if failed** | **Critical** — inventory held for one date range would silently move to another |

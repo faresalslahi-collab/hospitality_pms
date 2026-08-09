@@ -5,7 +5,7 @@ one normalised protocol - a JSON body of the shapes documented on
 `ChannelAdapter` - over plain HTTPS with an API key/secret pair. It does not
 know or care whether the connection is actually Booking.com, Expedia, Agoda
 or a channel manager sitting in front of all three; that distinction lives on
-`Hospitality Channel.provider` purely as a label until a vendor's real API
+`Booking Channel.provider` purely as a label until a vendor's real API
 turns out to need its own request shapes, at which point it gets its own
 adapter module here and its own entry in the registry - `ReservationService`
 and the rest of the domain layer never change.

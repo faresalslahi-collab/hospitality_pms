@@ -5,7 +5,7 @@ which room, on what rate, and what is on their folio right now?" Also used to
 reconstruct the in-house position for a date other than today (e.g. checking
 who was in house as of last night for a hand-over).
 
-Source: `Hospitality Stay` records in `In House` or `Due Out`, restricted to
+Source: `Stay` records in `In House` or `Due Out`, restricted to
 stays whose night span covers the as-of date. The span test mirrors the
 availability engine's night arithmetic — arrival inclusive, departure
 exclusive (`arrival_date <= as_of < departure_date`) — so a guest departing on
@@ -52,7 +52,7 @@ def get_columns():
 			"label": _("Folio"),
 			"fieldname": "folio",
 			"fieldtype": "Link",
-			"options": "Hospitality Guest Folio",
+			"options": "Guest Folio",
 			"width": 150,
 		},
 		{
@@ -82,8 +82,8 @@ def get_data(filters):
 			s.folio as folio,
 			f.balance as balance,
 			s.currency as currency
-		from `tabHospitality Stay` s
-		left join `tabHospitality Guest Folio` f on f.name = s.folio
+		from `tabStay` s
+		left join `tabGuest Folio` f on f.name = s.folio
 		where
 			s.property = %(property)s
 			and s.stay_status in ('In House', 'Due Out')

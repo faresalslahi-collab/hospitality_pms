@@ -1,6 +1,6 @@
 """Country-specific regulatory reporting, activated only where confirmed legal (HPMS-DEC-025).
 
-`Hospitality Regulatory Profile` is per-property configuration, not code: a
+`Regulatory Profile` is per-property configuration, not code: a
 new country needs a profile row with the right flags, never a change here.
 `get_profile` is the single point where "is this feature switched on for this
 property" is decided, and every other function in this module goes through
@@ -27,11 +27,11 @@ from hospitality_pms.services.base import lock_document, require_role
 from hospitality_pms.services.exceptions import ConfigurationError, HospitalityPMSError, throw
 from hospitality_pms.services.property import get_business_date
 
-PROFILE_DOCTYPE = "Hospitality Regulatory Profile"
-EXPORT_DOCTYPE = "Hospitality Regulatory Export"
-REGISTRATION_DOCTYPE = "Hospitality Guest Registration"
-STAY_DOCTYPE = "Hospitality Stay"
-GUEST_DOCTYPE = "Hospitality Guest"
+PROFILE_DOCTYPE = "Regulatory Profile"
+EXPORT_DOCTYPE = "Regulatory Export"
+REGISTRATION_DOCTYPE = "Guest Registration"
+STAY_DOCTYPE = "Stay"
+GUEST_DOCTYPE = "Guest"
 
 #: Export types this build knows how to collect records for. The doctype
 #: offers more (Tourism Levy, VAT Return, E-Invoice, Municipality Report,

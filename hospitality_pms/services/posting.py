@@ -12,7 +12,7 @@ many times checkout is retried. The key is `unique` on the posting log, so two
 concurrent attempts cannot both create a document - the second hits a duplicate
 entry error and reads back the first one's result.
 
-**Traceable.** Every attempt writes a Hospitality Financial Posting Log row,
+**Traceable.** Every attempt writes a Financial Posting Log row,
 including failures, with the payload that was sent. A finance user must be able
 to answer "what did we send, when, and what came back" without reading code.
 
@@ -31,9 +31,9 @@ from hospitality_pms.services.exceptions import ConfigurationError, PostingError
 from hospitality_pms.services.guests import ensure_customer
 from hospitality_pms.services.property import get_business_date, get_company, get_property
 
-POSTING_LOG = "Hospitality Financial Posting Log"
-PROFILE_DOCTYPE = "Hospitality Posting Profile"
-FOLIO_DOCTYPE = "Hospitality Guest Folio"
+POSTING_LOG = "Financial Posting Log"
+PROFILE_DOCTYPE = "Posting Profile"
+FOLIO_DOCTYPE = "Guest Folio"
 
 PENDING = "Pending"
 POSTED = "Posted"
@@ -299,7 +299,7 @@ def _build_and_submit_invoice(doc, log: str, *, business_date=None, submit: bool
 	# Stamp the folio lines so a second invoice cannot pick them up.
 	for row in chargeable:
 		frappe.db.set_value(
-			"Hospitality Folio Charge",
+			"Folio Charge",
 			row.name,
 			{"is_posted_to_erp": 1, "sales_invoice": invoice.name},
 			update_modified=False,
@@ -411,7 +411,7 @@ def _build_and_submit_payment(doc, row, log: str, *, business_date=None) -> dict
 	entry.submit()
 
 	frappe.db.set_value(
-		"Hospitality Folio Payment",
+		"Folio Payment",
 		row.name,
 		{"is_posted_to_erp": 1, "payment_entry": entry.name},
 		update_modified=False,

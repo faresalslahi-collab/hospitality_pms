@@ -1,0 +1,258 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "field:provider_code",
+ "creation": "2026-08-08 16:48:35.888719",
+ "description": "A configured payment provider for a property: Fatora, Stripe or a manual/offline fallback (HPMS-DEC-024, Fatora primary / Stripe fallback), with its credentials, mode of payment and receiving account. Credentials are held encrypted via the Password fieldtype and are restricted to Hospitality Administrator / System Manager per the Roles and Permissions Matrix.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "provider_code",
+  "provider_name",
+  "identity_col",
+  "property",
+  "provider",
+  "status_section",
+  "is_active",
+  "is_default",
+  "status_col",
+  "environment",
+  "supports_refund",
+  "credentials_section",
+  "api_base_url",
+  "credentials_col",
+  "api_key",
+  "api_secret",
+  "webhook_secret",
+  "accounting_section",
+  "mode_of_payment",
+  "accounting_col",
+  "payment_account",
+  "notes_section",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "columns": 2,
+   "fieldname": "provider_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Provider Code",
+   "length": 30,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "provider_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Provider Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "identity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Property",
+   "options": "Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "columns": 2,
+   "description": "Fatora is the primary payment provider, Stripe the fallback (HPMS-DEC-024). Manual records an offline/manual payment with no live gateway.",
+   "fieldname": "provider",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Provider",
+   "options": "Fatora\nStripe\nManual",
+   "reqd": 1
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "columns": 2,
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Active"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "label": "Default Provider"
+  },
+  {
+   "fieldname": "status_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "default": "Sandbox",
+   "fieldname": "environment",
+   "fieldtype": "Select",
+   "label": "Environment",
+   "options": "Sandbox\nProduction"
+  },
+  {
+   "columns": 2,
+   "default": "1",
+   "fieldname": "supports_refund",
+   "fieldtype": "Check",
+   "label": "Supports Refund"
+  },
+  {
+   "fieldname": "credentials_section",
+   "fieldtype": "Section Break",
+   "label": "API Configuration"
+  },
+  {
+   "columns": 2,
+   "fieldname": "api_base_url",
+   "fieldtype": "Data",
+   "label": "API Base URL"
+  },
+  {
+   "fieldname": "credentials_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Stored encrypted by Frappe (Password fieldtype), never shown in plain text.",
+   "fieldname": "api_key",
+   "fieldtype": "Password",
+   "label": "API Key"
+  },
+  {
+   "description": "Stored encrypted by Frappe (Password fieldtype), never shown in plain text.",
+   "fieldname": "api_secret",
+   "fieldtype": "Password",
+   "label": "API Secret"
+  },
+  {
+   "description": "Stored encrypted by Frappe (Password fieldtype), used to verify inbound callbacks.",
+   "fieldname": "webhook_secret",
+   "fieldtype": "Password",
+   "label": "Webhook Secret"
+  },
+  {
+   "fieldname": "accounting_section",
+   "fieldtype": "Section Break",
+   "label": "Accounting"
+  },
+  {
+   "columns": 2,
+   "fieldname": "mode_of_payment",
+   "fieldtype": "Link",
+   "label": "Mode of Payment",
+   "options": "Mode of Payment"
+  },
+  {
+   "fieldname": "accounting_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "payment_account",
+   "fieldtype": "Link",
+   "label": "Payment Account",
+   "options": "Account"
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:19:03.562949",
+ "modified_by": "Administrator",
+ "module": "Hospitality Integrations",
+ "name": "Payment Provider",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "provider_name",
+ "track_changes": 1
+}

@@ -3,7 +3,7 @@
 Answers the maintenance manager's question: "Are we assigning and closing
 tickets inside a reasonable time, and is that time getting worse for any one
 priority?" One row per ticket reported in the filter period, from
-`Hospitality Maintenance Ticket` (SAS 3.12).
+`Maintenance Ticket` (SAS 3.12).
 
 How the derived figures are calculated:
 
@@ -48,7 +48,7 @@ def get_columns():
 			"label": _("Ticket"),
 			"fieldname": "ticket",
 			"fieldtype": "Link",
-			"options": "Hospitality Maintenance Ticket",
+			"options": "Maintenance Ticket",
 			"width": 130,
 		},
 		# Data, not Link: this may hold either a room code or a free-text area
@@ -81,7 +81,7 @@ def get_columns():
 
 def get_data(filters):
 	# The property filter is the scoping boundary here: `frappe.get_all`
-	# applies Hospitality Maintenance Ticket's own permission rules on top of
+	# applies Maintenance Ticket's own permission rules on top of
 	# this mandatory filter.
 	conditions = {"property": filters.property}
 
@@ -96,7 +96,7 @@ def get_data(filters):
 		conditions["reported_on"] = ["<=", to_date]
 
 	tickets = frappe.get_all(
-		"Hospitality Maintenance Ticket",
+		"Maintenance Ticket",
 		filters=conditions,
 		fields=[
 			"name",

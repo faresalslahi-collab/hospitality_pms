@@ -1,0 +1,68 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-08-08 16:54:55.391255",
+ "description": "One entry in a maintenance ticket's work log: what was done, by whom, how long it took, and any parts consumed, per SAS 3.12 work log support.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "logged_on",
+  "logged_by",
+  "work_done",
+  "minutes_spent",
+  "parts_used"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "logged_on",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Logged On",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "logged_by",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Logged By",
+   "options": "User"
+  },
+  {
+   "fieldname": "work_done",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Work Done",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "minutes_spent",
+   "fieldtype": "Int",
+   "label": "Minutes Spent"
+  },
+  {
+   "fieldname": "parts_used",
+   "fieldtype": "Small Text",
+   "label": "Parts Used"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-08 16:54:55.391255",
+ "modified_by": "Administrator",
+ "module": "Hospitality Maintenance",
+ "name": "Maintenance Work Log",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

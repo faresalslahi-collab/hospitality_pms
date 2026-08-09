@@ -1,7 +1,7 @@
 app_name = "hospitality_pms"
 app_title = "Hospitality PMS"
 app_publisher = "Globcom Qatar"
-app_description = "Hospitality Property Management System for Frappe/ERPNext v16"
+app_description = "Property Management System for Frappe/ERPNext v16"
 app_email = "waheed@globcomqatar.com"
 app_license = "mit"
 

@@ -24,7 +24,7 @@ from hospitality_pms.services.exceptions import (
 )
 
 ROOM_DOCTYPE = "Hotel Room"
-LOG_DOCTYPE = "Hospitality Room Status Log"
+LOG_DOCTYPE = "Room Status Log"
 
 # ---------------------------------------------------------------------------
 # The four dimensions

@@ -14,7 +14,7 @@
  "name": "Cancellations and No Shows",
  "owner": "Administrator",
  "prepared_report": 0,
- "ref_doctype": "Hotel Reservation",
+ "ref_doctype": "Reservation",
  "report_name": "Cancellations and No Shows",
  "report_type": "Script Report",
  "roles": [

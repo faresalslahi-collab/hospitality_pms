@@ -8,7 +8,7 @@ frappe.query_reports["Corporate Production"] = {
 			fieldname: "property",
 			label: __("Property"),
 			fieldtype: "Link",
-			options: "Hospitality Property",
+			options: "Property",
 			reqd: 1,
 		},
 		{

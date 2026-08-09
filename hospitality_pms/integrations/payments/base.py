@@ -20,14 +20,14 @@ from dataclasses import dataclass, field
 import frappe
 from frappe.utils import now_datetime
 
-INTEGRATION_LOG = "Hospitality Integration Request Log"
+INTEGRATION_LOG = "PMS Integration Log"
 
 
 @dataclass
 class PaymentResult:
 	"""What a provider says happened.
 
-	`status` uses the Hospitality Payment Transaction vocabulary, so adapters
+	`status` uses the Payment Transaction vocabulary, so adapters
 	translate provider-specific status strings rather than leaking them.
 	"""
 

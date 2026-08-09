@@ -26,16 +26,16 @@ class HotelRoom(CodeNamedDocument, Document):
 		# The four status fields are intentionally untouched here - they belong
 		# to RoomStatusService and are read-only on this form.
 		validate_property_matches_parent(self, "Room Type", "room_type")
-		validate_property_matches_parent(self, "Hospitality Building", "building")
-		validate_property_matches_parent(self, "Hospitality Wing", "wing")
-		validate_property_matches_parent(self, "Hospitality Floor", "floor")
-		validate_property_matches_parent(self, "Hospitality Zone", "zone")
+		validate_property_matches_parent(self, "Building", "building")
+		validate_property_matches_parent(self, "Wing", "wing")
+		validate_property_matches_parent(self, "Floor", "floor")
+		validate_property_matches_parent(self, "Zone", "zone")
 
 	def validate_location_hierarchy(self):
 		# Wing and Floor both need to be checked against the same Building,
 		# so the check is factored into one small helper rather than repeated.
-		self._validate_belongs_to_building("Hospitality Wing", self.wing, _("wing"))
-		self._validate_belongs_to_building("Hospitality Floor", self.floor, _("floor"))
+		self._validate_belongs_to_building("Wing", self.wing, _("wing"))
+		self._validate_belongs_to_building("Floor", self.floor, _("floor"))
 
 	def _validate_belongs_to_building(self, doctype: str, name: str | None, label: str):
 		if not name or not self.building:

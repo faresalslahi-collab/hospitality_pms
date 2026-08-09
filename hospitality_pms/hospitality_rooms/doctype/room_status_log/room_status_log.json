@@ -1,0 +1,199 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2026-08-08 16:04:52.415165",
+ "description": "Append-only audit trail of every room status transition across all four dimensions. Written only by RoomStatusService and never edited by hand.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "log_section",
+  "property",
+  "room",
+  "log_col",
+  "dimension",
+  "changed_by",
+  "changed_at",
+  "transition_section",
+  "from_status",
+  "transition_col",
+  "to_status",
+  "context_section",
+  "reason",
+  "context_col",
+  "reference_doctype",
+  "reference_name"
+ ],
+ "fields": [
+  {
+   "fieldname": "log_section",
+   "fieldtype": "Section Break",
+   "label": "Log Entry"
+  },
+  {
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Property",
+   "options": "Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "room",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Room",
+   "options": "Hotel Room",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "log_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "dimension",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Dimension",
+   "options": "Occupancy\nHousekeeping\nMaintenance\nInventory",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "changed_by",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Changed By",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "changed_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Changed At",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "transition_section",
+   "fieldtype": "Section Break",
+   "label": "Transition"
+  },
+  {
+   "fieldname": "from_status",
+   "fieldtype": "Data",
+   "label": "From Status"
+  },
+  {
+   "fieldname": "transition_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "to_status",
+   "fieldtype": "Data",
+   "label": "To Status",
+   "reqd": 1
+  },
+  {
+   "fieldname": "context_section",
+   "fieldtype": "Section Break",
+   "label": "Context"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason"
+  },
+  {
+   "fieldname": "context_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference Document Type",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Reference Name",
+   "options": "reference_doctype"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:18:57.739749",
+ "modified_by": "Administrator",
+ "module": "Hospitality Rooms",
+ "name": "Room Status Log",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Supervisor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Manager"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "changed_at",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

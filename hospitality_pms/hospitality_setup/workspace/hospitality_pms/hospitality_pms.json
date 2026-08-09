@@ -1,7 +1,7 @@
 {
  "app": "hospitality_pms",
  "charts": [],
- "content": "[{\"id\": \"hdr1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Your Shortcuts</b></span>\", \"col\": 12}}, {\"id\": \"shortcut2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Open Hospitality PMS\", \"col\": 3}}, {\"id\": \"shortcut3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Hotel Reservation\", \"col\": 3}}, {\"id\": \"shortcut4\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Hotel Room\", \"col\": 3}}, {\"id\": \"shortcut5\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Hospitality Guest\", \"col\": 3}}, {\"id\": \"shortcut6\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Hospitality Guest Folio\", \"col\": 3}}, {\"id\": \"shortcut7\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Hospitality Night Audit\", \"col\": 3}}, {\"id\": \"spacer8\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"hdr9\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Number Cards</b></span>\", \"col\": 12}}, {\"id\": \"numcard10\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Arrivals Today\", \"col\": 3}}, {\"id\": \"numcard11\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"In House\", \"col\": 3}}, {\"id\": \"numcard12\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Rooms Out of Order\", \"col\": 3}}, {\"id\": \"numcard13\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Housekeeping Tasks Pending\", \"col\": 3}}, {\"id\": \"numcard14\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Open Maintenance Tickets\", \"col\": 3}}, {\"id\": \"numcard15\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Failed Postings\", \"col\": 3}}, {\"id\": \"numcard16\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Integration Failures Pending\", \"col\": 3}}, {\"id\": \"numcard17\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Overdue Guest Requests\", \"col\": 3}}, {\"id\": \"spacer18\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"hdr19\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Modules</b></span>\", \"col\": 12}}, {\"id\": \"card20\", \"type\": \"card\", \"data\": {\"card_name\": \"Operations\", \"col\": 4}}, {\"id\": \"card21\", \"type\": \"card\", \"data\": {\"card_name\": \"Rooms\", \"col\": 4}}, {\"id\": \"card22\", \"type\": \"card\", \"data\": {\"card_name\": \"Housekeeping and Maintenance\", \"col\": 4}}, {\"id\": \"card23\", \"type\": \"card\", \"data\": {\"card_name\": \"Guests and Sales\", \"col\": 4}}, {\"id\": \"card24\", \"type\": \"card\", \"data\": {\"card_name\": \"Rates and Revenue\", \"col\": 4}}, {\"id\": \"card25\", \"type\": \"card\", \"data\": {\"card_name\": \"Food and Service\", \"col\": 4}}, {\"id\": \"card26\", \"type\": \"card\", \"data\": {\"card_name\": \"Finance and Reconciliation\", \"col\": 4}}, {\"id\": \"card27\", \"type\": \"card\", \"data\": {\"card_name\": \"Integrations\", \"col\": 4}}, {\"id\": \"card28\", \"type\": \"card\", \"data\": {\"card_name\": \"Regulatory\", \"col\": 4}}, {\"id\": \"card29\", \"type\": \"card\", \"data\": {\"card_name\": \"Setup\", \"col\": 4}}, {\"id\": \"card30\", \"type\": \"card\", \"data\": {\"card_name\": \"Audit Trails\", \"col\": 4}}]",
+ "content": "[{\"id\": \"hdr1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Your Shortcuts</b></span>\", \"col\": 12}}, {\"id\": \"shortcut2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"PMS Console\", \"col\": 3}}, {\"id\": \"shortcut3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Reservation\", \"col\": 3}}, {\"id\": \"shortcut4\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Hotel Room\", \"col\": 3}}, {\"id\": \"shortcut5\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Guest\", \"col\": 3}}, {\"id\": \"shortcut6\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Guest Folio\", \"col\": 3}}, {\"id\": \"shortcut7\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Night Audit\", \"col\": 3}}, {\"id\": \"spacer8\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"hdr9\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Number Cards</b></span>\", \"col\": 12}}, {\"id\": \"numcard10\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Arrivals Today\", \"col\": 3}}, {\"id\": \"numcard11\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"In House\", \"col\": 3}}, {\"id\": \"numcard12\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Rooms Out of Order\", \"col\": 3}}, {\"id\": \"numcard13\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Housekeeping Tasks Pending\", \"col\": 3}}, {\"id\": \"numcard14\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Open Maintenance Tickets\", \"col\": 3}}, {\"id\": \"numcard15\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Failed Postings\", \"col\": 3}}, {\"id\": \"numcard16\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Integration Failures Pending\", \"col\": 3}}, {\"id\": \"numcard17\", \"type\": \"number_card\", \"data\": {\"number_card_name\": \"Overdue Guest Requests\", \"col\": 3}}, {\"id\": \"spacer18\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"hdr19\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Modules</b></span>\", \"col\": 12}}, {\"id\": \"card20\", \"type\": \"card\", \"data\": {\"card_name\": \"Operations\", \"col\": 4}}, {\"id\": \"card21\", \"type\": \"card\", \"data\": {\"card_name\": \"Rooms\", \"col\": 4}}, {\"id\": \"card22\", \"type\": \"card\", \"data\": {\"card_name\": \"Housekeeping and Maintenance\", \"col\": 4}}, {\"id\": \"card23\", \"type\": \"card\", \"data\": {\"card_name\": \"Guests and Sales\", \"col\": 4}}, {\"id\": \"card24\", \"type\": \"card\", \"data\": {\"card_name\": \"Rates and Revenue\", \"col\": 4}}, {\"id\": \"card25\", \"type\": \"card\", \"data\": {\"card_name\": \"Food and Service\", \"col\": 4}}, {\"id\": \"card26\", \"type\": \"card\", \"data\": {\"card_name\": \"Finance and Reconciliation\", \"col\": 4}}, {\"id\": \"card27\", \"type\": \"card\", \"data\": {\"card_name\": \"Integrations\", \"col\": 4}}, {\"id\": \"card28\", \"type\": \"card\", \"data\": {\"card_name\": \"Regulatory\", \"col\": 4}}, {\"id\": \"card29\", \"type\": \"card\", \"data\": {\"card_name\": \"Setup\", \"col\": 4}}, {\"id\": \"card30\", \"type\": \"card\", \"data\": {\"card_name\": \"Audit Trails\", \"col\": 4}}]",
  "creation": "2026-08-08 15:19:30.804329",
  "custom_blocks": [],
  "docstatus": 0,
@@ -27,9 +27,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hotel Reservation",
+   "label": "Reservation",
    "link_count": 0,
-   "link_to": "Hotel Reservation",
+   "link_to": "Reservation",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -38,9 +38,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Stay",
+   "label": "Stay",
    "link_count": 0,
-   "link_to": "Hospitality Stay",
+   "link_to": "Stay",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -49,9 +49,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Guest Folio",
+   "label": "Guest Folio",
    "link_count": 0,
-   "link_to": "Hospitality Guest Folio",
+   "link_to": "Guest Folio",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -60,9 +60,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Night Audit",
+   "label": "Night Audit",
    "link_count": 0,
-   "link_to": "Hospitality Night Audit",
+   "link_to": "Night Audit",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -102,9 +102,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Room Block",
+   "label": "Room Block",
    "link_count": 0,
-   "link_to": "Hospitality Room Block",
+   "link_to": "Room Block",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -113,9 +113,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Room Status Log",
+   "label": "Room Status Log",
    "link_count": 0,
-   "link_to": "Hospitality Room Status Log",
+   "link_to": "Room Status Log",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -133,9 +133,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Housekeeping Task",
+   "label": "Housekeeping Task",
    "link_count": 0,
-   "link_to": "Hospitality Housekeeping Task",
+   "link_to": "Housekeeping Task",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -144,9 +144,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Room Inspection",
+   "label": "Room Inspection",
    "link_count": 0,
-   "link_to": "Hospitality Room Inspection",
+   "link_to": "Room Inspection",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -155,9 +155,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Maintenance Ticket",
+   "label": "Maintenance Ticket",
    "link_count": 0,
-   "link_to": "Hospitality Maintenance Ticket",
+   "link_to": "Maintenance Ticket",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -175,9 +175,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Guest",
+   "label": "Guest",
    "link_count": 0,
-   "link_to": "Hospitality Guest",
+   "link_to": "Guest",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -186,9 +186,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Corporate Account",
+   "label": "Corporate Account",
    "link_count": 0,
-   "link_to": "Hospitality Corporate Account",
+   "link_to": "Corporate Account",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -197,9 +197,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Group Reservation",
+   "label": "Group Reservation",
    "link_count": 0,
-   "link_to": "Hospitality Group Reservation",
+   "link_to": "Group Reservation",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -208,9 +208,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Guest Request",
+   "label": "Guest Request",
    "link_count": 0,
-   "link_to": "Hospitality Guest Request",
+   "link_to": "Guest Request",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -228,9 +228,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Rate Plan",
+   "label": "Rate Plan",
    "link_count": 0,
-   "link_to": "Hospitality Rate Plan",
+   "link_to": "Rate Plan",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -239,9 +239,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Daily Rate",
+   "label": "Daily Rate",
    "link_count": 0,
-   "link_to": "Hospitality Daily Rate",
+   "link_to": "Daily Rate",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -250,9 +250,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Rate Policy",
+   "label": "Rate Policy",
    "link_count": 0,
-   "link_to": "Hospitality Rate Policy",
+   "link_to": "Rate Policy",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -261,9 +261,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Room Inventory Restriction",
+   "label": "Room Inventory Restriction",
    "link_count": 0,
-   "link_to": "Hospitality Room Inventory Restriction",
+   "link_to": "Room Inventory Restriction",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -281,9 +281,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Menu Item",
+   "label": "Menu Item",
    "link_count": 0,
-   "link_to": "Hospitality Menu Item",
+   "link_to": "Menu Item",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -292,9 +292,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Room Service Order",
+   "label": "Room Service Order",
    "link_count": 0,
-   "link_to": "Hospitality Room Service Order",
+   "link_to": "Room Service Order",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -303,9 +303,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Kitchen Requisition",
+   "label": "Kitchen Requisition",
    "link_count": 0,
-   "link_to": "Hospitality Kitchen Requisition",
+   "link_to": "Kitchen Requisition",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -314,9 +314,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Wastage Entry",
+   "label": "Wastage Entry",
    "link_count": 0,
-   "link_to": "Hospitality Wastage Entry",
+   "link_to": "Wastage Entry",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -334,9 +334,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Posting Profile",
+   "label": "Posting Profile",
    "link_count": 0,
-   "link_to": "Hospitality Posting Profile",
+   "link_to": "Posting Profile",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -345,9 +345,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Financial Posting Log",
+   "label": "Financial Posting Log",
    "link_count": 0,
-   "link_to": "Hospitality Financial Posting Log",
+   "link_to": "Financial Posting Log",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -356,9 +356,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Folio Log",
+   "label": "Folio Log",
    "link_count": 0,
-   "link_to": "Hospitality Folio Log",
+   "link_to": "Folio Log",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -367,9 +367,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Payment Transaction",
+   "label": "Payment Transaction",
    "link_count": 0,
-   "link_to": "Hospitality Payment Transaction",
+   "link_to": "Payment Transaction",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -387,9 +387,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Payment Provider",
+   "label": "Payment Provider",
    "link_count": 0,
-   "link_to": "Hospitality Payment Provider",
+   "link_to": "Payment Provider",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -398,9 +398,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Channel",
+   "label": "Booking Channel",
    "link_count": 0,
-   "link_to": "Hospitality Channel",
+   "link_to": "Booking Channel",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -409,9 +409,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Channel Reservation",
+   "label": "Channel Reservation",
    "link_count": 0,
-   "link_to": "Hospitality Channel Reservation",
+   "link_to": "Channel Reservation",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -420,9 +420,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Integration Request Log",
+   "label": "PMS Integration Log",
    "link_count": 0,
-   "link_to": "Hospitality Integration Request Log",
+   "link_to": "PMS Integration Log",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -431,9 +431,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Integration Failure Queue",
+   "label": "PMS Integration Failure Queue",
    "link_count": 0,
-   "link_to": "Hospitality Integration Failure Queue",
+   "link_to": "PMS Integration Failure Queue",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -442,9 +442,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Hardware Device",
+   "label": "Hardware Device",
    "link_count": 0,
-   "link_to": "Hospitality Hardware Device",
+   "link_to": "Hardware Device",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -453,9 +453,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Key Card",
+   "label": "Key Card",
    "link_count": 0,
-   "link_to": "Hospitality Key Card",
+   "link_to": "Key Card",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -473,9 +473,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Regulatory Profile",
+   "label": "Regulatory Profile",
    "link_count": 0,
-   "link_to": "Hospitality Regulatory Profile",
+   "link_to": "Regulatory Profile",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -484,9 +484,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Regulatory Export",
+   "label": "Regulatory Export",
    "link_count": 0,
-   "link_to": "Hospitality Regulatory Export",
+   "link_to": "Regulatory Export",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -495,9 +495,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Guest Registration",
+   "label": "Guest Registration",
    "link_count": 0,
-   "link_to": "Hospitality Guest Registration",
+   "link_to": "Guest Registration",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -515,9 +515,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Property",
+   "label": "Property",
    "link_count": 0,
-   "link_to": "Hospitality Property",
+   "link_to": "Property",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -526,9 +526,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Settings",
+   "label": "PMS Settings",
    "link_count": 0,
-   "link_to": "Hospitality Settings",
+   "link_to": "PMS Settings",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -537,9 +537,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Building",
+   "label": "Building",
    "link_count": 0,
-   "link_to": "Hospitality Building",
+   "link_to": "Building",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -548,9 +548,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Wing",
+   "label": "Wing",
    "link_count": 0,
-   "link_to": "Hospitality Wing",
+   "link_to": "Wing",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -559,9 +559,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Floor",
+   "label": "Floor",
    "link_count": 0,
-   "link_to": "Hospitality Floor",
+   "link_to": "Floor",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -570,9 +570,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Zone",
+   "label": "Zone",
    "link_count": 0,
-   "link_to": "Hospitality Zone",
+   "link_to": "Zone",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -581,9 +581,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Department",
+   "label": "Property Department",
    "link_count": 0,
-   "link_to": "Hospitality Department",
+   "link_to": "Property Department",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -592,9 +592,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Shift",
+   "label": "Property Shift",
    "link_count": 0,
-   "link_to": "Hospitality Shift",
+   "link_to": "Property Shift",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -612,9 +612,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Reservation Log",
+   "label": "Reservation Log",
    "link_count": 0,
-   "link_to": "Hospitality Reservation Log",
+   "link_to": "Reservation Log",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -623,9 +623,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Corporate Credit Log",
+   "label": "Corporate Credit Log",
    "link_count": 0,
-   "link_to": "Hospitality Corporate Credit Log",
+   "link_to": "Corporate Credit Log",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -634,9 +634,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Guest Request Log",
+   "label": "Guest Request Log",
    "link_count": 0,
-   "link_to": "Hospitality Guest Request Log",
+   "link_to": "Guest Request Log",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -645,9 +645,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Guest Merge Log",
+   "label": "Guest Merge Log",
    "link_count": 0,
-   "link_to": "Hospitality Guest Merge Log",
+   "link_to": "Guest Merge Log",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -656,9 +656,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Channel Sync Log",
+   "label": "Channel Sync Log",
    "link_count": 0,
-   "link_to": "Hospitality Channel Sync Log",
+   "link_to": "Channel Sync Log",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -673,7 +673,7 @@
    "type": "Card Break"
   },
   {
-   "dependencies": "Hotel Reservation",
+   "dependencies": "Reservation",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Arrivals",
@@ -684,7 +684,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Stay",
+   "dependencies": "Stay",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Departures",
@@ -695,7 +695,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Stay",
+   "dependencies": "Stay",
    "hidden": 0,
    "is_query_report": 1,
    "label": "In House",
@@ -728,7 +728,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Stay",
+   "dependencies": "Stay",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Occupancy and Revenue",
@@ -750,7 +750,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hotel Reservation",
+   "dependencies": "Reservation",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Revenue by Source",
@@ -761,7 +761,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Corporate Account",
+   "dependencies": "Corporate Account",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Corporate Production",
@@ -772,7 +772,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hotel Reservation",
+   "dependencies": "Reservation",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Cancellations and No Shows",
@@ -783,7 +783,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Guest Folio",
+   "dependencies": "Guest Folio",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Folio vs Invoice",
@@ -794,7 +794,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Folio Payment",
+   "dependencies": "Folio Payment",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Payment Reconciliation",
@@ -805,7 +805,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Financial Posting Log",
+   "dependencies": "Financial Posting Log",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Failed Postings",
@@ -816,7 +816,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Guest Folio",
+   "dependencies": "Guest Folio",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Guest Ledger",
@@ -827,7 +827,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Corporate Account",
+   "dependencies": "Corporate Account",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Corporate Credit Exposure",
@@ -838,7 +838,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Housekeeping Task",
+   "dependencies": "Housekeeping Task",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Housekeeping Productivity",
@@ -860,7 +860,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Maintenance Ticket",
+   "dependencies": "Maintenance Ticket",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Maintenance Response Times",
@@ -871,7 +871,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Guest Request",
+   "dependencies": "Guest Request",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Guest Request SLA",
@@ -882,7 +882,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Wastage Entry",
+   "dependencies": "Wastage Entry",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Kitchen Consumption and Wastage",
@@ -893,7 +893,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Regulatory Export",
+   "dependencies": "Regulatory Export",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Regulatory Submissions",
@@ -1022,14 +1022,14 @@
   {
    "color": "Green",
    "doc_view": "",
-   "label": "Open Hospitality PMS",
+   "label": "PMS Console",
    "type": "URL",
    "url": "/pms"
   },
   {
    "doc_view": "List",
-   "label": "Hotel Reservation",
-   "link_to": "Hotel Reservation",
+   "label": "Reservation",
+   "link_to": "Reservation",
    "type": "DocType"
   },
   {
@@ -1040,20 +1040,20 @@
   },
   {
    "doc_view": "List",
-   "label": "Hospitality Guest",
-   "link_to": "Hospitality Guest",
+   "label": "Guest",
+   "link_to": "Guest",
    "type": "DocType"
   },
   {
    "doc_view": "List",
-   "label": "Hospitality Guest Folio",
-   "link_to": "Hospitality Guest Folio",
+   "label": "Guest Folio",
+   "link_to": "Guest Folio",
    "type": "DocType"
   },
   {
    "doc_view": "List",
-   "label": "Hospitality Night Audit",
-   "link_to": "Hospitality Night Audit",
+   "label": "Night Audit",
+   "link_to": "Night Audit",
    "type": "DocType"
   }
  ],

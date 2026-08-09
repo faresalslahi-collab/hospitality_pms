@@ -2,13 +2,13 @@
 
 Duplicate protection, twice
 ----------------------------
-A channel message is written to `Hospitality Channel Reservation` under its
+A channel message is written to `Channel Reservation` under its
 own idempotency key *before* anything else happens (SAS 3.4). A retried or
 re-delivered message finds that row already there and stops - it is marked a
 duplicate and nothing downstream runs again. If it gets past that point, the
-`Hotel Reservation` it produces carries `external_reference` set to the
+`Reservation` it produces carries `external_reference` set to the
 channel's own reservation id, so `ReservationService`'s own duplicate check
-(`find_by_external_reference`, enforced in `HotelReservation.validate`) is a
+(`find_by_external_reference`, enforced in `Reservation.validate`) is a
 second, independent guard against the same channel booking landing twice -
 belt and braces, because the two checks protect against different failure
 modes: a replayed message, and two different messages somehow describing the
@@ -16,7 +16,7 @@ same booking.
 
 Modify is cancel-and-rebook
 ----------------------------
-`HotelReservation` refuses to change `arrival_date`, `departure_date`,
+`Reservation` refuses to change `arrival_date`, `departure_date`,
 `property` or `guest` once a reservation is holding inventory
 (`_guard_holding_immutability`) - the only place those are safely changed is
 `ReservationService.confirm`, which locks the room type and re-checks
@@ -40,11 +40,11 @@ from hospitality_pms.services.availability import get_availability
 from hospitality_pms.services.exceptions import ConfigurationError, throw
 from hospitality_pms.services.rates import get_rate_breakdown
 
-CHANNEL_DOCTYPE = "Hospitality Channel"
-CHANNEL_RESERVATION_DOCTYPE = "Hospitality Channel Reservation"
-SYNC_LOG_DOCTYPE = "Hospitality Channel Sync Log"
-FAILURE_QUEUE = "Hospitality Integration Failure Queue"
-GUEST_DOCTYPE = "Hospitality Guest"
+CHANNEL_DOCTYPE = "Booking Channel"
+CHANNEL_RESERVATION_DOCTYPE = "Channel Reservation"
+SYNC_LOG_DOCTYPE = "Channel Sync Log"
+FAILURE_QUEUE = "PMS Integration Failure Queue"
+GUEST_DOCTYPE = "Guest"
 
 #: How far ahead `sync_all` refreshes availability and rates when the
 #: scheduler calls it with no explicit range. Channels are pushed a rolling
@@ -63,7 +63,7 @@ def import_reservation(property_name: str, channel: str, payload: dict) -> dict:
 	"""Import one reservation message from a channel.
 
 	`payload` is whatever the channel adapter normalised - `pull_reservations`
-	or `verify_callback` - shaped like a `Hospitality Channel Reservation` row.
+	or `verify_callback` - shaped like a `Channel Reservation` row.
 	The row is written first, under its own idempotency key, before any
 	interpretation of the message happens; see the module docstring.
 	"""
@@ -138,7 +138,7 @@ def import_reservation(property_name: str, channel: str, payload: dict) -> dict:
 
 
 def _book_new(row, channel_doc) -> str:
-	"""Map a channel reservation message onto a confirmed `Hotel Reservation`."""
+	"""Map a channel reservation message onto a confirmed `Reservation`."""
 	room_type = _resolve_room_type(channel_doc, row.room_type_code)
 	rate_plan = _resolve_rate_plan(channel_doc, row.room_type_code) or channel_doc.default_rate_plan
 	guest = _resolve_guest(row)
@@ -152,7 +152,7 @@ def _book_new(row, channel_doc) -> str:
 			"booking_source": channel_doc.channel_name,
 			"channel": channel_doc.channel_code,
 			# ReservationService's own duplicate check (find_by_external_reference,
-			# enforced in HotelReservation.validate) keys off this field, so a
+			# enforced in Reservation.validate) keys off this field, so a
 			# message that somehow slipped past the idempotency check above is
 			# still caught here as a second, independent guard.
 			"external_reference": row.channel_reservation_id,

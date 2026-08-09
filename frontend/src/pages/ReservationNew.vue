@@ -191,7 +191,7 @@ const search = availabilitySearchResource()
 const quote = quoteResource()
 const guestSearch = searchGuestsResource()
 const createReservation = createReservationResource()
-const ratePlans = listResource('Hospitality Rate Plan', { fields: ['name', 'rate_plan_name'] })
+const ratePlans = listResource('Rate Plan', { fields: ['name', 'rate_plan_name'] })
 
 const today = new Date()
 const tomorrow = new Date(today.getTime() + 86400000)

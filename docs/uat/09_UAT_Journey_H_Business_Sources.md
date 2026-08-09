@@ -15,9 +15,9 @@ first.
 
 **Test data to prepare in Desk before you start:**
 
-- One **Hospitality Corporate Account** with a credit limit small enough that a booking or two will exhaust it, plus a contact and a negotiated rate.
-- One **Hospitality Channel** configured, set to a test or manual mode.
-- One **Hospitality Regulatory Profile** for the property.
+- One **Corporate Account** with a credit limit small enough that a booking or two will exhaust it, plus a contact and a negotiated rate.
+- One **Booking Channel** configured, set to a test or manual mode.
+- One **Regulatory Profile** for the property.
 
 ---
 
@@ -26,7 +26,7 @@ first.
 | | |
 |---|---|
 | **Role** | Corporate Sales Manager, then Reservation Agent |
-| **Surface** | Desk → Reservations → Hospitality Corporate Account; `/pms/reservations/new` |
+| **Surface** | Desk → Reservations → Corporate Account; `/pms/reservations/new` |
 | **Prerequisites** | A corporate account with a credit limit and available credit |
 | **Test data** | The account's limit, and its current used credit |
 | **Severity if failed** | High — corporate business cannot be taken |
@@ -136,14 +136,14 @@ first.
 | | |
 |---|---|
 | **Role** | Reservation Manager |
-| **Surface** | Desk → Reservations → Hospitality Group Reservation |
+| **Surface** | Desk → Reservations → Group Reservation |
 | **Prerequisites** | Room types with availability across a date range |
 | **Test data** | A group of several rooms over two nights, and a handful of names |
 | **Severity if failed** | High — group business cannot be handled |
 
 | # | Step | Expected result |
 |---|---|---|
-| 1 | Create a **Hospitality Group Reservation** with block lines for a room type, quantity and dates. | Saves. |
+| 1 | Create a **Group Reservation** with block lines for a room type, quantity and dates. | Saves. |
 | 2 | Check availability for those dates. | Record whether the block has reduced it, and by how much. |
 | 3 | Add rooming list entries with guest names. | They save against the group. |
 | 4 | Convert or link a rooming list entry to an individual reservation. | Record what the system does and how much manual work it takes. |
@@ -165,15 +165,15 @@ first.
 |---|---|
 | **Role** | Hospitality Administrator with Reservation Manager |
 | **Surface** | Desk → Integrations |
-| **Prerequisites** | A configured Hospitality Channel and room type mappings |
+| **Prerequisites** | A configured Booking Channel and room type mappings |
 | **Test data** | A test channel message, supplied by the implementation team |
 | **Severity if failed** | **Critical** if bookings are lost or corrupted; High if only awkward |
 
 | # | Step | Expected result |
 |---|---|---|
-| 1 | Submit a test channel booking. | A **Hospitality Channel Reservation** record is created holding the raw message. |
+| 1 | Submit a test channel booking. | A **Channel Reservation** record is created holding the raw message. |
 | 2 | Inspect it before it is mapped. | The raw payload is stored intact and keyed. |
-| 3 | Let it map to a reservation. | A Hotel Reservation is created with the right guest, dates, room type and rate. |
+| 3 | Let it map to a reservation. | A Reservation is created with the right guest, dates, room type and rate. |
 | 4 | Check the reservation's source and external reference. | Both record where it came from. |
 | 5 | Check availability. | Reduced by the channel booking. |
 | 6 | Open the arrivals board for its arrival date. | The channel booking appears alongside direct bookings, indistinguishable in the day's work. |
@@ -222,7 +222,7 @@ first.
 | | |
 |---|---|
 | **Role** | Hospitality Administrator |
-| **Surface** | Desk → Integrations → Hospitality Regulatory Export |
+| **Surface** | Desk → Integrations → Regulatory Export |
 | **Prerequisites** | A regulatory profile for the property; guests checked in during Journey C |
 | **Test data** | A date range covering your check-ins |
 | **Severity if failed** | High — a legal obligation cannot be met |
@@ -254,7 +254,7 @@ requires automated submission, that is a **High** gap, recorded here.
 | | |
 |---|---|
 | **Role** | Front Office Agent with Hospitality Administrator |
-| **Surface** | Desk → Integrations → Hospitality Key Card |
+| **Surface** | Desk → Integrations → Key Card |
 | **Prerequisites** | An in-house stay from Journey C |
 | **Test data** | None |
 | **Severity if failed** | Medium — guests can be let in manually while a vendor is chosen |

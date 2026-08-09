@@ -82,7 +82,7 @@
    "fieldname": "rate_plan",
    "fieldtype": "Link",
    "label": "Rate Plan",
-   "options": "Hospitality Rate Plan"
+   "options": "Rate Plan"
   },
   {
    "default": "0",

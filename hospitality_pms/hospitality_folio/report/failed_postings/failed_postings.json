@@ -14,7 +14,7 @@
  "name": "Failed Postings",
  "owner": "Administrator",
  "prepared_report": 0,
- "ref_doctype": "Hospitality Financial Posting Log",
+ "ref_doctype": "Financial Posting Log",
  "report_name": "Failed Postings",
  "report_type": "Script Report",
  "roles": [

@@ -11,7 +11,7 @@
    "fieldtype": "Link",
    "label": "Property",
    "mandatory": 1,
-   "options": "Hospitality Property"
+   "options": "Property"
   },
   {
    "fieldname": "room_type",

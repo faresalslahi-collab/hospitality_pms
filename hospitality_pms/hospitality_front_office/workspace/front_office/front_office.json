@@ -1,7 +1,7 @@
 {
  "app": "hospitality_pms",
  "charts": [],
- "content": "[{\"id\": \"hdr1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Your Shortcuts</b></span>\", \"col\": 12}}, {\"id\": \"shortcut2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Open Hospitality PMS\", \"col\": 3}}, {\"id\": \"shortcut3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Hotel Reservation\", \"col\": 3}}, {\"id\": \"shortcut4\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Hospitality Stay\", \"col\": 3}}, {\"id\": \"shortcut5\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Hospitality Guest Folio\", \"col\": 3}}, {\"id\": \"spacer6\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"hdr7\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Explore</b></span>\", \"col\": 12}}, {\"id\": \"card8\", \"type\": \"card\", \"data\": {\"card_name\": \"Front Office\", \"col\": 4}}, {\"id\": \"card9\", \"type\": \"card\", \"data\": {\"card_name\": \"Guest Services\", \"col\": 4}}]",
+ "content": "[{\"id\": \"hdr1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Your Shortcuts</b></span>\", \"col\": 12}}, {\"id\": \"shortcut2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Open Hospitality PMS\", \"col\": 3}}, {\"id\": \"shortcut3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Reservation\", \"col\": 3}}, {\"id\": \"shortcut4\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Stay\", \"col\": 3}}, {\"id\": \"shortcut5\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Guest Folio\", \"col\": 3}}, {\"id\": \"spacer6\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"hdr7\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Explore</b></span>\", \"col\": 12}}, {\"id\": \"card8\", \"type\": \"card\", \"data\": {\"card_name\": \"Front Office\", \"col\": 4}}, {\"id\": \"card9\", \"type\": \"card\", \"data\": {\"card_name\": \"Guest Services\", \"col\": 4}}]",
  "creation": "2026-08-08 18:39:44.052202",
  "custom_blocks": [],
  "docstatus": 0,
@@ -27,9 +27,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hotel Reservation",
+   "label": "Reservation",
    "link_count": 0,
-   "link_to": "Hotel Reservation",
+   "link_to": "Reservation",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -38,9 +38,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Stay",
+   "label": "Stay",
    "link_count": 0,
-   "link_to": "Hospitality Stay",
+   "link_to": "Stay",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -49,9 +49,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Guest Folio",
+   "label": "Guest Folio",
    "link_count": 0,
-   "link_to": "Hospitality Guest Folio",
+   "link_to": "Guest Folio",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -60,9 +60,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Guest",
+   "label": "Guest",
    "link_count": 0,
-   "link_to": "Hospitality Guest",
+   "link_to": "Guest",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -80,9 +80,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Guest Request",
+   "label": "Guest Request",
    "link_count": 0,
-   "link_to": "Hospitality Guest Request",
+   "link_to": "Guest Request",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -97,7 +97,7 @@
    "type": "Card Break"
   },
   {
-   "dependencies": "Hotel Reservation",
+   "dependencies": "Reservation",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Arrivals",
@@ -108,7 +108,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Stay",
+   "dependencies": "Stay",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Departures",
@@ -119,7 +119,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Stay",
+   "dependencies": "Stay",
    "hidden": 0,
    "is_query_report": 1,
    "label": "In House",
@@ -152,7 +152,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Guest Request",
+   "dependencies": "Guest Request",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Guest Request SLA",
@@ -212,20 +212,20 @@
   },
   {
    "doc_view": "List",
-   "label": "Hotel Reservation",
-   "link_to": "Hotel Reservation",
+   "label": "Reservation",
+   "link_to": "Reservation",
    "type": "DocType"
   },
   {
    "doc_view": "List",
-   "label": "Hospitality Stay",
-   "link_to": "Hospitality Stay",
+   "label": "Stay",
+   "link_to": "Stay",
    "type": "DocType"
   },
   {
    "doc_view": "List",
-   "label": "Hospitality Guest Folio",
-   "link_to": "Hospitality Guest Folio",
+   "label": "Guest Folio",
+   "link_to": "Guest Folio",
    "type": "DocType"
   }
  ],

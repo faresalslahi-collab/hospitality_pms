@@ -1,0 +1,165 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2026-08-08 17:07:31.165010",
+ "description": "Append-only audit trail of every guest request status transition, per Workflow Matrix section 9. Written only by the guest service and never edited by hand.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "log_section",
+  "property",
+  "guest_request",
+  "log_col",
+  "changed_by",
+  "changed_at",
+  "transition_section",
+  "from_status",
+  "to_status",
+  "note_section",
+  "note"
+ ],
+ "fields": [
+  {
+   "fieldname": "log_section",
+   "fieldtype": "Section Break",
+   "label": "Log Entry"
+  },
+  {
+   "columns": 2,
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Property",
+   "options": "Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "guest_request",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Guest Request",
+   "options": "Guest Request",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "log_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "changed_by",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Changed By",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "changed_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Changed At",
+   "reqd": 1
+  },
+  {
+   "fieldname": "transition_section",
+   "fieldtype": "Section Break",
+   "label": "Transition"
+  },
+  {
+   "columns": 2,
+   "fieldname": "from_status",
+   "fieldtype": "Data",
+   "label": "From Status"
+  },
+  {
+   "columns": 2,
+   "fieldname": "to_status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "To Status",
+   "reqd": 1
+  },
+  {
+   "fieldname": "note_section",
+   "fieldtype": "Section Break",
+   "label": "Note"
+  },
+  {
+   "fieldname": "note",
+   "fieldtype": "Small Text",
+   "label": "Note"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:19:08.064252",
+ "modified_by": "Administrator",
+ "module": "Hospitality Services",
+ "name": "Guest Request Log",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Guest Relations Officer"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Manager"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "changed_at",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

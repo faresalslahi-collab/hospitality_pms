@@ -4,7 +4,7 @@ Answers the front desk's opening-shift question: "Which reservations are we
 expecting to arrive, what room type and how many rooms do they hold, and is
 the guarantee/deposit position clean enough that check-in will not stall?"
 
-Source: `Hotel Reservation` joined to its `Reservation Room` lines, restricted
+Source: `Reservation` joined to its `Reservation Room` lines, restricted
 to reservations arriving on the filter date in a state that actually holds
 inventory for that arrival (Confirmed or Guaranteed) — the same states the
 availability engine treats as holding (see
@@ -35,7 +35,7 @@ def get_columns():
 			"label": _("Reservation"),
 			"fieldname": "reservation",
 			"fieldtype": "Link",
-			"options": "Hotel Reservation",
+			"options": "Reservation",
 			"width": 150,
 		},
 		{"label": _("Guest"), "fieldname": "guest_name", "fieldtype": "Data", "width": 160},
@@ -93,7 +93,7 @@ def get_data(filters):
 			r.deposit_received as deposit_received,
 			r.total_amount as total_amount,
 			r.currency as currency
-		from `tabHotel Reservation` r
+		from `tabReservation` r
 		inner join `tabReservation Room` rr on rr.parent = r.name
 		where
 			r.property = %(property)s

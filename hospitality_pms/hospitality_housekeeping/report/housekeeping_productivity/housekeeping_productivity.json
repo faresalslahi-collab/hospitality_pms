@@ -11,7 +11,7 @@
    "fieldtype": "Link",
    "label": "Property",
    "mandatory": 1,
-   "options": "Hospitality Property"
+   "options": "Property"
   },
   {
    "default": "Today",
@@ -44,7 +44,7 @@
  "name": "Housekeeping Productivity",
  "owner": "Administrator",
  "prepared_report": 0,
- "ref_doctype": "Hospitality Housekeeping Task",
+ "ref_doctype": "Housekeeping Task",
  "report_name": "Housekeeping Productivity",
  "report_type": "Script Report",
  "roles": [

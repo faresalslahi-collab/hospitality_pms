@@ -12,10 +12,10 @@ from hospitality_pms.services import kitchen as service
 from hospitality_pms.services.base import require_permission
 from hospitality_pms.services.property import resolve_property
 
-REQUISITION_DOCTYPE = "Hospitality Kitchen Requisition"
-ORDER_DOCTYPE = "Hospitality Room Service Order"
-WASTAGE_DOCTYPE = "Hospitality Wastage Entry"
-MENU_DOCTYPE = "Hospitality Menu Item"
+REQUISITION_DOCTYPE = "Kitchen Requisition"
+ORDER_DOCTYPE = "Room Service Order"
+WASTAGE_DOCTYPE = "Wastage Entry"
+MENU_DOCTYPE = "Menu Item"
 
 MENU_ITEM_FIELDS = (
 	"name",

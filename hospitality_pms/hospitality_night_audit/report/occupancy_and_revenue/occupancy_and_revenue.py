@@ -32,8 +32,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, flt, getdate, nowdate
 
-FOLIO_DOCTYPE = "Hospitality Guest Folio"
-CHARGE_DOCTYPE = "Hospitality Folio Charge"
+FOLIO_DOCTYPE = "Guest Folio"
+CHARGE_DOCTYPE = "Folio Charge"
 ROOM_DOCTYPE = "Hotel Room"
 
 
@@ -128,8 +128,8 @@ def _get_room_charge_figures(property_name: str, from_date, to_date) -> dict:
 		select c.business_date as business_date,
 		       count(*) as occupied_rooms,
 		       coalesce(sum(c.total_amount), 0) as room_revenue
-		from `tabHospitality Folio Charge` c
-		inner join `tabHospitality Guest Folio` f on f.name = c.parent
+		from `tabFolio Charge` c
+		inner join `tabGuest Folio` f on f.name = c.parent
 		where f.property = %(property)s
 		  and c.charge_type = 'Room Charge'
 		  and c.is_reversed = 0
@@ -151,8 +151,8 @@ def _get_total_revenue(property_name: str, from_date, to_date) -> dict:
 		"""
 		select c.business_date as business_date,
 		       coalesce(sum(c.total_amount), 0) as total_revenue
-		from `tabHospitality Folio Charge` c
-		inner join `tabHospitality Guest Folio` f on f.name = c.parent
+		from `tabFolio Charge` c
+		inner join `tabGuest Folio` f on f.name = c.parent
 		where f.property = %(property)s
 		  and c.is_reversed = 0
 		  and c.business_date between %(from_date)s and %(to_date)s

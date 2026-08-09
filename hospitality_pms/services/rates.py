@@ -7,7 +7,7 @@ today.
 
 Resolution order for one night, most specific first:
 
-1. `Hospitality Daily Rate` for the exact property / plan / room type / date.
+1. `Daily Rate` for the exact property / plan / room type / date.
 2. The rate plan's own room-type row.
 3. The room type's fallback `base_rate`.
 
@@ -25,9 +25,9 @@ from hospitality_pms.services.availability import nights_between
 from hospitality_pms.services.exceptions import RateError, throw
 from hospitality_pms.services.property import get_property
 
-RATE_PLAN_DOCTYPE = "Hospitality Rate Plan"
-DAILY_RATE_DOCTYPE = "Hospitality Daily Rate"
-INVENTORY_RESTRICTION_DOCTYPE = "Hospitality Room Inventory Restriction"
+RATE_PLAN_DOCTYPE = "Rate Plan"
+DAILY_RATE_DOCTYPE = "Daily Rate"
+INVENTORY_RESTRICTION_DOCTYPE = "Room Inventory Restriction"
 ROOM_TYPE_DOCTYPE = "Room Type"
 
 #: Rate types that are sold at zero and must never silently fall back to a
@@ -75,7 +75,7 @@ def get_applicable_rate_plans(property_name: str, room_type: str, on_date=None) 
 def _plan_covers_room_type(rate_plan: str, room_type: str) -> bool:
 	return bool(
 		frappe.db.exists(
-			"Hospitality Rate Plan Room Type",
+			"Rate Plan Room Type",
 			{"parent": rate_plan, "room_type": room_type, "is_active": 1},
 		)
 	)
@@ -143,7 +143,7 @@ def _daily_rate(property_name: str, rate_plan: str, room_type: str, night) -> di
 
 def _plan_room_type_row(rate_plan: str, room_type: str) -> dict | None:
 	return frappe.db.get_value(
-		"Hospitality Rate Plan Room Type",
+		"Rate Plan Room Type",
 		{"parent": rate_plan, "room_type": room_type},
 		[
 			"base_rate",
@@ -187,7 +187,7 @@ def _room_type_fallback(room_type: str) -> dict:
 def _plan_restrictions(rate_plan: str, room_type: str, night) -> list[dict]:
 	"""Plan-level restriction rows in force for this room type and night."""
 	rows = frappe.get_all(
-		"Hospitality Rate Restriction",
+		"Rate Restriction",
 		filters={"parent": rate_plan, "parenttype": RATE_PLAN_DOCTYPE},
 		fields=[
 			"min_length_of_stay",
@@ -510,7 +510,7 @@ def get_cancellation_charge(
 		return 0.0
 
 	rule = frappe.db.get_value(
-		"Hospitality Rate Policy",
+		"Rate Policy",
 		policy,
 		["charge_basis", "charge_value", "free_cancellation_hours"],
 		as_dict=True,

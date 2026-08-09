@@ -14,7 +14,7 @@
  "name": "Corporate Credit Exposure",
  "owner": "Administrator",
  "prepared_report": 0,
- "ref_doctype": "Hospitality Corporate Account",
+ "ref_doctype": "Corporate Account",
  "report_name": "Corporate Credit Exposure",
  "report_type": "Script Report",
  "roles": [

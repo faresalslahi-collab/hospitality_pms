@@ -24,8 +24,8 @@ from hospitality_pms.services.base import assert_transition, lock_document, requ
 from hospitality_pms.services.exceptions import FolioError, throw
 from hospitality_pms.services.property import get_business_date
 
-FOLIO_DOCTYPE = "Hospitality Guest Folio"
-FOLIO_LOG_DOCTYPE = "Hospitality Folio Log"
+FOLIO_DOCTYPE = "Guest Folio"
+FOLIO_LOG_DOCTYPE = "Folio Log"
 
 OPEN = "Open"
 UNDER_REVIEW = "Under Review"
@@ -163,7 +163,7 @@ def post_charge(
 
 	lock_document(FOLIO_DOCTYPE, folio)
 
-	existing = _find_by_key("Hospitality Folio Charge", folio, idempotency_key)
+	existing = _find_by_key("Folio Charge", folio, idempotency_key)
 	if existing:
 		return {**existing, "duplicate": True}
 
@@ -242,7 +242,7 @@ def post_payment(
 
 	lock_document(FOLIO_DOCTYPE, folio)
 
-	existing = _find_by_key("Hospitality Folio Payment", folio, idempotency_key)
+	existing = _find_by_key("Folio Payment", folio, idempotency_key)
 	if existing:
 		return {**existing, "duplicate": True}
 

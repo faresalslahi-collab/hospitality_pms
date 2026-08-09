@@ -26,7 +26,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, nowdate
 
-ACCOUNT_DOCTYPE = "Hospitality Corporate Account"
+ACCOUNT_DOCTYPE = "Corporate Account"
 
 
 def execute(filters=None):
@@ -61,13 +61,13 @@ def get_data(property_name: str, from_date, to_date) -> list[dict]:
 		       count(distinct s.name) as stays,
 		       coalesce(sum(s.nights), 0) as room_nights,
 		       coalesce(sum(f.total_charges), 0) as revenue
-		from `tabHospitality Corporate Account` ca
-		left join `tabHotel Reservation` r
+		from `tabCorporate Account` ca
+		left join `tabReservation` r
 		       on r.corporate_account = ca.account_code and r.property = ca.property
-		left join `tabHospitality Stay` s
+		left join `tabStay` s
 		       on s.reservation = r.name
 		      and s.arrival_date between %(from_date)s and %(to_date)s
-		left join `tabHospitality Guest Folio` f on f.stay = s.name
+		left join `tabGuest Folio` f on f.stay = s.name
 		where ca.property = %(property)s
 		group by ca.name, ca.account_code, ca.credit_limit, ca.credit_used
 		order by revenue desc

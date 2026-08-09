@@ -13,8 +13,8 @@ from frappe.utils import flt, getdate, now_datetime, nowdate
 from hospitality_pms.services.base import lock_document, require_role
 from hospitality_pms.services.exceptions import HospitalityPMSError, throw
 
-ACCOUNT_DOCTYPE = "Hospitality Corporate Account"
-CREDIT_LOG_DOCTYPE = "Hospitality Corporate Credit Log"
+ACCOUNT_DOCTYPE = "Corporate Account"
+CREDIT_LOG_DOCTYPE = "Corporate Credit Log"
 
 ACTIVE = "Active"
 EXCEPTION_REQUIRED = "Exception Required"
@@ -339,9 +339,9 @@ def get_production_report(account: str, from_date, to_date) -> dict:
 		select count(distinct s.name) as stays,
 		       coalesce(sum(s.nights), 0) as room_nights,
 		       coalesce(sum(f.total_charges), 0) as revenue
-		from `tabHospitality Stay` s
-		left join `tabHospitality Guest Folio` f on f.stay = s.name
-		inner join `tabHotel Reservation` r on r.name = s.reservation
+		from `tabStay` s
+		left join `tabGuest Folio` f on f.stay = s.name
+		inner join `tabReservation` r on r.name = s.reservation
 		where r.corporate_account = %(account)s
 		  and s.arrival_date between %(from_date)s and %(to_date)s
 		""",

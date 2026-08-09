@@ -32,7 +32,7 @@ from frappe.utils import flt, getdate
 
 from hospitality_pms.services.posting import reconcile_folio
 
-FOLIO_DOCTYPE = "Hospitality Guest Folio"
+FOLIO_DOCTYPE = "Guest Folio"
 
 
 def execute(filters=None):
@@ -103,21 +103,21 @@ def get_columns():
 			"fieldname": "folio",
 			"label": _("Folio"),
 			"fieldtype": "Link",
-			"options": "Hospitality Guest Folio",
+			"options": "Guest Folio",
 			"width": 140,
 		},
 		{
 			"fieldname": "guest",
 			"label": _("Guest"),
 			"fieldtype": "Link",
-			"options": "Hospitality Guest",
+			"options": "Guest",
 			"width": 140,
 		},
 		{
 			"fieldname": "stay",
 			"label": _("Stay"),
 			"fieldtype": "Link",
-			"options": "Hospitality Stay",
+			"options": "Stay",
 			"width": 120,
 		},
 		{

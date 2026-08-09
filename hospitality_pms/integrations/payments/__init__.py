@@ -13,7 +13,7 @@ from frappe import _
 
 from hospitality_pms.services.exceptions import ConfigurationError, throw
 
-PROVIDER_DOCTYPE = "Hospitality Payment Provider"
+PROVIDER_DOCTYPE = "Payment Provider"
 
 #: Provider name on the configuration row -> adapter class path. A provider the
 #: registry does not know is a configuration error, never a silent no-op.

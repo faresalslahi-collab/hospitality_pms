@@ -19,8 +19,8 @@ from hospitality_pms.services.base import assert_transition, lock_document, requ
 from hospitality_pms.services.exceptions import HospitalityPMSError, throw
 from hospitality_pms.services.property import get_business_date
 
-TASK_DOCTYPE = "Hospitality Housekeeping Task"
-INSPECTION_DOCTYPE = "Hospitality Room Inspection"
+TASK_DOCTYPE = "Housekeeping Task"
+INSPECTION_DOCTYPE = "Room Inspection"
 
 PENDING = "Pending"
 ASSIGNED = "Assigned"
@@ -104,7 +104,7 @@ def create_task(
 
 	if requires_inspection is None:
 		requires_inspection = bool(
-			frappe.db.get_single_value("Hospitality Settings", "require_inspection_before_release")
+			frappe.db.get_single_value("PMS Settings", "require_inspection_before_release")
 		)
 
 	doc = frappe.get_doc(

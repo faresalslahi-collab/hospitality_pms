@@ -37,7 +37,7 @@ from hospitality_pms.services.rooms import BLOCKING_INVENTORY, BLOCKING_MAINTENA
 
 ROOM_DOCTYPE = "Hotel Room"
 ROOM_TYPE_DOCTYPE = "Room Type"
-BLOCK_DOCTYPE = "Hospitality Room Block"
+BLOCK_DOCTYPE = "Room Block"
 RESERVATION_ROOM_DOCTYPE = "Reservation Room"
 
 #: Reservation states that hold inventory. Used from HPMS-0.9.0 onward.

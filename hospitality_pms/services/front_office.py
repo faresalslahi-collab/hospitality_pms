@@ -34,9 +34,9 @@ from hospitality_pms.services.property import get_business_date, get_property
 ROOM_DOCTYPE = "Hotel Room"
 ROOM_TYPE_DOCTYPE = "Room Type"
 RESERVATION_ROOM_DOCTYPE = "Reservation Room"
-ROOM_BLOCK_DOCTYPE = "Hospitality Room Block"
-GUEST_DOCTYPE = "Hospitality Guest"
-NIGHT_AUDIT_DOCTYPE = "Hospitality Night Audit"
+ROOM_BLOCK_DOCTYPE = "Room Block"
+GUEST_DOCTYPE = "Guest"
+NIGHT_AUDIT_DOCTYPE = "Night Audit"
 
 #: Room fields every board reads. The same set the rack uses, so a room reads
 #: identically on the dashboard, the arrivals board and the rack itself
@@ -308,8 +308,8 @@ def _revenue_today(property_name: str, business_date, currency: str | None) -> d
 	room_revenue = frappe.db.sql(
 		"""
 		select coalesce(sum(c.total_amount), 0)
-		from `tabHospitality Folio Charge` c
-		inner join `tabHospitality Guest Folio` f on f.name = c.parent
+		from `tabFolio Charge` c
+		inner join `tabGuest Folio` f on f.name = c.parent
 		where f.property = %(property)s
 		  and c.business_date = %(date)s
 		  and c.charge_type = 'Room Charge'
@@ -321,8 +321,8 @@ def _revenue_today(property_name: str, business_date, currency: str | None) -> d
 	payments = frappe.db.sql(
 		"""
 		select coalesce(sum(p.amount), 0)
-		from `tabHospitality Folio Payment` p
-		inner join `tabHospitality Guest Folio` f on f.name = p.parent
+		from `tabFolio Payment` p
+		inner join `tabGuest Folio` f on f.name = p.parent
 		where f.property = %(property)s
 		  and p.business_date = %(date)s
 		  and p.is_reversed = 0
@@ -333,7 +333,7 @@ def _revenue_today(property_name: str, business_date, currency: str | None) -> d
 	outstanding = frappe.db.sql(
 		"""
 		select coalesce(sum(balance), 0)
-		from `tabHospitality Guest Folio`
+		from `tabGuest Folio`
 		where property = %(property)s
 		  and folio_status not in ('Settled', 'Closed')
 		""",
@@ -407,7 +407,7 @@ def _workload_counts(property_name: str, business_date) -> dict:
 	"""Open work the front desk will be asked about."""
 	return {
 		"housekeeping_open": frappe.db.count(
-			"Hospitality Housekeeping Task",
+			"Housekeeping Task",
 			{
 				"property": property_name,
 				"scheduled_date": business_date,
@@ -415,11 +415,11 @@ def _workload_counts(property_name: str, business_date) -> dict:
 			},
 		),
 		"maintenance_open": frappe.db.count(
-			"Hospitality Maintenance Ticket",
+			"Maintenance Ticket",
 			{"property": property_name, "ticket_status": ("in", OPEN_MAINTENANCE)},
 		),
 		"guest_requests_open": frappe.db.count(
-			"Hospitality Guest Request",
+			"Guest Request",
 			{"property": property_name, "request_status": ("in", OPEN_GUEST_REQUESTS)},
 		),
 	}

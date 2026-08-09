@@ -9,13 +9,13 @@ from `hospitality_pms.services.kitchen.get_consumption_report`, the same
 function the operations API uses, so this report and that endpoint can never
 disagree about the numbers:
 
-* **Wastage by item** — `Hospitality Wastage Entry` rows for the property,
+* **Wastage by item** — `Wastage Entry` rows for the property,
   grouped by `item`, summed to quantity and estimated value, exactly as
   `get_consumption_report` aggregates them. This report adds one thing the
   service does not: a reason breakdown per item (how much of that item's
   wastage was Spoilage versus Expiry versus a Preparation Error, and so on),
   built from its own grouped query over the same rows.
-* **Room service revenue by order type** — `Hospitality Room Service Order`
+* **Room service revenue by order type** — `Room Service Order`
   rows with `order_status = 'Delivered'`, grouped by `order_type`, exactly as
   `get_consumption_report` aggregates them.
 
@@ -113,7 +113,7 @@ def _get_reason_breakdown(property_name, from_date, to_date) -> dict:
 	rows = frappe.db.sql(
 		"""
 		select item, reason, sum(quantity) as quantity
-		from `tabHospitality Wastage Entry`
+		from `tabWastage Entry`
 		where property = %(property)s and wastage_date between %(from_date)s and %(to_date)s
 		group by item, reason
 		order by item asc, quantity desc

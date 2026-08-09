@@ -1,0 +1,267 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "creation": "2026-08-08 16:35:16.561483",
+ "description": "One posted charge line on a guest folio: what was charged, when, and against which business date. This is the property's own operational ledger line (HPMS-DEC-003) \u2014 it is not a general ledger entry. FolioService is the only writer; ERPNext posting, when required, is recorded back onto this row via `sales_invoice` rather than the row being derived from ERPNext.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "charge_date",
+  "business_date",
+  "charge_type",
+  "description",
+  "item",
+  "amount_section",
+  "quantity",
+  "unit_price",
+  "amount",
+  "amount_col",
+  "tax_amount",
+  "total_amount",
+  "payer",
+  "reversal_section",
+  "is_reversed",
+  "reversal_of",
+  "reversal_col",
+  "reversed_by",
+  "reversed_on",
+  "reversal_reason",
+  "posting_section",
+  "posted_by",
+  "posted_on",
+  "posting_col",
+  "reference_doctype",
+  "reference_name",
+  "idempotency_key",
+  "erp_section",
+  "is_posted_to_erp",
+  "erp_col",
+  "sales_invoice"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "charge_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Charge Date",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "description": "The property business date this charge posted against. This can differ from the calendar charge date \u2014 e.g. a late-night charge posted before Night Audit rolls the business date forward \u2014 and both matter for reconciliation.",
+   "fieldname": "business_date",
+   "fieldtype": "Date",
+   "label": "Business Date",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "charge_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Charge Type",
+   "options": "Room Charge\nService Charge\nTax\nTourism Fee\nMunicipality Fee\nRoom Service\nMinibar\nLaundry\nTransport\nTelephone\nMiscellaneous\nAdjustment\nDiscount",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Description",
+   "reqd": 1
+  },
+  {
+   "description": "Left blank for a plain room charge; set when the charge originated from a stock item (minibar, laundry, room service, etc).",
+   "fieldname": "item",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Item"
+  },
+  {
+   "fieldname": "amount_section",
+   "fieldtype": "Section Break",
+   "label": "Amount"
+  },
+  {
+   "columns": 2,
+   "default": "1",
+   "fieldname": "quantity",
+   "fieldtype": "Float",
+   "label": "Quantity"
+  },
+  {
+   "columns": 2,
+   "fieldname": "unit_price",
+   "fieldtype": "Currency",
+   "label": "Unit Price"
+  },
+  {
+   "columns": 2,
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "reqd": 1
+  },
+  {
+   "fieldname": "amount_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "tax_amount",
+   "fieldtype": "Currency",
+   "label": "Tax Amount"
+  },
+  {
+   "columns": 2,
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "label": "Total Amount",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "default": "Guest",
+   "description": "The guest-pay/company-pay split for this charge.",
+   "fieldname": "payer",
+   "fieldtype": "Select",
+   "label": "Payer",
+   "options": "Guest\nCompany\nTravel Agent"
+  },
+  {
+   "fieldname": "reversal_section",
+   "fieldtype": "Section Break",
+   "label": "Reversal"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "is_reversed",
+   "fieldtype": "Check",
+   "label": "Reversed",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "description": "The name of the charge row this row reverses, when this row is itself a reversal.",
+   "fieldname": "reversal_of",
+   "fieldtype": "Data",
+   "label": "Reversal Of",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reversal_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "reversed_by",
+   "fieldtype": "Link",
+   "label": "Reversed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "reversed_on",
+   "fieldtype": "Datetime",
+   "label": "Reversed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reversal_reason",
+   "fieldtype": "Small Text",
+   "label": "Reversal Reason"
+  },
+  {
+   "fieldname": "posting_section",
+   "fieldtype": "Section Break",
+   "label": "Posting"
+  },
+  {
+   "columns": 2,
+   "fieldname": "posted_by",
+   "fieldtype": "Link",
+   "label": "Posted By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "posted_on",
+   "fieldtype": "Datetime",
+   "label": "Posted On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "posting_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference Doctype",
+   "options": "DocType"
+  },
+  {
+   "columns": 2,
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Reference Name",
+   "options": "reference_doctype"
+  },
+  {
+   "description": "Stops a retried posting request from duplicating this charge; FolioService checks for an existing row with the same key before inserting a new one.",
+   "fieldname": "idempotency_key",
+   "fieldtype": "Data",
+   "label": "Idempotency Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "erp_section",
+   "fieldtype": "Section Break",
+   "label": "ERPNext Posting"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "is_posted_to_erp",
+   "fieldtype": "Check",
+   "label": "Posted to ERPNext",
+   "read_only": 1
+  },
+  {
+   "fieldname": "erp_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "sales_invoice",
+   "fieldtype": "Link",
+   "label": "Sales Invoice",
+   "options": "Sales Invoice",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-08 16:35:34.322806",
+ "modified_by": "Administrator",
+ "module": "Hospitality Folio",
+ "name": "Folio Charge",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

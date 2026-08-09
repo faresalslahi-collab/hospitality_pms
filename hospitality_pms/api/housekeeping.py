@@ -6,7 +6,7 @@ from hospitality_pms.services import housekeeping as service
 from hospitality_pms.services.base import require_permission
 from hospitality_pms.services.property import resolve_property
 
-TASK_DOCTYPE = "Hospitality Housekeeping Task"
+TASK_DOCTYPE = "Housekeeping Task"
 
 TASK_FIELDS = (
 	"name",
@@ -102,7 +102,7 @@ def create_task(
 		scheduled_date=scheduled_date,
 		source_stay=source_stay,
 		due_in_reservation=due_in_reservation,
-		# None means "let the service decide from Hospitality Settings" - do not
+		# None means "let the service decide from PMS Settings" - do not
 		# collapse that to False by coercing unconditionally.
 		requires_inspection=None if requires_inspection is None else bool(int(requires_inspection)),
 		notes=notes,

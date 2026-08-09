@@ -4,7 +4,7 @@ Answers the front desk's question for the departure shift: "Which stays leave
 today, which room are they in, and is their folio settled or does it still
 carry a balance that needs collecting before they walk out?"
 
-Source: `Hospitality Stay`, not the reservation — a stay is the physical
+Source: `Stay`, not the reservation — a stay is the physical
 occupancy record, and its `folio` link carries the balance that actually
 matters at checkout. Closed stays (already audited and archived) are excluded;
 everything still open on the departure date is shown, including a stay that
@@ -36,7 +36,7 @@ def get_columns():
 			"label": _("Stay"),
 			"fieldname": "stay",
 			"fieldtype": "Link",
-			"options": "Hospitality Stay",
+			"options": "Stay",
 			"width": 150,
 		},
 		{"label": _("Guest"), "fieldname": "guest_name", "fieldtype": "Data", "width": 160},
@@ -48,7 +48,7 @@ def get_columns():
 			"label": _("Folio"),
 			"fieldname": "folio",
 			"fieldtype": "Link",
-			"options": "Hospitality Guest Folio",
+			"options": "Guest Folio",
 			"width": 150,
 		},
 		{
@@ -78,8 +78,8 @@ def get_data(filters):
 			f.balance as balance,
 			f.currency as currency,
 			s.stay_status as stay_status
-		from `tabHospitality Stay` s
-		left join `tabHospitality Guest Folio` f on f.name = s.folio
+		from `tabStay` s
+		left join `tabGuest Folio` f on f.name = s.folio
 		where
 			s.property = %(property)s
 			and s.departure_date = %(date)s

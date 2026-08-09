@@ -20,7 +20,7 @@
    "fieldname": "guest",
    "fieldtype": "Link",
    "label": "Guest",
-   "options": "Hospitality Guest"
+   "options": "Guest"
   },
   {
    "columns": 3,

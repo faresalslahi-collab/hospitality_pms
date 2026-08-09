@@ -60,11 +60,11 @@
    "search_index": 1
   },
   {
-   "description": "Denormalised from the parent reservation so availability can filter this table without joining back to Hotel Reservation. Kept in step by ReservationService.",
+   "description": "Denormalised from the parent reservation so availability can filter this table without joining back to Reservation. Kept in step by ReservationService.",
    "fieldname": "property",
    "fieldtype": "Link",
    "label": "Property",
-   "options": "Hospitality Property",
+   "options": "Property",
    "search_index": 1
   },
   {
@@ -85,7 +85,7 @@
    "fieldname": "rate_plan",
    "fieldtype": "Link",
    "label": "Rate Plan",
-   "options": "Hospitality Rate Plan"
+   "options": "Rate Plan"
   },
   {
    "default": "2",

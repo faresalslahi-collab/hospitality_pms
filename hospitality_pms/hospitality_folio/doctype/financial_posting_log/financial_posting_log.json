@@ -1,0 +1,373 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-08 16:48:35.640018",
+ "description": "The reconciliation record for every attempt to post a folio charge or payment to ERPNext (HPMS-DEC-031): what was attempted, whether it succeeded, what document it produced, and enough of the original request to retry or reconcile it. A technical record (Roles Matrix section 5), not an operator-facing one \u2014 FolioService is the only writer.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "naming_series",
+  "property",
+  "identity_col",
+  "posting_type",
+  "posting_status",
+  "idempotency_section",
+  "idempotency_key",
+  "idempotency_col",
+  "business_date",
+  "links_section",
+  "folio",
+  "stay",
+  "links_col",
+  "reservation",
+  "guest",
+  "customer",
+  "amount_section",
+  "amount",
+  "amount_col",
+  "currency",
+  "erp_section",
+  "erp_doctype",
+  "erp_col",
+  "erp_document",
+  "posted_section",
+  "posted_on",
+  "posted_col",
+  "posted_by",
+  "retry_section",
+  "attempts",
+  "last_attempt_on",
+  "retry_col",
+  "error_message",
+  "payload",
+  "reconciliation_section",
+  "reconciled_on",
+  "reconciliation_col",
+  "reconciled_by"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "default": "HPMS-POST-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Naming Series",
+   "options": "HPMS-POST-.YYYY.-.#####"
+  },
+  {
+   "columns": 2,
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Property",
+   "options": "Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "identity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "posting_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Posting Type",
+   "options": "Sales Invoice\nPayment Entry\nJournal Entry\nStock Entry\nCredit Note",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "default": "Pending",
+   "fieldname": "posting_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Posting Status",
+   "options": "Pending\nPosted\nFailed\nCancelled\nReconciled",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "idempotency_section",
+   "fieldtype": "Section Break",
+   "label": "Idempotency"
+  },
+  {
+   "columns": 2,
+   "description": "A repeated key means this work was already attempted and must not be repeated; the posting service looks up this key before creating a new ERPNext document.",
+   "fieldname": "idempotency_key",
+   "fieldtype": "Data",
+   "label": "Idempotency Key",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "idempotency_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "business_date",
+   "fieldtype": "Date",
+   "label": "Business Date",
+   "search_index": 1
+  },
+  {
+   "fieldname": "links_section",
+   "fieldtype": "Section Break",
+   "label": "Source Records"
+  },
+  {
+   "columns": 2,
+   "fieldname": "folio",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Folio",
+   "options": "Guest Folio",
+   "search_index": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "stay",
+   "fieldtype": "Link",
+   "label": "Stay",
+   "options": "Stay"
+  },
+  {
+   "fieldname": "links_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "reservation",
+   "fieldtype": "Link",
+   "label": "Reservation",
+   "options": "Reservation"
+  },
+  {
+   "columns": 2,
+   "fieldname": "guest",
+   "fieldtype": "Link",
+   "label": "Guest",
+   "options": "Guest"
+  },
+  {
+   "columns": 2,
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "amount_section",
+   "fieldtype": "Section Break",
+   "label": "Amount"
+  },
+  {
+   "columns": 2,
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount"
+  },
+  {
+   "fieldname": "amount_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fetch_from": "property.currency",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "erp_section",
+   "fieldtype": "Section Break",
+   "label": "ERPNext Document"
+  },
+  {
+   "columns": 2,
+   "fieldname": "erp_doctype",
+   "fieldtype": "Link",
+   "label": "ERP Doctype",
+   "options": "DocType",
+   "read_only": 1
+  },
+  {
+   "fieldname": "erp_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "description": "The document that was actually created in ERPNext for this posting attempt.",
+   "fieldname": "erp_document",
+   "fieldtype": "Dynamic Link",
+   "label": "ERP Document",
+   "options": "erp_doctype",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "posted_section",
+   "fieldtype": "Section Break",
+   "label": "Posted"
+  },
+  {
+   "columns": 2,
+   "fieldname": "posted_on",
+   "fieldtype": "Datetime",
+   "label": "Posted On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "posted_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "posted_by",
+   "fieldtype": "Link",
+   "label": "Posted By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "retry_section",
+   "fieldtype": "Section Break",
+   "label": "Retry and Diagnostics"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "attempts",
+   "fieldtype": "Int",
+   "label": "Attempts"
+  },
+  {
+   "columns": 2,
+   "fieldname": "last_attempt_on",
+   "fieldtype": "Datetime",
+   "label": "Last Attempt On"
+  },
+  {
+   "fieldname": "retry_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Long Text",
+   "label": "Error Message"
+  },
+  {
+   "description": "The request snapshot kept for reconciliation: what would have been sent to ERPNext for this attempt.",
+   "fieldname": "payload",
+   "fieldtype": "Long Text",
+   "label": "Payload"
+  },
+  {
+   "fieldname": "reconciliation_section",
+   "fieldtype": "Section Break",
+   "label": "Reconciliation"
+  },
+  {
+   "columns": 2,
+   "fieldname": "reconciled_on",
+   "fieldtype": "Datetime",
+   "label": "Reconciled On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reconciliation_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "reconciled_by",
+   "fieldtype": "Link",
+   "label": "Reconciled By",
+   "options": "User",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:19:03.257502",
+ "modified_by": "Administrator",
+ "module": "Hospitality Folio",
+ "name": "Financial Posting Log",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "posting_type,posting_status,folio",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

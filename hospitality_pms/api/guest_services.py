@@ -6,7 +6,7 @@ from hospitality_pms.services import guest_services as service
 from hospitality_pms.services.base import require_permission
 from hospitality_pms.services.property import resolve_property
 
-REQUEST_DOCTYPE = "Hospitality Guest Request"
+REQUEST_DOCTYPE = "Guest Request"
 
 REQUEST_FIELDS = (
 	"name",

@@ -1,0 +1,630 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-08-08 17:07:30.708058",
+ "description": "A guest request or complaint: category, priority, SLA, assignment, escalation and resolution, per SAS 3.15. Implements the Workflow Matrix section 9 state machine (Open -> Assigned -> In Progress -> Completed -> Closed, with Escalated, Cancelled and Reopened as alternate paths); SLA timers and escalation are server-managed. All status transitions are made by the guest service, never by direct edit.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "naming_series",
+  "property",
+  "identity_col",
+  "request_status",
+  "classification_section",
+  "request_type",
+  "category",
+  "classification_col",
+  "priority",
+  "context_section",
+  "guest",
+  "stay",
+  "context_col",
+  "room",
+  "reservation",
+  "details_section",
+  "subject",
+  "description",
+  "assignment_section",
+  "department",
+  "assigned_to",
+  "assignment_col",
+  "assigned_on",
+  "sla_section",
+  "sla_minutes",
+  "due_by",
+  "sla_col",
+  "responded_on",
+  "completed_on",
+  "is_breached",
+  "escalation_section",
+  "escalated_on",
+  "escalated_to",
+  "escalation_col",
+  "escalation_reason",
+  "escalation_level",
+  "recovery_section",
+  "requires_service_recovery",
+  "recovery_type",
+  "recovery_col",
+  "recovery_amount",
+  "recovery_approved_by",
+  "recovery_folio_charge",
+  "resolution_section",
+  "resolution",
+  "guest_satisfied",
+  "resolution_col",
+  "reopened_count",
+  "currency"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "default": "HPMS-REQ-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Naming Series",
+   "options": "HPMS-REQ-.YYYY.-.#####"
+  },
+  {
+   "columns": 2,
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Property",
+   "options": "Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "identity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "default": "Open",
+   "description": "Transitions go through the guest service only; this field is not edited directly on the form.",
+   "fieldname": "request_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Request Status",
+   "options": "Open\nAssigned\nIn Progress\nCompleted\nClosed\nEscalated\nCancelled\nReopened",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "classification_section",
+   "fieldtype": "Section Break",
+   "label": "Classification"
+  },
+  {
+   "columns": 2,
+   "default": "Request",
+   "fieldname": "request_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Request Type",
+   "options": "Request\nComplaint",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Category",
+   "options": "Housekeeping\nMaintenance\nFront Office\nFood and Beverage\nTransport\nConcierge\nIT and Network\nBilling\nOther",
+   "reqd": 1
+  },
+  {
+   "fieldname": "classification_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "default": "Normal",
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Priority",
+   "options": "Low\nNormal\nHigh\nUrgent",
+   "reqd": 1
+  },
+  {
+   "fieldname": "context_section",
+   "fieldtype": "Section Break",
+   "label": "Context"
+  },
+  {
+   "columns": 2,
+   "fieldname": "guest",
+   "fieldtype": "Link",
+   "label": "Guest",
+   "options": "Guest",
+   "search_index": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "stay",
+   "fieldtype": "Link",
+   "label": "Stay",
+   "options": "Stay",
+   "search_index": 1
+  },
+  {
+   "fieldname": "context_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "room",
+   "fieldtype": "Link",
+   "label": "Room",
+   "options": "Hotel Room"
+  },
+  {
+   "columns": 2,
+   "fieldname": "reservation",
+   "fieldtype": "Link",
+   "label": "Reservation",
+   "options": "Reservation"
+  },
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "subject",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Subject",
+   "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description",
+   "reqd": 1
+  },
+  {
+   "fieldname": "assignment_section",
+   "fieldtype": "Section Break",
+   "label": "Assignment"
+  },
+  {
+   "columns": 2,
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Property Department"
+  },
+  {
+   "columns": 2,
+   "fieldname": "assigned_to",
+   "fieldtype": "Link",
+   "label": "Assigned To",
+   "options": "User",
+   "search_index": 1
+  },
+  {
+   "fieldname": "assignment_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "assigned_on",
+   "fieldtype": "Datetime",
+   "label": "Assigned On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sla_section",
+   "fieldtype": "Section Break",
+   "label": "SLA"
+  },
+  {
+   "columns": 2,
+   "fieldname": "sla_minutes",
+   "fieldtype": "Int",
+   "label": "SLA Minutes"
+  },
+  {
+   "columns": 2,
+   "fieldname": "due_by",
+   "fieldtype": "Datetime",
+   "label": "Due By",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "sla_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "responded_on",
+   "fieldtype": "Datetime",
+   "label": "Responded On",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "completed_on",
+   "fieldtype": "Datetime",
+   "label": "Completed On",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Set by the SLA timer, which is server managed; not edited directly.",
+   "fieldname": "is_breached",
+   "fieldtype": "Check",
+   "label": "SLA Breached",
+   "read_only": 1
+  },
+  {
+   "fieldname": "escalation_section",
+   "fieldtype": "Section Break",
+   "label": "Escalation"
+  },
+  {
+   "columns": 2,
+   "fieldname": "escalated_on",
+   "fieldtype": "Datetime",
+   "label": "Escalated On",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "escalated_to",
+   "fieldtype": "Link",
+   "label": "Escalated To",
+   "options": "User"
+  },
+  {
+   "fieldname": "escalation_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "escalation_reason",
+   "fieldtype": "Small Text",
+   "label": "Escalation Reason"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "escalation_level",
+   "fieldtype": "Int",
+   "label": "Escalation Level"
+  },
+  {
+   "fieldname": "recovery_section",
+   "fieldtype": "Section Break",
+   "label": "Service Recovery"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "requires_service_recovery",
+   "fieldtype": "Check",
+   "label": "Requires Service Recovery"
+  },
+  {
+   "columns": 2,
+   "fieldname": "recovery_type",
+   "fieldtype": "Select",
+   "label": "Recovery Type",
+   "options": "\nApology\nDiscount\nComplimentary Service\nRoom Upgrade\nFolio Adjustment\nLoyalty Points\nOther"
+  },
+  {
+   "fieldname": "recovery_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "recovery_amount",
+   "fieldtype": "Currency",
+   "label": "Recovery Amount"
+  },
+  {
+   "columns": 2,
+   "fieldname": "recovery_approved_by",
+   "fieldtype": "Link",
+   "label": "Recovery Approved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "The name of the folio charge row this recovery posted, if any.",
+   "fieldname": "recovery_folio_charge",
+   "fieldtype": "Data",
+   "label": "Recovery Folio Charge",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resolution_section",
+   "fieldtype": "Section Break",
+   "label": "Resolution"
+  },
+  {
+   "columns": 2,
+   "fieldname": "resolution",
+   "fieldtype": "Small Text",
+   "label": "Resolution"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "guest_satisfied",
+   "fieldtype": "Check",
+   "label": "Guest Satisfied"
+  },
+  {
+   "fieldname": "resolution_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "default": "0",
+   "fieldname": "reopened_count",
+   "fieldtype": "Int",
+   "label": "Reopened Count"
+  },
+  {
+   "columns": 2,
+   "fetch_from": "property.currency",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:19:07.624483",
+ "modified_by": "Administrator",
+ "module": "Hospitality Services",
+ "name": "Guest Request",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Agent",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Agent"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Revenue Manager"
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Supervisor",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Room Attendant",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Technician",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Food and Beverage Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen User",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Corporate Sales Manager"
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Guest Relations Officer",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "subject,request_status,guest",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -17,8 +17,8 @@ from hospitality_pms.services import front_office as service
 from hospitality_pms.services.base import require_permission
 from hospitality_pms.services.property import resolve_property
 
-RESERVATION_DOCTYPE = "Hotel Reservation"
-STAY_DOCTYPE = "Hospitality Stay"
+RESERVATION_DOCTYPE = "Reservation"
+STAY_DOCTYPE = "Stay"
 ROOM_DOCTYPE = "Hotel Room"
 
 

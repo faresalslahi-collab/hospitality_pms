@@ -1,0 +1,578 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "field:property_code",
+ "creation": "2026-08-08 15:03:36.884360",
+ "description": "A hotel or operated property. First release runs one active property; every operational record stays property aware.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "property_code",
+  "property_name",
+  "property_type",
+  "identity_col",
+  "is_active",
+  "star_rating",
+  "total_rooms",
+  "erp_section",
+  "company",
+  "cost_center",
+  "erp_col",
+  "currency",
+  "abbr",
+  "location_section",
+  "country",
+  "time_zone",
+  "address",
+  "location_col",
+  "phone",
+  "email",
+  "website",
+  "language_section",
+  "default_language",
+  "languages",
+  "operations_section",
+  "business_date",
+  "check_in_time",
+  "check_out_time",
+  "operations_col",
+  "overbooking_limit",
+  "allow_vacant_dirty_check_in",
+  "require_id_at_check_in",
+  "accounting_section",
+  "receivable_account",
+  "room_revenue_account",
+  "deposit_liability_account",
+  "accounting_col",
+  "default_tax_template",
+  "default_price_list",
+  "rounding_precision",
+  "fees_section",
+  "fees",
+  "warehouse_section",
+  "warehouses",
+  "policy_section",
+  "policy_notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "fieldname": "property_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Property Code",
+   "length": 20,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "property_name",
+   "fieldtype": "Data",
+   "in_global_search": 1,
+   "in_list_view": 1,
+   "label": "Property Name",
+   "reqd": 1
+  },
+  {
+   "default": "Hotel",
+   "fieldname": "property_type",
+   "fieldtype": "Select",
+   "label": "Property Type",
+   "options": "Hotel\nResort\nServiced Apartment\nHostel\nOther"
+  },
+  {
+   "fieldname": "identity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "fieldname": "star_rating",
+   "fieldtype": "Select",
+   "label": "Star Rating",
+   "options": "\n1\n2\n3\n4\n5"
+  },
+  {
+   "description": "Maintained by the room inventory build.",
+   "fieldname": "total_rooms",
+   "fieldtype": "Int",
+   "label": "Total Rooms",
+   "read_only": 1
+  },
+  {
+   "fieldname": "erp_section",
+   "fieldtype": "Section Break",
+   "label": "ERPNext Mapping"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "erp_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "company.abbr",
+   "fieldname": "abbr",
+   "fieldtype": "Data",
+   "label": "Abbreviation",
+   "read_only": 1
+  },
+  {
+   "fieldname": "location_section",
+   "fieldtype": "Section Break",
+   "label": "Location and Locale"
+  },
+  {
+   "fieldname": "country",
+   "fieldtype": "Link",
+   "label": "Country",
+   "options": "Country",
+   "reqd": 1
+  },
+  {
+   "fieldname": "time_zone",
+   "fieldtype": "Autocomplete",
+   "label": "Time Zone",
+   "reqd": 1
+  },
+  {
+   "fieldname": "address",
+   "fieldtype": "Link",
+   "label": "Address",
+   "options": "Address"
+  },
+  {
+   "fieldname": "location_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "label": "Phone",
+   "options": "Phone"
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "options": "Email"
+  },
+  {
+   "fieldname": "website",
+   "fieldtype": "Data",
+   "label": "Website",
+   "options": "URL"
+  },
+  {
+   "fieldname": "language_section",
+   "fieldtype": "Section Break",
+   "label": "Languages"
+  },
+  {
+   "default": "en",
+   "fieldname": "default_language",
+   "fieldtype": "Link",
+   "label": "Default Language",
+   "options": "Language",
+   "reqd": 1
+  },
+  {
+   "fieldname": "languages",
+   "fieldtype": "Table",
+   "label": "Supported Languages",
+   "options": "Property Language"
+  },
+  {
+   "fieldname": "operations_section",
+   "fieldtype": "Section Break",
+   "label": "Operations"
+  },
+  {
+   "description": "The operating day. Only the Night Audit service may move it forward.",
+   "fieldname": "business_date",
+   "fieldtype": "Date",
+   "label": "Business Date",
+   "reqd": 1
+  },
+  {
+   "default": "14:00:00",
+   "fieldname": "check_in_time",
+   "fieldtype": "Time",
+   "label": "Check-In Time",
+   "reqd": 1
+  },
+  {
+   "default": "12:00:00",
+   "fieldname": "check_out_time",
+   "fieldtype": "Time",
+   "label": "Check-Out Time",
+   "reqd": 1
+  },
+  {
+   "fieldname": "operations_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Rooms that may be sold beyond physical inventory. Zero disables overbooking.",
+   "fieldname": "overbooking_limit",
+   "fieldtype": "Int",
+   "label": "Overbooking Limit (Rooms)"
+  },
+  {
+   "default": "0",
+   "description": "When enabled a Front Office Manager may override room readiness with a recorded reason.",
+   "fieldname": "allow_vacant_dirty_check_in",
+   "fieldtype": "Check",
+   "label": "Allow Check-In to Vacant Dirty"
+  },
+  {
+   "default": "1",
+   "fieldname": "require_id_at_check_in",
+   "fieldtype": "Check",
+   "label": "Require Guest ID at Check-In"
+  },
+  {
+   "fieldname": "accounting_section",
+   "fieldtype": "Section Break",
+   "label": "Accounting"
+  },
+  {
+   "fieldname": "receivable_account",
+   "fieldtype": "Link",
+   "label": "Default Receivable Account",
+   "options": "Account",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "room_revenue_account",
+   "fieldtype": "Link",
+   "label": "Room Revenue Account",
+   "options": "Account",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "deposit_liability_account",
+   "fieldtype": "Link",
+   "label": "Deposit Liability Account",
+   "options": "Account",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "accounting_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "default_tax_template",
+   "fieldtype": "Link",
+   "label": "Default Sales Taxes and Charges Template",
+   "options": "Sales Taxes and Charges Template",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "default_price_list",
+   "fieldtype": "Link",
+   "label": "Default Selling Price List",
+   "options": "Price List"
+  },
+  {
+   "default": "2",
+   "fieldname": "rounding_precision",
+   "fieldtype": "Int",
+   "label": "Currency Precision"
+  },
+  {
+   "fieldname": "fees_section",
+   "fieldtype": "Section Break",
+   "label": "Fees and Charges"
+  },
+  {
+   "fieldname": "fees",
+   "fieldtype": "Table",
+   "label": "Property Fees",
+   "options": "Property Fee"
+  },
+  {
+   "fieldname": "warehouse_section",
+   "fieldtype": "Section Break",
+   "label": "Warehouses"
+  },
+  {
+   "fieldname": "warehouses",
+   "fieldtype": "Table",
+   "label": "Warehouses",
+   "options": "Property Warehouse"
+  },
+  {
+   "fieldname": "policy_section",
+   "fieldtype": "Section Break",
+   "label": "Policies"
+  },
+  {
+   "fieldname": "policy_notes",
+   "fieldtype": "Text Editor",
+   "label": "Operating Policies"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:18:53.290335",
+ "modified_by": "Administrator",
+ "module": "Hospitality Setup",
+ "name": "Property",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Office Agent"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Reservation Agent"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Revenue Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping Supervisor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Room Attendant"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance Technician"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Food and Beverage Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Kitchen User"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Corporate Sales Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Guest Relations Officer"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager"
+  },
+  {
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager"
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "permlevel": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "property_name,company",
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "property_name",
+ "track_changes": 1
+}

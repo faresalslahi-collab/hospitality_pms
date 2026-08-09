@@ -8,7 +8,7 @@ frappe.query_reports["Cancellations and No Shows"] = {
 			fieldname: "property",
 			label: __("Property"),
 			fieldtype: "Link",
-			options: "Hospitality Property",
+			options: "Property",
 			reqd: 1,
 		},
 		{

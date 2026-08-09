@@ -29,7 +29,7 @@ from hospitality_pms.services.base import assert_transition, lock_document, requ
 from hospitality_pms.services.exceptions import NightAuditError, throw
 from hospitality_pms.services.property import BUSINESS_DATE_FLAG, get_business_date, get_property
 
-AUDIT_DOCTYPE = "Hospitality Night Audit"
+AUDIT_DOCTYPE = "Night Audit"
 
 OPEN = "Open"
 REVIEWING = "Reviewing"
@@ -397,7 +397,7 @@ def close(audit: str) -> dict:
 	business_date = getdate(doc.business_date)
 	next_date = add_days(business_date, 1)
 
-	property_doc = frappe.get_doc("Hospitality Property", doc.property)
+	property_doc = frappe.get_doc("Property", doc.property)
 
 	if getdate(property_doc.business_date) != business_date:
 		throw(
@@ -447,7 +447,7 @@ def reopen(audit: str, reason: str) -> dict:
 	if doc.audit_status != CLOSED:
 		throw(_("Audit {0} is not closed.").format(audit), exc=NightAuditError)
 
-	property_doc = frappe.get_doc("Hospitality Property", doc.property)
+	property_doc = frappe.get_doc("Property", doc.property)
 	property_doc.business_date = getdate(doc.business_date)
 
 	frappe.flags[BUSINESS_DATE_FLAG] = True
@@ -515,8 +515,8 @@ def _refresh_figures(doc, business_date):
 	payments = frappe.db.sql(
 		"""
 		select coalesce(sum(p.amount), 0)
-		from `tabHospitality Folio Payment` p
-		inner join `tabHospitality Guest Folio` f on f.name = p.parent
+		from `tabFolio Payment` p
+		inner join `tabGuest Folio` f on f.name = p.parent
 		where f.property = %(property)s and p.business_date = %(date)s
 		""",
 		{"property": property_name, "date": business_date},
@@ -525,7 +525,7 @@ def _refresh_figures(doc, business_date):
 	outstanding = frappe.db.sql(
 		"""
 		select coalesce(sum(balance), 0)
-		from `tabHospitality Guest Folio`
+		from `tabGuest Folio`
 		where property = %(property)s and folio_status not in ('Settled', 'Closed')
 		""",
 		{"property": property_name},

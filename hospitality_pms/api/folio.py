@@ -10,7 +10,7 @@ from frappe import _
 from hospitality_pms.services import folio as service
 from hospitality_pms.services.base import require_permission
 
-FOLIO_DOCTYPE = "Hospitality Guest Folio"
+FOLIO_DOCTYPE = "Guest Folio"
 
 
 @frappe.whitelist(methods=["GET"])

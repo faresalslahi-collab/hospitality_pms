@@ -1,0 +1,233 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2026-08-08 17:07:29.626644",
+ "description": "Append-only audit trail of every corporate credit decision (limit exceeded, exception raised, finance approval, escalation, suspension, release), per Workflow Matrix section 8. Written only by the billing service and never edited by hand.",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "log_section",
+  "property",
+  "corporate_account",
+  "log_col",
+  "changed_by",
+  "changed_at",
+  "transition_section",
+  "action",
+  "from_status",
+  "transition_col",
+  "to_status",
+  "amount",
+  "credit_before",
+  "credit_after",
+  "context_section",
+  "reservation",
+  "folio",
+  "context_col",
+  "approved_by",
+  "reason"
+ ],
+ "fields": [
+  {
+   "fieldname": "log_section",
+   "fieldtype": "Section Break",
+   "label": "Log Entry"
+  },
+  {
+   "columns": 2,
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Property",
+   "options": "Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "corporate_account",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Corporate Account",
+   "options": "Corporate Account",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "log_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "changed_by",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Changed By",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "changed_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Changed At",
+   "reqd": 1
+  },
+  {
+   "fieldname": "transition_section",
+   "fieldtype": "Section Break",
+   "label": "Transition"
+  },
+  {
+   "columns": 2,
+   "fieldname": "action",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Action",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "from_status",
+   "fieldtype": "Data",
+   "label": "From Status"
+  },
+  {
+   "fieldname": "transition_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "to_status",
+   "fieldtype": "Data",
+   "label": "To Status"
+  },
+  {
+   "columns": 2,
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount"
+  },
+  {
+   "columns": 2,
+   "fieldname": "credit_before",
+   "fieldtype": "Currency",
+   "label": "Credit Before"
+  },
+  {
+   "columns": 2,
+   "fieldname": "credit_after",
+   "fieldtype": "Currency",
+   "label": "Credit After"
+  },
+  {
+   "fieldname": "context_section",
+   "fieldtype": "Section Break",
+   "label": "Context"
+  },
+  {
+   "columns": 2,
+   "fieldname": "reservation",
+   "fieldtype": "Link",
+   "label": "Reservation",
+   "options": "Reservation"
+  },
+  {
+   "columns": 2,
+   "fieldname": "folio",
+   "fieldtype": "Link",
+   "label": "Folio",
+   "options": "Guest Folio"
+  },
+  {
+   "fieldname": "context_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "columns": 2,
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-08 17:19:07.016548",
+ "modified_by": "Administrator",
+ "module": "Hospitality Sales",
+ "name": "Corporate Credit Log",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Corporate Sales Manager"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "changed_at",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -14,7 +14,7 @@ different fields on the reservation: `cancel` sets `cancelled_on`,
 `cancelled_by` and `cancellation_reason`; `mark_no_show` sets only
 `no_show_on` and `cancellation_charge` - it does not record a "no-show by" or
 a reason on the reservation itself (that detail lives in the append-only
-`Hospitality Reservation Log`, a separately access-controlled audit trail,
+`Reservation Log`, a separately access-controlled audit trail,
 and is deliberately not joined into this report). "Cancelled On" therefore
 falls back to `no_show_on` for a No Show row, and "Cancelled By" and "Reason"
 are blank there - that gap in the data is real, not a bug in this report.
@@ -65,7 +65,7 @@ def get_data(property_name: str, from_date, to_date) -> list[dict]:
 		       r.cancellation_reason as reason,
 		       coalesce(r.cancellation_charge, 0) as cancellation_charge,
 		       coalesce(r.total_rooms, 1) * coalesce(r.nights, 0) as room_nights_lost
-		from `tabHotel Reservation` r
+		from `tabReservation` r
 		where r.property = %(property)s
 		  and r.reservation_status in %(statuses)s
 		  and r.arrival_date between %(from_date)s and %(to_date)s
@@ -87,7 +87,7 @@ def get_columns():
 			"fieldname": "reservation",
 			"label": _("Reservation"),
 			"fieldtype": "Link",
-			"options": "Hotel Reservation",
+			"options": "Reservation",
 			"width": 150,
 		},
 		{"fieldname": "guest", "label": _("Guest"), "fieldtype": "Data", "width": 150},

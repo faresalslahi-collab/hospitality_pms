@@ -11,8 +11,8 @@ from frappe import _
 from hospitality_pms.services import payments as service
 from hospitality_pms.services.base import require_permission, require_role
 
-FOLIO_DOCTYPE = "Hospitality Guest Folio"
-TRANSACTION_DOCTYPE = "Hospitality Payment Transaction"
+FOLIO_DOCTYPE = "Guest Folio"
+TRANSACTION_DOCTYPE = "Payment Transaction"
 
 REFUND_ROLES = (
 	"Finance Manager",
@@ -103,7 +103,7 @@ def webhook(property: str, provider: str) -> dict:
 
 	# Guest context cannot resolve a property, so it is named in the URL the
 	# provider was configured with and validated here.
-	if not frappe.db.exists("Hospitality Property", property):
+	if not frappe.db.exists("Property", property):
 		frappe.throw(_("Unknown property."), frappe.DoesNotExistError)
 
 	return service.handle_callback(property, provider, payload, headers, raw_body)

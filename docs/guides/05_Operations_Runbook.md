@@ -126,7 +126,7 @@ The approved retention policy (SAS section 8) drives this:
 | Audit and security logs | 3 years |
 | Integration logs | 1 year |
 | Temporary provider payloads | 30–90 days |
-| Guest ID images | Configurable, short — set on Hospitality Settings |
+| Guest ID images | Configurable, short — set on PMS Settings |
 | Financial and statutory records | Whatever the country requires |
 
 Backups must be retained to satisfy the longest of these. Take them off the
@@ -247,7 +247,7 @@ exactly what an automated close would do.
 
 The guest paid, the folio does not show it.
 
-1. Find the transaction: Desk → Hospitality Payment Transaction, filter by
+1. Find the transaction: Desk → Payment Transaction, filter by
    provider reference or folio.
 2. Ask the provider what really happened:
    `bench --site <site> execute hospitality_pms.services.payments.sync_status --args "['<transaction>']"`
@@ -257,7 +257,7 @@ The guest paid, the folio does not show it.
 
 ### A posting to ERPNext failed
 
-1. Desk → Hospitality Financial Posting Log, filter status `Failed`. Every
+1. Desk → Financial Posting Log, filter status `Failed`. Every
    failure carries its error and the payload that was sent.
 2. Fix the cause. Most failures are configuration: a missing item mapping, an
    account belonging to another company, no valuation rate on a stock item.
@@ -326,8 +326,8 @@ In the browser:
 
 Worth a look weekly:
 
-- Hospitality Financial Posting Log, status `Failed` — should be empty
-- Hospitality Integration Failure Queue, status `Pending` — should be short
+- Financial Posting Log, status `Failed` — should be empty
+- PMS Integration Failure Queue, status `Pending` — should be short
 - Guest requests past their due time — should be short and escalating
 - Rooms out of order for longer than their ticket suggests
 

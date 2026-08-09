@@ -8,10 +8,10 @@ Source: `Hotel Room` filtered to the maintenance dimension's blocking states
 (`Under Maintenance`, `Out of Service`, `Out of Order` — the same set
 `hospitality_pms.services.rooms.BLOCKING_MAINTENANCE` uses to decide a room is
 not assignable), left-joined to the room's open maintenance ticket and to any
-active `Hospitality Room Block` holding it out of inventory.
+active `Room Block` holding it out of inventory.
 
 **How "Days Out of Service" is calculated** — a room is pulled from sale by a
-submitted, Active `Hospitality Room Block` (`MaintenanceService.
+submitted, Active `Room Block` (`MaintenanceService.
 take_out_of_service` always raises one; see `services/maintenance.py`), so
 that block's `from_date` is the authoritative start of the outage wherever an
 active block exists for the room. Only when no active block is found (for
@@ -57,7 +57,7 @@ def get_columns():
 			"label": _("Ticket"),
 			"fieldname": "ticket",
 			"fieldtype": "Link",
-			"options": "Hospitality Maintenance Ticket",
+			"options": "Maintenance Ticket",
 			"width": 130,
 		},
 		{"label": _("Ticket Status"), "fieldname": "ticket_status", "fieldtype": "Data", "width": 100},
@@ -74,7 +74,7 @@ def get_columns():
 			"label": _("Room Block"),
 			"fieldname": "room_block",
 			"fieldtype": "Link",
-			"options": "Hospitality Room Block",
+			"options": "Room Block",
 			"width": 130,
 		},
 		{"label": _("Block To Date"), "fieldname": "block_to_date", "fieldtype": "Date", "width": 110},
@@ -126,10 +126,10 @@ def get_data(filters):
 			t1.priority as priority,
 			t1.reported_on as reported_on,
 			t1.verified_by as verified_by
-		from `tabHospitality Maintenance Ticket` t1
+		from `tabMaintenance Ticket` t1
 		inner join (
 			select room, max(reported_on) as latest_reported_on
-			from `tabHospitality Maintenance Ticket`
+			from `tabMaintenance Ticket`
 			where property = %(property)s
 				and room in %(rooms)s
 				and ticket_status in %(open_statuses)s
@@ -146,7 +146,7 @@ def get_data(filters):
 	blocks = frappe.db.sql(
 		"""
 		select room, name as room_block, from_date, to_date
-		from `tabHospitality Room Block`
+		from `tabRoom Block`
 		where property = %(property)s
 			and room in %(rooms)s
 			and docstatus = 1

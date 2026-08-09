@@ -34,8 +34,8 @@ from hospitality_pms.services.property import get_business_date
 from hospitality_pms.services.rates import get_cancellation_charge, get_rate_breakdown
 from hospitality_pms.services.rooms import assert_assignable
 
-RESERVATION_DOCTYPE = "Hotel Reservation"
-RESERVATION_LOG_DOCTYPE = "Hospitality Reservation Log"
+RESERVATION_DOCTYPE = "Reservation"
+RESERVATION_LOG_DOCTYPE = "Reservation Log"
 
 DRAFT = "Draft"
 TENTATIVE = "Tentative"
@@ -423,7 +423,7 @@ def _corporate_account(doc) -> str | None:
 	"""
 	name = (doc.get("corporate_account") or "").strip()
 
-	if not name or not frappe.db.exists("Hospitality Corporate Account", name):
+	if not name or not frappe.db.exists("Corporate Account", name):
 		return None
 
 	return name

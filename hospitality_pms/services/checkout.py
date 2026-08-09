@@ -29,7 +29,7 @@ from hospitality_pms.services.base import lock_document, require_role
 from hospitality_pms.services.exceptions import FolioError, InvalidStateTransitionError, throw
 from hospitality_pms.services.property import get_property
 
-STAY_DOCTYPE = "Hospitality Stay"
+STAY_DOCTYPE = "Stay"
 
 #: Reversing a checkout re-opens a settled folio and an ERPNext invoice.
 REVERSAL_ROLES = stay_service.CHECKOUT_REVERSAL_ROLES
@@ -254,11 +254,11 @@ def _raise_housekeeping_task(stay_doc) -> str | None:
 	is left Vacant Dirty, which is the state housekeeping picks up from, and
 	this returns None rather than pretending a task exists.
 	"""
-	if not frappe.db.table_exists("Hospitality Housekeeping Task"):
+	if not frappe.db.table_exists("Housekeeping Task"):
 		return None
 
 	if not frappe.db.get_single_value(
-		"Hospitality Settings", "auto_create_housekeeping_task_on_checkout"
+		"PMS Settings", "auto_create_housekeeping_task_on_checkout"
 	):
 		return None
 

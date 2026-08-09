@@ -4,7 +4,7 @@ Answers the housekeeping manager's staffing question: "Per attendant, over this
 period, how many rooms did they actually finish, how long did it take, and did
 supervisors pass their work the first time round?"
 
-Source: `Hospitality Housekeeping Task` (SAS 3.11), scoped to tasks scheduled
+Source: `Housekeeping Task` (SAS 3.11), scoped to tasks scheduled
 in the filter period and grouped by `assigned_to`. `Hospitality Room
 Inspection` rows are joined in through their `housekeeping_task` link to
 attribute a supervisor's pass/fail back to the attendant who did the clean,
@@ -100,7 +100,7 @@ def get_data(filters):
 			sum(case when t.task_status = 'Completed' then t.actual_minutes else 0 end) as total_minutes,
 			sum(case when t.task_status = 'Completed' then t.housekeeping_credits else 0 end)
 				as housekeeping_credits
-		from `tabHospitality Housekeeping Task` t
+		from `tabHousekeeping Task` t
 		where t.property = %(property)s
 			and t.scheduled_date between %(from_date)s and %(to_date)s
 			and t.assigned_to is not null and t.assigned_to != ''
@@ -117,8 +117,8 @@ def get_data(filters):
 			t.assigned_to as attendant,
 			sum(case when i.result = 'Passed' then 1 else 0 end) as inspections_passed,
 			sum(case when i.result = 'Failed' then 1 else 0 end) as inspections_failed
-		from `tabHospitality Room Inspection` i
-		inner join `tabHospitality Housekeeping Task` t on t.name = i.housekeeping_task
+		from `tabRoom Inspection` i
+		inner join `tabHousekeeping Task` t on t.name = i.housekeeping_task
 		where t.property = %(property)s
 			and t.scheduled_date between %(from_date)s and %(to_date)s
 			and t.assigned_to is not null and t.assigned_to != ''
@@ -145,8 +145,8 @@ def get_data(filters):
 					partition by i.housekeeping_task
 					order by i.inspected_on asc
 				) as rn
-			from `tabHospitality Room Inspection` i
-			inner join `tabHospitality Housekeeping Task` t on t.name = i.housekeeping_task
+			from `tabRoom Inspection` i
+			inner join `tabHousekeeping Task` t on t.name = i.housekeeping_task
 			where t.property = %(property)s
 				and t.scheduled_date between %(from_date)s and %(to_date)s
 				and t.assigned_to is not null and t.assigned_to != ''

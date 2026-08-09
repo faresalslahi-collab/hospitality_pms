@@ -64,7 +64,7 @@ journey, with a charge and a payment on its folio.
 | 1 | Open the folio and inspect the charge lines. | Each posted line is stamped as posted to ERP and carries its Sales Invoice reference. |
 | 2 | Run the **Folio vs Invoice** report for the period. | The folio appears with matching folio and invoice totals, and a zero difference. |
 | 3 | Look for any row in that report with a non-zero difference. | Investigate and record any you find — a difference is a finance defect, not a display issue. |
-| 4 | Open the **Hospitality Financial Posting Log** in Desk and find this folio's entries. | One entry per posting, each with a unique idempotency key and a success status. |
+| 4 | Open the **Financial Posting Log** in Desk and find this folio's entries. | One entry per posting, each with a unique idempotency key and a success status. |
 
 **Pass criteria:** The report shows zero difference for this folio, and every posting is traceable in the log.
 

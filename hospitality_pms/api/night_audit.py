@@ -13,7 +13,7 @@ from hospitality_pms.services import night_audit as service
 from hospitality_pms.services.base import require_permission
 from hospitality_pms.services.property import resolve_property
 
-AUDIT_DOCTYPE = "Hospitality Night Audit"
+AUDIT_DOCTYPE = "Night Audit"
 
 AUDIT_FIELDS = (
 	"name",

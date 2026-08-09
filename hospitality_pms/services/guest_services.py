@@ -12,8 +12,8 @@ from frappe.utils import add_to_date, flt, get_datetime, now_datetime
 from hospitality_pms.services.base import assert_transition, lock_document, require_role
 from hospitality_pms.services.exceptions import HospitalityPMSError, throw
 
-REQUEST_DOCTYPE = "Hospitality Guest Request"
-LOG_DOCTYPE = "Hospitality Guest Request Log"
+REQUEST_DOCTYPE = "Guest Request"
+LOG_DOCTYPE = "Guest Request Log"
 
 OPEN = "Open"
 ASSIGNED = "Assigned"

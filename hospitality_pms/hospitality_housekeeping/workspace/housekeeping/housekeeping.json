@@ -1,7 +1,7 @@
 {
  "app": "hospitality_pms",
  "charts": [],
- "content": "[{\"id\": \"hdr1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Your Shortcuts</b></span>\", \"col\": 12}}, {\"id\": \"shortcut2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Open Hospitality PMS\", \"col\": 3}}, {\"id\": \"shortcut3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Hospitality Housekeeping Task\", \"col\": 3}}, {\"id\": \"spacer4\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"hdr5\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Explore</b></span>\", \"col\": 12}}, {\"id\": \"card6\", \"type\": \"card\", \"data\": {\"card_name\": \"Housekeeping\", \"col\": 4}}]",
+ "content": "[{\"id\": \"hdr1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Your Shortcuts</b></span>\", \"col\": 12}}, {\"id\": \"shortcut2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Open Hospitality PMS\", \"col\": 3}}, {\"id\": \"shortcut3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Housekeeping Task\", \"col\": 3}}, {\"id\": \"spacer4\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"hdr5\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Explore</b></span>\", \"col\": 12}}, {\"id\": \"card6\", \"type\": \"card\", \"data\": {\"card_name\": \"Housekeeping\", \"col\": 4}}]",
  "creation": "2026-08-08 18:39:44.096125",
  "custom_blocks": [],
  "docstatus": 0,
@@ -27,9 +27,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Housekeeping Task",
+   "label": "Housekeeping Task",
    "link_count": 0,
-   "link_to": "Hospitality Housekeeping Task",
+   "link_to": "Housekeeping Task",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -38,9 +38,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Room Inspection",
+   "label": "Room Inspection",
    "link_count": 0,
-   "link_to": "Hospitality Room Inspection",
+   "link_to": "Room Inspection",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -60,9 +60,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Room Status Log",
+   "label": "Room Status Log",
    "link_count": 0,
-   "link_to": "Hospitality Room Status Log",
+   "link_to": "Room Status Log",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -77,7 +77,7 @@
    "type": "Card Break"
   },
   {
-   "dependencies": "Hospitality Housekeeping Task",
+   "dependencies": "Housekeeping Task",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Housekeeping Productivity",
@@ -145,8 +145,8 @@
   },
   {
    "doc_view": "List",
-   "label": "Hospitality Housekeeping Task",
-   "link_to": "Hospitality Housekeeping Task",
+   "label": "Housekeeping Task",
+   "link_to": "Housekeeping Task",
    "type": "DocType"
   }
  ],

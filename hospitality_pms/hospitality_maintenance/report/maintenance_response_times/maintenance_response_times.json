@@ -11,7 +11,7 @@
    "fieldtype": "Link",
    "label": "Property",
    "mandatory": 1,
-   "options": "Hospitality Property"
+   "options": "Property"
   },
   {
    "default": "Today",
@@ -37,7 +37,7 @@
  "name": "Maintenance Response Times",
  "owner": "Administrator",
  "prepared_report": 0,
- "ref_doctype": "Hospitality Maintenance Ticket",
+ "ref_doctype": "Maintenance Ticket",
  "report_name": "Maintenance Response Times",
  "report_type": "Script Report",
  "roles": [

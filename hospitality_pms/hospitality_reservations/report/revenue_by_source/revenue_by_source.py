@@ -70,7 +70,7 @@ def get_data(property_name: str, from_date, to_date) -> list[dict]:
 			           0
 			       ) as room_nights,
 			       coalesce(r.total_amount, 0) as total_amount
-			from `tabHotel Reservation` r
+			from `tabReservation` r
 			where r.property = %(property)s
 			  and r.arrival_date between %(from_date)s and %(to_date)s
 			  and r.reservation_status in %(statuses)s

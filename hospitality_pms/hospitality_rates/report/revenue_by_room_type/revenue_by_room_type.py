@@ -53,9 +53,9 @@ def get_data(property_name: str, from_date, to_date) -> list[dict]:
 		select coalesce(s.room_type, '') as room_type,
 		       count(*) as room_nights,
 		       coalesce(sum(c.total_amount), 0) as room_revenue
-		from `tabHospitality Folio Charge` c
-		inner join `tabHospitality Guest Folio` f on f.name = c.parent
-		left join `tabHospitality Stay` s on s.name = f.stay
+		from `tabFolio Charge` c
+		inner join `tabGuest Folio` f on f.name = c.parent
+		left join `tabStay` s on s.name = f.stay
 		where f.property = %(property)s
 		  and c.charge_type = 'Room Charge'
 		  and c.is_reversed = 0

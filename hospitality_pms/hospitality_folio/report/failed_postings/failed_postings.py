@@ -3,7 +3,7 @@
 Financial question answered: which attempts to post a folio charge or payment
 into ERPNext are currently stuck, and which of those deserve attention first?
 
-Every row here is a `Hospitality Financial Posting Log` entry (HPMS-DEC-031).
+Every row here is a `Financial Posting Log` entry (HPMS-DEC-031).
 A non-zero result is not itself a discrepancy in the accounts -- ERPNext was
 never told about this money at all, so nothing is out of balance yet -- but it
 is revenue or a receipt sitting outside the ledger until the posting is
@@ -17,7 +17,7 @@ worst offenders first.
 import frappe
 from frappe import _
 
-POSTING_LOG = "Hospitality Financial Posting Log"
+POSTING_LOG = "Financial Posting Log"
 
 DEFAULT_STATUS = "Failed"
 
@@ -70,7 +70,7 @@ def get_columns():
 			"fieldname": "posting_log",
 			"label": _("Posting Log"),
 			"fieldtype": "Link",
-			"options": "Hospitality Financial Posting Log",
+			"options": "Financial Posting Log",
 			"width": 150,
 		},
 		{
@@ -83,7 +83,7 @@ def get_columns():
 			"fieldname": "folio",
 			"label": _("Folio"),
 			"fieldtype": "Link",
-			"options": "Hospitality Guest Folio",
+			"options": "Guest Folio",
 			"width": 140,
 		},
 		{

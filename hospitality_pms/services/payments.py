@@ -25,8 +25,8 @@ from hospitality_pms.services import folio as folio_service
 from hospitality_pms.services.base import lock_document
 from hospitality_pms.services.exceptions import IntegrationError, throw
 
-TRANSACTION_DOCTYPE = "Hospitality Payment Transaction"
-FAILURE_QUEUE = "Hospitality Integration Failure Queue"
+TRANSACTION_DOCTYPE = "Payment Transaction"
+FAILURE_QUEUE = "PMS Integration Failure Queue"
 
 #: Transaction states in which the money is the hotel's and belongs on the folio.
 SETTLED_STATES = ("Captured",)

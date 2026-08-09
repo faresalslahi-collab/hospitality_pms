@@ -14,7 +14,7 @@
  "name": "Folio vs Invoice",
  "owner": "Administrator",
  "prepared_report": 0,
- "ref_doctype": "Hospitality Guest Folio",
+ "ref_doctype": "Guest Folio",
  "report_name": "Folio vs Invoice",
  "report_type": "Script Report",
  "roles": [

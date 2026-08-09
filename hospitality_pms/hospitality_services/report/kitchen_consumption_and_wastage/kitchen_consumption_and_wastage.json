@@ -11,7 +11,7 @@
    "fieldtype": "Link",
    "label": "Property",
    "mandatory": 1,
-   "options": "Hospitality Property"
+   "options": "Property"
   },
   {
    "default": "Today",
@@ -37,7 +37,7 @@
  "name": "Kitchen Consumption and Wastage",
  "owner": "Administrator",
  "prepared_report": 0,
- "ref_doctype": "Hospitality Wastage Entry",
+ "ref_doctype": "Wastage Entry",
  "report_name": "Kitchen Consumption and Wastage",
  "report_type": "Script Report",
  "roles": [

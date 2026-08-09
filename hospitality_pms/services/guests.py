@@ -1,6 +1,6 @@
 """Guest identity: naming, duplicate detection, Customer linking and merging.
 
-Hospitality Guest is the primary guest record (HPMS-DEC-011). An ERPNext
+Guest is the primary guest record (HPMS-DEC-011). An ERPNext
 Customer is created or linked only when money has to move (HPMS-DEC-012), so
 most guests never get one.
 """
@@ -14,8 +14,8 @@ from frappe.utils import now_datetime
 from hospitality_pms.services.base import lock_document, require_role
 from hospitality_pms.services.exceptions import ConfigurationError, HospitalityPMSError, throw
 
-GUEST_DOCTYPE = "Hospitality Guest"
-MERGE_LOG_DOCTYPE = "Hospitality Guest Merge Log"
+GUEST_DOCTYPE = "Guest"
+MERGE_LOG_DOCTYPE = "Guest Merge Log"
 
 #: Roles allowed to merge guest records. A merge rewrites history across
 #: reservations, stays and folios, so it is not an everyday front desk action.
@@ -81,7 +81,7 @@ def find_duplicates(
 
 	if id_number:
 		rows = frappe.get_all(
-			"Hospitality Guest Identification",
+			"Guest Identification",
 			filters={"id_number": id_number.strip(), "parenttype": GUEST_DOCTYPE},
 			fields=["parent"],
 			limit=limit * 2,
@@ -202,7 +202,7 @@ def _default_territory() -> str:
 
 
 def get_guest_link_fields() -> list[tuple[str, str]]:
-	"""Every (doctype, fieldname) that links to Hospitality Guest.
+	"""Every (doctype, fieldname) that links to Guest.
 
 	Discovered from the schema rather than hard-coded, so a merge keeps working
 	as reservations, stays, folios and guest requests are added in later builds

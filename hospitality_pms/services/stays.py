@@ -24,7 +24,7 @@ from hospitality_pms.services.exceptions import (
 from hospitality_pms.services.guests import assert_not_blacklisted
 from hospitality_pms.services.property import get_business_date, get_property
 
-STAY_DOCTYPE = "Hospitality Stay"
+STAY_DOCTYPE = "Stay"
 
 EXPECTED = "Expected"
 IN_HOUSE = "In House"
@@ -249,8 +249,8 @@ def _assert_identity_captured(property_name: str, guest: str | None):
 		throw(_("A guest record is required to check in."))
 
 	has_id = frappe.db.exists(
-		"Hospitality Guest Identification",
-		{"parent": guest, "parenttype": "Hospitality Guest"},
+		"Guest Identification",
+		{"parent": guest, "parenttype": "Guest"},
 	)
 
 	if not has_id:

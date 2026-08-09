@@ -5,7 +5,7 @@ recorded on a folio in a period, has it actually reached ERPNext as a
 Payment Entry, and against which provider reference (if any) can it be traced
 back to the gateway that took it?
 
-Every row is a `Hospitality Folio Payment` line, exactly as
+Every row is a `Folio Payment` line, exactly as
 `services.posting.post_folio_payment` posts it -- per line, not in aggregate,
 so a deposit, a settlement and a refund each reconcile against their own
 ledger entry. A line with "Posted to ERP" = No is money the property has
@@ -62,8 +62,8 @@ def get_data(filters):
 			p.is_posted_to_erp as is_posted_to_erp,
 			p.payment_entry as payment_entry,
 			p.provider_reference as provider_reference
-		from `tabHospitality Folio Payment` p
-		inner join `tabHospitality Guest Folio` f on f.name = p.parent
+		from `tabFolio Payment` p
+		inner join `tabGuest Folio` f on f.name = p.parent
 		where f.property = %(property)s
 		  and (%(from_date)s is null or p.payment_date >= %(from_date)s)
 		  and (%(to_date)s is null or p.payment_date <= %(to_date)s)
@@ -99,7 +99,7 @@ def get_columns():
 			"fieldname": "folio",
 			"label": _("Folio"),
 			"fieldtype": "Link",
-			"options": "Hospitality Guest Folio",
+			"options": "Guest Folio",
 			"width": 140,
 		},
 		{

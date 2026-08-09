@@ -14,7 +14,7 @@ from hospitality_pms.services.guests import (
 	merge_guests,
 )
 
-GUEST_DOCTYPE = "Hospitality Guest"
+GUEST_DOCTYPE = "Guest"
 
 #: Fields safe for a guest search result. No identification, no blacklist.
 SEARCH_FIELDS = (

@@ -17,7 +17,7 @@ from hospitality_pms.services import corporate as service
 from hospitality_pms.services.base import require_permission
 from hospitality_pms.services.property import resolve_property
 
-ACCOUNT_DOCTYPE = "Hospitality Corporate Account"
+ACCOUNT_DOCTYPE = "Corporate Account"
 
 ACCOUNT_FIELDS = (
 	"name",

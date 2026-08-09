@@ -14,7 +14,7 @@
  "name": "Revenue by Source",
  "owner": "Administrator",
  "prepared_report": 0,
- "ref_doctype": "Hotel Reservation",
+ "ref_doctype": "Reservation",
  "report_name": "Revenue by Source",
  "report_type": "Script Report",
  "roles": [

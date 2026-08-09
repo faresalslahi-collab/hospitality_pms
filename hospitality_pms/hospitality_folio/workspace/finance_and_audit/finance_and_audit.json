@@ -27,9 +27,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Guest Folio",
+   "label": "Guest Folio",
    "link_count": 0,
-   "link_to": "Hospitality Guest Folio",
+   "link_to": "Guest Folio",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -38,9 +38,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Financial Posting Log",
+   "label": "Financial Posting Log",
    "link_count": 0,
-   "link_to": "Hospitality Financial Posting Log",
+   "link_to": "Financial Posting Log",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -49,9 +49,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Posting Profile",
+   "label": "Posting Profile",
    "link_count": 0,
-   "link_to": "Hospitality Posting Profile",
+   "link_to": "Posting Profile",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -60,9 +60,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Payment Transaction",
+   "label": "Payment Transaction",
    "link_count": 0,
-   "link_to": "Hospitality Payment Transaction",
+   "link_to": "Payment Transaction",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -80,9 +80,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Night Audit",
+   "label": "Night Audit",
    "link_count": 0,
-   "link_to": "Hospitality Night Audit",
+   "link_to": "Night Audit",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -91,9 +91,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Folio Log",
+   "label": "Folio Log",
    "link_count": 0,
-   "link_to": "Hospitality Folio Log",
+   "link_to": "Folio Log",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -108,7 +108,7 @@
    "type": "Card Break"
   },
   {
-   "dependencies": "Hospitality Guest Folio",
+   "dependencies": "Guest Folio",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Folio vs Invoice",
@@ -119,7 +119,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Folio Payment",
+   "dependencies": "Folio Payment",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Payment Reconciliation",
@@ -130,7 +130,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Financial Posting Log",
+   "dependencies": "Financial Posting Log",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Failed Postings",
@@ -141,7 +141,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Guest Folio",
+   "dependencies": "Guest Folio",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Guest Ledger",
@@ -152,7 +152,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Corporate Account",
+   "dependencies": "Corporate Account",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Corporate Credit Exposure",
@@ -163,7 +163,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Stay",
+   "dependencies": "Stay",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Occupancy and Revenue",

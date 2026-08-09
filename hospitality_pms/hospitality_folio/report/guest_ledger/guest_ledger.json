@@ -14,7 +14,7 @@
  "name": "Guest Ledger",
  "owner": "Administrator",
  "prepared_report": 0,
- "ref_doctype": "Hospitality Guest Folio",
+ "ref_doctype": "Guest Folio",
  "report_name": "Guest Ledger",
  "report_type": "Script Report",
  "roles": [

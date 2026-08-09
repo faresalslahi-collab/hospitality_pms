@@ -77,7 +77,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Property",
-   "options": "Hospitality Property",
+   "options": "Property",
    "reqd": 1,
    "search_index": 1
   },
@@ -107,13 +107,13 @@
    "fieldname": "building",
    "fieldtype": "Link",
    "label": "Building",
-   "options": "Hospitality Building"
+   "options": "Building"
   },
   {
    "fieldname": "wing",
    "fieldtype": "Link",
    "label": "Wing",
-   "options": "Hospitality Wing"
+   "options": "Wing"
   },
   {
    "fieldname": "location_col",
@@ -123,14 +123,14 @@
    "fieldname": "floor",
    "fieldtype": "Link",
    "label": "Floor",
-   "options": "Hospitality Floor",
+   "options": "Floor",
    "search_index": 1
   },
   {
    "fieldname": "zone",
    "fieldtype": "Link",
    "label": "Zone",
-   "options": "Hospitality Zone",
+   "options": "Zone",
    "search_index": 1
   },
   {
@@ -225,7 +225,7 @@
    "fieldname": "features",
    "fieldtype": "Table",
    "label": "Features",
-   "options": "Hospitality Room Feature"
+   "options": "Room Feature"
   },
   {
    "fieldname": "housekeeping_section",
@@ -269,7 +269,7 @@
    "fieldname": "connecting_rooms",
    "fieldtype": "Table",
    "label": "Connecting Rooms",
-   "options": "Hospitality Connecting Room"
+   "options": "Connecting Room"
   }
  ],
  "grid_page_length": 50,

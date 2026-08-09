@@ -3,10 +3,10 @@
 Answers the compliance question a night auditor or finance manager checks
 routinely: "What have we generated for the regulator this period, has it
 actually been submitted, and did anything fail?" One row per
-`Hospitality Regulatory Export` whose reporting period overlaps the filter
+`Regulatory Export` whose reporting period overlaps the filter
 range (SAS section 5 / `services/regulatory.py`).
 
-A report_summary card above the table counts `Hospitality Guest Registration`
+A report_summary card above the table counts `Guest Registration`
 rows still in `Pending` status for the property, regardless of the date
 filter: that count is the number a compliance officer actually has to chase
 today, not a historical figure scoped to whatever period this report happens
@@ -37,7 +37,7 @@ def get_columns():
 			"label": _("Export"),
 			"fieldname": "export",
 			"fieldtype": "Link",
-			"options": "Hospitality Regulatory Export",
+			"options": "Regulatory Export",
 			"width": 140,
 		},
 		{"label": _("Type"), "fieldname": "export_type", "fieldtype": "Data", "width": 130},
@@ -97,7 +97,7 @@ def get_data(filters):
 			e.submitted_on as submitted_on,
 			e.acknowledgement_reference as acknowledgement_reference,
 			e.error_message as error
-		from `tabHospitality Regulatory Export` e
+		from `tabRegulatory Export` e
 		where e.property = %(property)s
 			{period_clause}
 			{export_type_clause}
@@ -110,7 +110,7 @@ def get_data(filters):
 
 def get_report_summary(filters):
 	pending_count = frappe.db.count(
-		"Hospitality Guest Registration",
+		"Guest Registration",
 		filters={"property": filters.property, "registration_status": "Pending"},
 	)
 

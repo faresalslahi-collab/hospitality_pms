@@ -29,7 +29,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
-FOLIO_DOCTYPE = "Hospitality Guest Folio"
+FOLIO_DOCTYPE = "Guest Folio"
 
 
 def execute(filters=None):
@@ -97,8 +97,8 @@ def get_entries(filters, folio_names):
 			0 as payment_amount,
 			c.is_reversed as is_reversed,
 			c.idx as idx
-		from `tabHospitality Folio Charge` c
-		inner join `tabHospitality Guest Folio` f on f.name = c.parent
+		from `tabFolio Charge` c
+		inner join `tabGuest Folio` f on f.name = c.parent
 		where f.property = %(property)s
 		  and f.name in %(folios)s
 		  and (%(from_date)s is null or c.charge_date >= %(from_date)s)
@@ -120,8 +120,8 @@ def get_entries(filters, folio_names):
 			p.amount as payment_amount,
 			p.is_reversed as is_reversed,
 			p.idx as idx
-		from `tabHospitality Folio Payment` p
-		inner join `tabHospitality Guest Folio` f on f.name = p.parent
+		from `tabFolio Payment` p
+		inner join `tabGuest Folio` f on f.name = p.parent
 		where f.property = %(property)s
 		  and f.name in %(folios)s
 		  and (%(from_date)s is null or p.payment_date >= %(from_date)s)
@@ -187,14 +187,14 @@ def get_columns():
 			"fieldname": "folio",
 			"label": _("Folio"),
 			"fieldtype": "Link",
-			"options": "Hospitality Guest Folio",
+			"options": "Guest Folio",
 			"width": 140,
 		},
 		{
 			"fieldname": "guest",
 			"label": _("Guest"),
 			"fieldtype": "Link",
-			"options": "Hospitality Guest",
+			"options": "Guest",
 			"width": 140,
 		},
 		{

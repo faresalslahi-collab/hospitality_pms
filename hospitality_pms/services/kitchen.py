@@ -21,10 +21,10 @@ from hospitality_pms.services.base import lock_document, require_role
 from hospitality_pms.services.exceptions import ConfigurationError, HospitalityPMSError, throw
 from hospitality_pms.services.property import get_business_date, get_company, get_warehouse
 
-REQUISITION_DOCTYPE = "Hospitality Kitchen Requisition"
-ORDER_DOCTYPE = "Hospitality Room Service Order"
-WASTAGE_DOCTYPE = "Hospitality Wastage Entry"
-MENU_DOCTYPE = "Hospitality Menu Item"
+REQUISITION_DOCTYPE = "Kitchen Requisition"
+ORDER_DOCTYPE = "Room Service Order"
+WASTAGE_DOCTYPE = "Wastage Entry"
+MENU_DOCTYPE = "Menu Item"
 
 #: Writing off stock is a management decision, not a line cook's
 #: (Roles Matrix section 3).
@@ -124,7 +124,7 @@ def issue_requisition(requisition: str) -> dict:
 
 	for row in doc.lines:
 		frappe.db.set_value(
-			"Hospitality Requisition Line", row.name, "issued_quantity", flt(row.quantity), update_modified=False
+			"Kitchen Requisition Line", row.name, "issued_quantity", flt(row.quantity), update_modified=False
 		)
 
 	frappe.db.set_value(
@@ -171,7 +171,7 @@ def create_order(
 		)
 
 	stay_doc = frappe.db.get_value(
-		"Hospitality Stay", stay, ["room", "guest", "property"], as_dict=True
+		"Stay", stay, ["room", "guest", "property"], as_dict=True
 	)
 
 	priced = []
@@ -412,7 +412,7 @@ def get_consumption_report(property_name: str, from_date, to_date) -> dict:
 	wastage = frappe.db.sql(
 		"""
 		select item, sum(quantity) as quantity, sum(estimated_value) as value
-		from `tabHospitality Wastage Entry`
+		from `tabWastage Entry`
 		where property = %(property)s and wastage_date between %(from_date)s and %(to_date)s
 		group by item
 		order by value desc
@@ -424,7 +424,7 @@ def get_consumption_report(property_name: str, from_date, to_date) -> dict:
 	revenue = frappe.db.sql(
 		"""
 		select order_type, count(*) as orders, sum(total_amount) as revenue
-		from `tabHospitality Room Service Order`
+		from `tabRoom Service Order`
 		where property = %(property)s
 		  and order_status = 'Delivered'
 		  and date(ordered_on) between %(from_date)s and %(to_date)s
@@ -489,7 +489,7 @@ def get_order_board(property_name: str, *, include_closed: bool = False) -> dict
 
 	if orders:
 		lines = frappe.get_all(
-			"Hospitality Order Line",
+			"Room Service Order Line",
 			filters={"parenttype": ORDER_DOCTYPE, "parent": ("in", [o["name"] for o in orders])},
 			fields=["parent", "quantity"],
 			limit_page_length=0,
@@ -507,7 +507,7 @@ def get_order_board(property_name: str, *, include_closed: bool = False) -> dict
 		names = (
 			dict(
 				frappe.get_all(
-					"Hospitality Guest",
+					"Guest",
 					filters={"name": ("in", list(guests))},
 					fields=["name", "guest_name"],
 					as_list=True,

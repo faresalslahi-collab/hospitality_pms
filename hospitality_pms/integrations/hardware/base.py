@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 import frappe
 from frappe.utils import now_datetime
 
-INTEGRATION_LOG = "Hospitality Integration Request Log"
+INTEGRATION_LOG = "PMS Integration Log"
 
 
 @dataclass
@@ -41,7 +41,7 @@ class IdentityResult:
 
 	Every scanner vendor returns something different; this is the shape every
 	adapter translates into, matching the "as reported" fields on
-	`Hospitality Guest Registration` and `Hospitality Guest Identification`.
+	`Guest Registration` and `Guest Identification`.
 	"""
 
 	success: bool

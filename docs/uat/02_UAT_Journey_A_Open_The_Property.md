@@ -19,14 +19,14 @@ first. Reference sections point at
 | | |
 |---|---|
 | **Role** | Hospitality Administrator |
-| **Surface** | Desk → Hospitality PMS → Setup → Hospitality Property |
+| **Surface** | Desk → Hospitality PMS → Setup → Property |
 | **Prerequisites** | ERPNext Company exists with a default currency and a Cost Center. Site is freshly installed and migrated. |
 | **Test data** | Property code, name, country, time zone, and the ERPNext Company this property trades as. Decide the opening business date now — normally today. |
 | **Severity if failed** | Critical — nothing else in the system can be configured or operated |
 
 | # | Step | Expected result |
 |---|---|---|
-| 1 | Open **Hospitality Property** and create a new record. Fill property code, name, company, currency, country, time zone. | The form saves. Currency and company are the ERPNext ones, not free text. |
+| 1 | Open **Property** and create a new record. Fill property code, name, company, currency, country, time zone. | The form saves. Currency and company are the ERPNext ones, not free text. |
 | 2 | Set **Business date** to today and save. | The business date is stored and shown. |
 | 3 | Set check-in and check-out times, and rounding precision. | Values save and are shown on the record. |
 | 4 | Note the **Total rooms** field. | It reads 0 or blank — no rooms exist yet. |
@@ -47,16 +47,16 @@ first. Reference sections point at
 | | |
 |---|---|
 | **Role** | Hospitality Administrator |
-| **Surface** | Desk → Setup → Hospitality Building / Floor / Wing / Zone |
+| **Surface** | Desk → Setup → Building / Floor / Wing / Zone |
 | **Prerequisites** | A-01 complete |
 | **Test data** | At least one building, two floors, and one housekeeping zone. Use this hotel's real names — the point is to find out whether the structure fits. |
 | **Severity if failed** | High — room inventory can exist without it, but housekeeping allocation and the room rack become unusable |
 
 | # | Step | Expected result |
 |---|---|---|
-| 1 | Create one **Hospitality Building** against the property. | Saves, linked to the property from A-01. |
-| 2 | Create two **Hospitality Floor** records under that building. | Both save and show their building. |
-| 3 | Create one **Hospitality Zone**. | Saves. |
+| 1 | Create one **Building** against the property. | Saves, linked to the property from A-01. |
+| 2 | Create two **Floor** records under that building. | Both save and show their building. |
+| 3 | Create one **Zone**. | Saves. |
 | 4 | Try to create a floor against a property that does not exist. | Refused — the link field offers only existing properties. |
 
 **Pass criteria:** The hotel's real physical structure can be expressed. If it cannot — for example this property has structure the model has no field for — that is the finding, and it is High, not Low.
@@ -130,16 +130,16 @@ first. Reference sections point at
 | | |
 |---|---|
 | **Role** | Hospitality Administrator (or Revenue Manager) |
-| **Surface** | Desk → Rates and Revenue → Hospitality Rate Plan, Hospitality Daily Rate, Hospitality Rate Policy |
+| **Surface** | Desk → Rates and Revenue → Rate Plan, Daily Rate, Rate Policy |
 | **Prerequisites** | A-03 complete |
 | **Test data** | One rate plan covering **both** room types, with daily rates loaded for a date range at least 30 days into the future. One cancellation policy that charges something outside its free window, and one deposit policy that requires a deposit — Journeys B and C both need these. |
 | **Severity if failed** | Critical — a room with no rate cannot be sold |
 
 | # | Step | Expected result |
 |---|---|---|
-| 1 | Create a **Hospitality Rate Plan** covering both room types. | Saves. |
-| 2 | Load **Hospitality Daily Rate** rows for both room types across your test date range. | Rows save with a rate per room type per date. |
-| 3 | Create a **Hospitality Rate Policy** of cancellation type that charges a fee outside a free-cancellation window, and attach it. | Saves and is linked. |
+| 1 | Create a **Rate Plan** covering both room types. | Saves. |
+| 2 | Load **Daily Rate** rows for both room types across your test date range. | Rows save with a rate per room type per date. |
+| 3 | Create a **Rate Policy** of cancellation type that charges a fee outside a free-cancellation window, and attach it. | Saves and is linked. |
 | 4 | Create a deposit policy requiring a deposit, and attach it. | Saves and is linked. |
 | 5 | Sign in to `/pms` as a Reservation Agent and open **Availability**. Search a date in range. | Rates appear against both room types. A room type with no rate loaded for a night shows as unsellable for that night rather than as free. |
 
@@ -158,14 +158,14 @@ first. Reference sections point at
 | | |
 |---|---|
 | **Role** | Hospitality Administrator with Finance Manager, together |
-| **Surface** | Desk → Setup → Hospitality Posting Profile, Hospitality Charge Item Map |
+| **Surface** | Desk → Setup → Posting Profile, Charge Item Map |
 | **Prerequisites** | A-01 complete. ERPNext Items exist for room revenue and at least one incidental (minibar, laundry, or similar), each with an income account. |
 | **Test data** | One posting profile for this property, mapping **Room Charge** and at least one other charge type to real ERPNext Items. |
 | **Severity if failed** | Critical — checkout will fail to post and revenue will not reach the ledger |
 
 | # | Step | Expected result |
 |---|---|---|
-| 1 | Create a **Hospitality Posting Profile** for the property. | Saves. |
+| 1 | Create a **Posting Profile** for the property. | Saves. |
 | 2 | Map **Room Charge** to an ERPNext Item that has an income account. | Row saves. |
 | 3 | Map one further charge type (for example Minibar) to a second Item. | Row saves. |
 | 4 | Deliberately leave one charge type unmapped and note which. | No error yet — the gap only bites when something of that type is posted. Journey G (**G-03**) tests exactly that, so keep the note. |
@@ -214,17 +214,17 @@ first. Reference sections point at
 | | |
 |---|---|
 | **Role** | Hospitality Administrator |
-| **Surface** | Desk → Setup → Hospitality Property; Desk → Users → User Permission; then `/pms` |
+| **Surface** | Desk → Setup → Property; Desk → Users → User Permission; then `/pms` |
 | **Prerequisites** | A-01 complete |
-| **Test data** | A second Hospitality Property (it needs no rooms — it exists to prove isolation). One test user restricted to the first property by a User Permission. |
+| **Test data** | A second Property (it needs no rooms — it exists to prove isolation). One test user restricted to the first property by a User Permission. |
 | **Severity if failed** | Critical — a group operator would see another hotel's guests and money |
 | **Skip if** | This deployment will only ever run one property. Record that decision here rather than marking the scenario Pass. |
 
 | # | Step | Expected result |
 |---|---|---|
-| 1 | Create a second Hospitality Property with its own code and business date. | Saves. |
+| 1 | Create a second Property with its own code and business date. | Saves. |
 | 2 | Sign in to `/pms` as an unrestricted user (Hotel Manager). | The property selector offers **both** properties and switching between them changes the dashboard figures. |
-| 3 | Add a **User Permission** on Hospitality Property for your Front Office Agent test user, allowing only the first property. | Saves. |
+| 3 | Add a **User Permission** on Property for your Front Office Agent test user, allowing only the first property. | Saves. |
 | 4 | Sign in to `/pms` as that agent. | The property selector offers **only** the permitted property. The second is not listed. |
 | 5 | With that agent still signed in, edit the browser address to a screen belonging to the other property — for example open a reservation you noted from the second property at `/pms/reservations/<name>`. | Refused, with a message about not having access to that property. Not a blank screen, and not another property's data. |
 

@@ -146,7 +146,7 @@ BLACKLIST_REASON_READERS = BLACKLIST_WRITERS + AUDITOR
 
 MATRIX = {
 	# --- Setup ------------------------------------------------------------
-	"Hospitality Property": build(
+	"Property": build(
 		readers=OPERATIONAL + AUDITOR,
 		writers=["Hospitality Administrator"],
 		deleters=["System Manager"],
@@ -155,13 +155,13 @@ MATRIX = {
 		level_one_readers=["Accounts User", "Read-Only Auditor", *MANAGEMENT],
 		level_one_writers=["Finance Manager", *ADMIN],
 	),
-	"Hospitality Settings": build(readers=MANAGEMENT + AUDITOR, writers=ADMIN),
-	"Hospitality Building": build(readers=OPERATIONAL + AUDITOR, deleters=ADMIN),
-	"Hospitality Wing": build(readers=OPERATIONAL + AUDITOR, deleters=ADMIN),
-	"Hospitality Floor": build(readers=OPERATIONAL + AUDITOR, deleters=ADMIN),
-	"Hospitality Zone": build(readers=OPERATIONAL + AUDITOR, deleters=ADMIN),
-	"Hospitality Department": build(readers=OPERATIONAL + AUDITOR, writers=MANAGEMENT, deleters=ADMIN),
-	"Hospitality Shift": build(readers=OPERATIONAL + AUDITOR, writers=MANAGEMENT, deleters=ADMIN),
+	"PMS Settings": build(readers=MANAGEMENT + AUDITOR, writers=ADMIN),
+	"Building": build(readers=OPERATIONAL + AUDITOR, deleters=ADMIN),
+	"Wing": build(readers=OPERATIONAL + AUDITOR, deleters=ADMIN),
+	"Floor": build(readers=OPERATIONAL + AUDITOR, deleters=ADMIN),
+	"Zone": build(readers=OPERATIONAL + AUDITOR, deleters=ADMIN),
+	"Property Department": build(readers=OPERATIONAL + AUDITOR, writers=MANAGEMENT, deleters=ADMIN),
+	"Property Shift": build(readers=OPERATIONAL + AUDITOR, writers=MANAGEMENT, deleters=ADMIN),
 	# --- Rooms ------------------------------------------------------------
 	# Room configuration is commercial: revenue and management own it.
 	"Room Type": build(
@@ -177,7 +177,7 @@ MATRIX = {
 		writers=["Front Office Manager", "Housekeeping Manager", "Maintenance Manager", *MANAGEMENT],
 		deleters=ADMIN,
 	),
-	"Hospitality Room Block": build(
+	"Room Block": build(
 		readers=OPERATIONAL + AUDITOR,
 		submitters=[
 			"Front Office Manager",
@@ -191,9 +191,9 @@ MATRIX = {
 	),
 	# Technical record (Roles Matrix section 5): hidden from ordinary
 	# operational users and never written through the UI.
-	"Hospitality Room Status Log": build(readers=TECHNICAL_READERS + HK[:2] + MTN[:1]),
+	"Room Status Log": build(readers=TECHNICAL_READERS + HK[:2] + MTN[:1]),
 	# --- Guests -----------------------------------------------------------
-	"Hospitality Guest": build(
+	"Guest": build(
 		readers=GUEST_READERS,
 		writers=GUEST_HANDLERS + MANAGEMENT,
 		deleters=ADMIN,
@@ -204,25 +204,25 @@ MATRIX = {
 		level_three_readers=BLACKLIST_REASON_READERS,
 		level_three_writers=BLACKLIST_WRITERS,
 	),
-	"Hospitality Guest Merge Log": build(readers=TECHNICAL_READERS + ["Guest Relations Officer"]),
+	"Guest Merge Log": build(readers=TECHNICAL_READERS + ["Guest Relations Officer"]),
 	# --- Rates ------------------------------------------------------------
 	# Revenue owns pricing; everyone who quotes a guest has to read it.
-	"Hospitality Rate Plan": build(
+	"Rate Plan": build(
 		readers=OPERATIONAL + AUDITOR,
 		writers=REVENUE + MANAGEMENT,
 		deleters=ADMIN,
 	),
-	"Hospitality Rate Policy": build(
+	"Rate Policy": build(
 		readers=OPERATIONAL + AUDITOR,
 		writers=REVENUE + MANAGEMENT + ["Finance Manager"],
 		deleters=ADMIN,
 	),
-	"Hospitality Daily Rate": build(
+	"Daily Rate": build(
 		readers=OPERATIONAL + AUDITOR,
 		writers=REVENUE + ["Reservation Manager", *MANAGEMENT],
 		deleters=ADMIN,
 	),
-	"Hospitality Room Inventory Restriction": build(
+	"Room Inventory Restriction": build(
 		readers=OPERATIONAL + AUDITOR,
 		writers=REVENUE + ["Reservation Manager", "Front Office Manager", *MANAGEMENT],
 		deleters=ADMIN,
@@ -230,57 +230,57 @@ MATRIX = {
 	# --- Reservations -----------------------------------------------------
 	# Reservations and front office create and work bookings. Housekeeping and
 	# maintenance read them, because arrivals drive cleaning priority.
-	"Hotel Reservation": build(
+	"Reservation": build(
 		readers=OPERATIONAL + AUDITOR,
 		writers=RESERVATIONS + FRONT_OFFICE + GUEST_RELATIONS + MANAGEMENT,
 		deleters=ADMIN,
 	),
-	"Hospitality Reservation Log": build(
+	"Reservation Log": build(
 		readers=TECHNICAL_READERS + RESERVATIONS + ["Front Office Manager"]
 	),
 	# --- Front office and folio ------------------------------------------
-	"Hospitality Stay": build(
+	"Stay": build(
 		readers=OPERATIONAL + AUDITOR,
 		writers=FRONT_OFFICE + GUEST_RELATIONS + MANAGEMENT,
 		deleters=ADMIN,
 	),
 	# The folio is the operational subledger. Front office works it; finance
 	# corrects it. Nobody deletes from it - corrections are reversals.
-	"Hospitality Guest Folio": build(
+	"Guest Folio": build(
 		readers=FRONT_OFFICE + RESERVATIONS + GUEST_RELATIONS + MANAGEMENT + FINANCE + NIGHT_AUDIT + AUDITOR,
 		writers=FRONT_OFFICE + FINANCE + MANAGEMENT + NIGHT_AUDIT,
 		deleters=ADMIN,
 	),
-	"Hospitality Folio Log": build(readers=TECHNICAL_READERS + FINANCE + ["Front Office Manager"]),
+	"Folio Log": build(readers=TECHNICAL_READERS + FINANCE + ["Front Office Manager"]),
 	# --- Posting and integrations -----------------------------------------
 	# Posting configuration decides where every riyal lands, so it is finance
 	# and administration only.
-	"Hospitality Posting Profile": build(
+	"Posting Profile": build(
 		readers=MANAGEMENT + FINANCE + AUDITOR,
 		writers=["Finance Manager", *ADMIN],
 		deleters=ADMIN,
 	),
 	# Technical records (Roles Matrix section 5). Finance reads them to
 	# reconcile; nobody edits them through the UI.
-	"Hospitality Financial Posting Log": build(readers=TECHNICAL_READERS + FINANCE),
-	"Hospitality Payment Provider": build(
+	"Financial Posting Log": build(readers=TECHNICAL_READERS + FINANCE),
+	"Payment Provider": build(
 		readers=["Finance Manager", *MANAGEMENT, *ADMIN, *AUDITOR],
 		writers=ADMIN,
 		deleters=ADMIN,
 	),
-	"Hospitality Payment Transaction": build(
+	"Payment Transaction": build(
 		readers=FRONT_OFFICE + FINANCE + MANAGEMENT + NIGHT_AUDIT + AUDITOR,
 		writers=["Front Office Manager", *FINANCE, *ADMIN],
 	),
-	"Hospitality Integration Request Log": build(readers=TECHNICAL_READERS),
-	"Hospitality Integration Failure Queue": build(
+	"PMS Integration Log": build(readers=TECHNICAL_READERS),
+	"PMS Integration Failure Queue": build(
 		readers=TECHNICAL_READERS + FINANCE,
 		writers=ADMIN,
 	),
 	# --- Night audit ------------------------------------------------------
 	# The auditor runs it; finance and management review it; nobody else edits
 	# a closed business date.
-	"Hospitality Night Audit": build(
+	"Night Audit": build(
 		readers=OPERATIONAL + AUDITOR,
 		writers=NIGHT_AUDIT + ["Finance Manager", *MANAGEMENT],
 		deleters=ADMIN,
@@ -288,12 +288,12 @@ MATRIX = {
 	# --- Housekeeping -----------------------------------------------------
 	# Attendants work their own tasks, so they need write; the service still
 	# gates inspection sign-off on a supervisor role.
-	"Hospitality Housekeeping Task": build(
+	"Housekeeping Task": build(
 		readers=OPERATIONAL + AUDITOR,
 		writers=HK + ["Front Office Manager", *MANAGEMENT],
 		deleters=ADMIN,
 	),
-	"Hospitality Room Inspection": build(
+	"Room Inspection": build(
 		readers=OPERATIONAL + AUDITOR,
 		writers=["Housekeeping Supervisor", "Housekeeping Manager", *MANAGEMENT],
 		deleters=ADMIN,
@@ -301,7 +301,7 @@ MATRIX = {
 	# --- Maintenance ------------------------------------------------------
 	# Anyone operational can raise a ticket - housekeeping finds most faults -
 	# but taking a room out of service is gated on a manager in the service.
-	"Hospitality Maintenance Ticket": build(
+	"Maintenance Ticket": build(
 		readers=OPERATIONAL + AUDITOR,
 		writers=MTN + HK + ["Front Office Manager", *MANAGEMENT],
 		deleters=ADMIN,
@@ -309,13 +309,13 @@ MATRIX = {
 	# --- Corporate and groups ---------------------------------------------
 	# Sales owns the account; finance owns the credit decision, which is why
 	# credit status changes are gated in the service rather than by write.
-	"Hospitality Corporate Account": build(
+	"Corporate Account": build(
 		readers=OPERATIONAL + AUDITOR,
 		writers=SALES + ["Reservation Manager", *FINANCE, *MANAGEMENT],
 		deleters=ADMIN,
 	),
-	"Hospitality Corporate Credit Log": build(readers=TECHNICAL_READERS + FINANCE + SALES),
-	"Hospitality Group Reservation": build(
+	"Corporate Credit Log": build(readers=TECHNICAL_READERS + FINANCE + SALES),
+	"Group Reservation": build(
 		readers=OPERATIONAL + AUDITOR,
 		writers=SALES + RESERVATIONS + ["Front Office Manager", *MANAGEMENT],
 		deleters=ADMIN,
@@ -323,31 +323,31 @@ MATRIX = {
 	# --- Guest services ---------------------------------------------------
 	# Anyone serving a guest can raise and work a request; compensation is
 	# gated on a role inside the service.
-	"Hospitality Guest Request": build(
+	"Guest Request": build(
 		readers=OPERATIONAL + AUDITOR,
 		writers=FRONT_OFFICE + GUEST_RELATIONS + HK + MTN + FNB + MANAGEMENT,
 		deleters=ADMIN,
 	),
-	"Hospitality Guest Request Log": build(
+	"Guest Request Log": build(
 		readers=TECHNICAL_READERS + GUEST_RELATIONS + ["Front Office Manager"]
 	),
 	# --- Kitchen, room service, minibar -----------------------------------
-	"Hospitality Menu Item": build(
+	"Menu Item": build(
 		readers=OPERATIONAL + AUDITOR,
 		writers=FNB + MANAGEMENT,
 		deleters=ADMIN,
 	),
-	"Hospitality Kitchen Requisition": build(
+	"Kitchen Requisition": build(
 		readers=FNB + MANAGEMENT + FINANCE + AUDITOR,
 		writers=FNB + MANAGEMENT,
 		deleters=ADMIN,
 	),
-	"Hospitality Room Service Order": build(
+	"Room Service Order": build(
 		readers=OPERATIONAL + AUDITOR,
 		writers=FNB + FRONT_OFFICE + MANAGEMENT,
 		deleters=ADMIN,
 	),
-	"Hospitality Wastage Entry": build(
+	"Wastage Entry": build(
 		readers=FNB + MANAGEMENT + FINANCE + AUDITOR,
 		writers=["Kitchen Manager", "Food and Beverage Manager", *MANAGEMENT],
 		deleters=ADMIN,
@@ -355,37 +355,37 @@ MATRIX = {
 	# --- Channel, hardware, regulatory ------------------------------------
 	# Channel and device credentials are administrative; their logs are
 	# technical records (Roles Matrix section 5).
-	"Hospitality Channel": build(
+	"Booking Channel": build(
 		readers=["Revenue Manager", "Reservation Manager", *MANAGEMENT, *ADMIN, *AUDITOR],
 		writers=ADMIN,
 		deleters=ADMIN,
 	),
-	"Hospitality Channel Reservation": build(
+	"Channel Reservation": build(
 		readers=TECHNICAL_READERS + RESERVATIONS + ["Revenue Manager"],
 		writers=ADMIN,
 	),
-	"Hospitality Channel Sync Log": build(readers=TECHNICAL_READERS + ["Revenue Manager"]),
-	"Hospitality Hardware Device": build(
+	"Channel Sync Log": build(readers=TECHNICAL_READERS + ["Revenue Manager"]),
+	"Hardware Device": build(
 		readers=["Front Office Manager", *MANAGEMENT, *ADMIN, *AUDITOR],
 		writers=ADMIN,
 		deleters=ADMIN,
 	),
-	"Hospitality Key Card": build(
+	"Key Card": build(
 		readers=FRONT_OFFICE + MANAGEMENT + AUDITOR + ADMIN,
 		writers=FRONT_OFFICE + MANAGEMENT,
 	),
 	# Regulatory data is statutory and privacy sensitive: management, finance,
 	# the night auditor and the auditor only.
-	"Hospitality Regulatory Profile": build(
+	"Regulatory Profile": build(
 		readers=MANAGEMENT + FINANCE + AUDITOR + ADMIN,
 		writers=ADMIN,
 		deleters=ADMIN,
 	),
-	"Hospitality Regulatory Export": build(
+	"Regulatory Export": build(
 		readers=MANAGEMENT + FINANCE + NIGHT_AUDIT + AUDITOR + ADMIN,
 		writers=["Finance Manager", *NIGHT_AUDIT, *ADMIN],
 	),
-	"Hospitality Guest Registration": build(
+	"Guest Registration": build(
 		readers=FRONT_OFFICE + MANAGEMENT + NIGHT_AUDIT + AUDITOR + ADMIN,
 		writers=FRONT_OFFICE + NIGHT_AUDIT + MANAGEMENT,
 	),
@@ -394,7 +394,7 @@ MATRIX = {
 #: Fields moved above permlevel 0. Everything that decides where money lands,
 #: plus guest identification and blacklisting.
 RESTRICTED_FIELDS = {
-	"Hospitality Property": {
+	"Property": {
 		1: (
 			"receivable_account",
 			"room_revenue_account",
@@ -402,7 +402,7 @@ RESTRICTED_FIELDS = {
 			"default_tax_template",
 		),
 	},
-	"Hospitality Guest": {
+	"Guest": {
 		1: ("identifications",),
 		2: ("is_blacklisted", "blacklisted_by", "blacklisted_on"),
 		3: ("blacklist_reason",),

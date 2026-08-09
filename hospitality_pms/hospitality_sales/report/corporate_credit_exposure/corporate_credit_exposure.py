@@ -28,7 +28,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, nowdate
 
-ACCOUNT_DOCTYPE = "Hospitality Corporate Account"
+ACCOUNT_DOCTYPE = "Corporate Account"
 
 #: Utilisation at or above this is flagged for attention before an account is
 #: over its limit outright.
@@ -118,8 +118,8 @@ def get_outstanding_balances(property_name: str) -> dict:
 	rows = frappe.db.sql(
 		"""
 		select r.corporate_account as account_code, sum(f.balance) as outstanding
-		from `tabHospitality Guest Folio` f
-		inner join `tabHotel Reservation` r on r.name = f.reservation
+		from `tabGuest Folio` f
+		inner join `tabReservation` r on r.name = f.reservation
 		where f.property = %(property)s
 		  and r.corporate_account is not null
 		  and r.corporate_account != ''
@@ -138,7 +138,7 @@ def get_columns():
 			"fieldname": "account_code",
 			"label": _("Corporate Account"),
 			"fieldtype": "Link",
-			"options": "Hospitality Corporate Account",
+			"options": "Corporate Account",
 			"width": 150,
 		},
 		{

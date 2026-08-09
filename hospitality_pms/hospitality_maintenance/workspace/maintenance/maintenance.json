@@ -1,7 +1,7 @@
 {
  "app": "hospitality_pms",
  "charts": [],
- "content": "[{\"id\": \"hdr1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Your Shortcuts</b></span>\", \"col\": 12}}, {\"id\": \"shortcut2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Open Hospitality PMS\", \"col\": 3}}, {\"id\": \"shortcut3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Hospitality Maintenance Ticket\", \"col\": 3}}, {\"id\": \"spacer4\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"hdr5\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Explore</b></span>\", \"col\": 12}}, {\"id\": \"card6\", \"type\": \"card\", \"data\": {\"card_name\": \"Maintenance\", \"col\": 4}}]",
+ "content": "[{\"id\": \"hdr1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Your Shortcuts</b></span>\", \"col\": 12}}, {\"id\": \"shortcut2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Open Hospitality PMS\", \"col\": 3}}, {\"id\": \"shortcut3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Maintenance Ticket\", \"col\": 3}}, {\"id\": \"spacer4\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"hdr5\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Explore</b></span>\", \"col\": 12}}, {\"id\": \"card6\", \"type\": \"card\", \"data\": {\"card_name\": \"Maintenance\", \"col\": 4}}]",
  "creation": "2026-08-08 18:39:44.117405",
  "custom_blocks": [],
  "docstatus": 0,
@@ -27,9 +27,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Maintenance Ticket",
+   "label": "Maintenance Ticket",
    "link_count": 0,
-   "link_to": "Hospitality Maintenance Ticket",
+   "link_to": "Maintenance Ticket",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -38,9 +38,9 @@
    "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Hospitality Room Block",
+   "label": "Room Block",
    "link_count": 0,
-   "link_to": "Hospitality Room Block",
+   "link_to": "Room Block",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -77,7 +77,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Hospitality Maintenance Ticket",
+   "dependencies": "Maintenance Ticket",
    "hidden": 0,
    "is_query_report": 1,
    "label": "Maintenance Response Times",
@@ -128,8 +128,8 @@
   },
   {
    "doc_view": "List",
-   "label": "Hospitality Maintenance Ticket",
-   "link_to": "Hospitality Maintenance Ticket",
+   "label": "Maintenance Ticket",
+   "link_to": "Maintenance Ticket",
    "type": "DocType"
   }
  ],

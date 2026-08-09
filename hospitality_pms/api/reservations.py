@@ -14,7 +14,7 @@ from hospitality_pms.services.base import require_permission
 from hospitality_pms.services.property import resolve_property
 from hospitality_pms.services.rates import get_rate_breakdown
 
-RESERVATION_DOCTYPE = "Hotel Reservation"
+RESERVATION_DOCTYPE = "Reservation"
 
 LIST_FIELDS = (
 	"name",

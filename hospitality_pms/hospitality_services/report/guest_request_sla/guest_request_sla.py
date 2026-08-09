@@ -2,7 +2,7 @@
 
 Answers the guest relations / front office question: "Per request, did we
 respond and finish inside the SLA we set when the guest asked, and where are
-we missing it most?" One row per `Hospitality Guest Request` raised in the
+we missing it most?" One row per `Guest Request` raised in the
 filter period (SAS 3.15 / Workflow Matrix section 9).
 
 Notes on the columns:
@@ -50,7 +50,7 @@ def get_columns():
 			"label": _("Request"),
 			"fieldname": "request",
 			"fieldtype": "Link",
-			"options": "Hospitality Guest Request",
+			"options": "Guest Request",
 			"width": 130,
 		},
 		{"label": _("Subject"), "fieldname": "subject", "fieldtype": "Data", "width": 180},
@@ -69,7 +69,7 @@ def get_columns():
 
 def get_data(filters):
 	# The property filter is the scoping boundary: `frappe.get_all` applies
-	# Hospitality Guest Request's own permission rules on top of this
+	# Guest Request's own permission rules on top of this
 	# mandatory filter.
 	conditions = {"property": filters.property}
 
@@ -87,7 +87,7 @@ def get_data(filters):
 		conditions["category"] = filters.category
 
 	requests = frappe.get_all(
-		"Hospitality Guest Request",
+		"Guest Request",
 		filters=conditions,
 		fields=[
 			"name",
