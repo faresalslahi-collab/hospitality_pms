@@ -1,0 +1,41 @@
+{
+ "cards": [
+  {
+   "card": "Arrivals Today"
+  },
+  {
+   "card": "In House"
+  },
+  {
+   "card": "Rooms Out of Order"
+  },
+  {
+   "card": "Housekeeping Tasks Pending"
+  },
+  {
+   "card": "Open Maintenance Tickets"
+  },
+  {
+   "card": "Overdue Guest Requests"
+  },
+  {
+   "card": "Failed Postings"
+  },
+  {
+   "card": "Integration Failures Pending"
+  }
+ ],
+ "charts": [],
+ "creation": "2026-08-09 09:00:00.000000",
+ "dashboard_name": "Hospitality PMS",
+ "docstatus": 0,
+ "doctype": "Dashboard",
+ "idx": 0,
+ "is_default": 0,
+ "is_standard": 1,
+ "modified": "2026-08-09 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Hospitality Setup",
+ "name": "Hospitality PMS",
+ "owner": "Administrator"
+}

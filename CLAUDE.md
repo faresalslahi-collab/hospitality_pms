@@ -20,6 +20,8 @@ hospitality_pms/
   fixtures/       reproducible configuration
   patches/        data migrations
   www/            /pms entry point
+  workspace_sidebar/  Desk sidebar (app-level, imported by bench migrate)
+  desktop_icon/       Desk desktop tile (app-level, imported by bench migrate)
   hospitality_*/  one Frappe module per domain, each with doctype/
 ```
 

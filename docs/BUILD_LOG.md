@@ -1,6 +1,6 @@
 # Hospitality PMS — Build Acceptance Log
 
-**Current application version:** 16.1.0 (branch `version-16`)
+**Current application version:** 16.1.1 (branch `version-16`)
 
 One record per completed build, in the format required by
 `09_Hospitality_PMS_Build_Test_and_Acceptance_Standard_v1.2_APPROVED.md` section 4.
@@ -1098,3 +1098,69 @@ not code, and they belong to the hotel:
 The known limitations in the Operations Runbook section 12 and the UAT plan
 section 6 stand as written. Verifying the Fatora endpoints before any live
 payment remains outstanding.
+
+---
+
+## Desk Sidebar, Dashboard and Desktop Icon
+
+```text
+Scope completed:
+  - hospitality_pms/workspace_sidebar/hospitality_pms.json — one standard
+    "Workspace Sidebar" (58 items): Home, Dashboard, the 5 child workspaces, a
+    "PMS Console" URL item pointing at /pms, 8 collapsible sections covering 34
+    operational DocTypes, and a Reports section with the 8 most-used Script
+    Reports
+  - hospitality_pms/desktop_icon/hospitality_pms.json — one standard
+    "Desktop Icon" carrying the app logo and opening that sidebar
+  - hospitality_setup/hospitality_setup_dashboard/hospitality_pms/ — a standard
+    "Dashboard" holding the 8 Number Cards from HPMS-0.28.0, linked from the
+    sidebar directly below Home, matching the stock v16 sidebar layout
+  - fixtures/number_card.json — the 8 cards exported so the Dashboard is not
+    blank on a bench other than the one they were authored on
+Why this was needed: Frappe v16.30 moved Desk navigation from Workspaces alone
+  to the Workspace Sidebar / Desktop Icon pair. The app shipped 6 workspaces and
+  no sidebar, so on the Desk it had no tile and only the framework's generic
+  per-module fallback sidebars.
+The sidebar and icon folders are app-level and are imported by bench migrate
+  (frappe/model/sync.py, app_level_folders). The Dashboard is imported by the
+  dashboard sync (frappe/utils/dashboard.py, make_records_in_module).
+Migration: PASS — bench migrate on mysite.localhost imported all three; the
+  orphan sweep at the end of migrate kept them.
+Validation: PASS
+  - Workspace Sidebar "Hospitality PMS": 58 items, standard=1, app=hospitality_pms
+  - every link target resolves; no broken Workspace, Dashboard, DocType or
+    Report link
+  - Desktop Icon "Hospitality PMS": icon_type App, link_type Workspace Sidebar,
+    logo /assets/hospitality_pms/images/hospitality-pms-logo.svg
+  - Dashboard "Hospitality PMS": is_standard=1, 8 cards in operational order,
+    all 8 permitted for Administrator
+  - boot payload carries all three for Administrator
+  - role gating verified through boot: Finance Manager sees 44 of 58 items,
+    Read-Only Auditor 54; both get the desktop icon and the Dashboard item
+Known behaviour, not a regression: desk_access=0 roles (HPMS-DEC-065) are
+  Website Users, so check_app_permission returns False and they get no desktop
+  icon. They work in /pms and have no Desk to put an icon on.
+Deliberately not built: Dashboard Charts. The app has none, and inventing
+  trend charts to fill the page was outside this change. The 8 cards are the
+  metrics that were specified and validated in HPMS-0.28.0.
+Result: PASS
+```
+
+---
+
+## Application version 16.1.1 — release
+
+Patch release over 16.1.0. Additive Desk navigation only: the Workspace Sidebar,
+its Dashboard, and the Desktop Icon. No schema change, no API change, no change
+to any service, so nothing an existing site depends on moves.
+
+Version bumped in the three places it is declared — `hospitality_pms/__init__.py`,
+`package.json`, `frontend/package.json` — and stamped on the README and on the
+headers of this log and the Implementation Decision Log. The guides and UAT set
+still read "Applies to 16.1.0"; they describe behaviour this release does not
+touch, so they were left as written rather than restamped for a patch.
+
+```bash
+$ bench version
+hospitality_pms 16.1.1
+```
