@@ -187,6 +187,21 @@ def get_requisition(requisition: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+@frappe.whitelist(methods=["GET"])
+def board(property: str | None = None, include_closed: int = 0) -> dict:
+	"""The room service board: what the kitchen still has to cook.
+
+	Read-only. Placing, advancing and delivering an order all go through their
+	own endpoints below, which is where the pricing and the folio charge are
+	decided.
+	"""
+	require_permission(ORDER_DOCTYPE, "read")
+	property_name = resolve_property(property)
+
+	return service.get_order_board(property_name, include_closed=bool(int(include_closed or 0)))
+
+
+
 @frappe.whitelist(methods=["POST"])
 def create_order(
 	property: str | None = None,

@@ -47,6 +47,26 @@
                   <p v-if="line.assigned_room" class="mt-0.5 text-p-sm text-ink-green-3">
                     {{ t('page.reservation.assigned') }}: {{ line.assigned_room }}
                   </p>
+
+                  <!--
+                    Pre-assignment lives here rather than only in check-in, so
+                    a room can be chosen for a VIP or a connecting pair days
+                    before they arrive.
+                  -->
+                  <Button
+                    v-if="canAssign"
+                    class="mt-2"
+                    variant="subtle"
+                    size="sm"
+                    @click="openAssign(line)"
+                  >
+                    <template #prefix><FeatherIcon name="key" class="size-3.5" /></template>
+                    {{
+                      line.assigned_room
+                        ? t('page.reservation.change_assigned_room')
+                        : t('page.reservation.assign_room')
+                    }}
+                  </Button>
                 </div>
                 <p class="font-medium text-ink-gray-9">
                   {{ formatCurrency(line.total_amount, reservation.currency) }}
@@ -105,14 +125,22 @@
         </div>
       </template>
     </Dialog>
+
+    <AssignRoomDialog
+      v-model="assignOpen"
+      :reservation="reservation?.name || ''"
+      :line="assignLine"
+      @changed="onAssigned"
+    />
   </div>
 </template>
 
 <script setup>
-import { Badge, Button, Dialog, ErrorMessage, FormControl, toast } from 'frappe-ui'
+import { Badge, Button, Dialog, ErrorMessage, FeatherIcon, FormControl, toast } from 'frappe-ui'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import AssignRoomDialog from '@/components/AssignRoomDialog.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import ErrorState from '@/components/states/ErrorState.vue'
 import LoadingState from '@/components/states/LoadingState.vue'
@@ -123,6 +151,8 @@ import {
   reservationResource,
   reservationStatusTheme,
 } from '@/resources/reservations'
+import { FRONT_DESK_ROLES } from '@/resources/frontOffice'
+import { session } from '@/stores/session'
 import { normaliseError } from '@/utils/errors'
 import { formatCurrency, formatDate } from '@/utils/format'
 import { t } from '@/utils/i18n'
@@ -136,11 +166,31 @@ const guaranteeRes = guaranteeReservationResource()
 const cancelRes = cancelReservationResource()
 
 const busy = ref('')
+const assignOpen = ref(false)
+const assignLine = ref(null)
 const cancelOpen = ref(false)
 const cancelReason = ref('')
 const actionError = ref('')
 
 const reservation = computed(() => detail.data?.reservation || null)
+
+// A room is only worth choosing while the booking still holds one. Once it is
+// cancelled, checked out or a no-show, the control would only mislead.
+const canAssign = computed(
+  () =>
+    session.hasRole(FRONT_DESK_ROLES) &&
+    ['Tentative', 'Confirmed', 'Guaranteed'].includes(reservation.value?.reservation_status),
+)
+
+function openAssign(line) {
+  assignLine.value = line
+  assignOpen.value = true
+}
+
+function onAssigned() {
+  toast.success(t('page.reservation.assigned_room_saved'))
+  load()
+}
 const allowed = computed(() => detail.data?.allowed_transitions || [])
 
 const summary = computed(() => {

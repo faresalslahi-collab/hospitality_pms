@@ -61,6 +61,29 @@ const routes = [
     component: () => import('@/pages/InHouse.vue'),
   },
   {
+    path: '/stays/:id',
+    name: 'Stay',
+    component: () => import('@/pages/Stay.vue'),
+  },
+  {
+    path: '/kitchen',
+    name: 'Kitchen',
+    component: () => import('@/pages/Kitchen.vue'),
+    meta: {
+      roles: [
+        'Kitchen User',
+        'Kitchen Manager',
+        'Food and Beverage Manager',
+        'Front Office Agent',
+        'Front Office Manager',
+        'Hotel Manager',
+        'General Manager',
+        'Hospitality Administrator',
+        'System Manager',
+      ],
+    },
+  },
+  {
     path: '/check-in/:reservation',
     name: 'CheckIn',
     component: () => import('@/pages/CheckIn.vue'),

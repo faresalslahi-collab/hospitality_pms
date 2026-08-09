@@ -64,7 +64,14 @@
                   :label="row.vip_status"
                 />
               </td>
-              <td class="p-2 font-medium whitespace-nowrap text-ink-gray-9">{{ row.room_number }}</td>
+              <td class="p-2 font-medium whitespace-nowrap">
+                <RouterLink
+                  :to="{ name: 'Stay', params: { id: row.stay } }"
+                  class="text-ink-blue-3 hover:underline"
+                >
+                  {{ row.room_number }}
+                </RouterLink>
+              </td>
               <td class="p-2 whitespace-nowrap">
                 <span>{{ formatDate(row.arrival_date) }} – {{ formatDate(row.departure_date) }}</span>
                 <span class="ms-2 text-ink-gray-5">{{ row.nights }} {{ t('page.reservations.nights') }}</span>
@@ -149,6 +156,7 @@ import EmptyState from '@/components/states/EmptyState.vue'
 import ErrorState from '@/components/states/ErrorState.vue'
 import LoadingState from '@/components/states/LoadingState.vue'
 import { balanceTheme, departuresBoardResource } from '@/resources/frontOffice'
+import { stayStatusTheme } from '@/resources/stays'
 import { vipStatusTheme } from '@/resources/guests'
 import { property } from '@/stores/property'
 import { formatCurrency, formatDate } from '@/utils/format'
@@ -172,16 +180,6 @@ const FILTERS = {
 const filterOptions = computed(() =>
   Object.keys(FILTERS).map((value) => ({ label: t(`page.departures.filter.${value}`), value })),
 )
-
-const STAY_STATUS_THEME = {
-  'In House': 'green',
-  'Due Out': 'orange',
-  'Checked Out': 'gray',
-}
-
-function stayStatusTheme(status) {
-  return STAY_STATUS_THEME[status] || 'gray'
-}
 
 const rows = computed(() => board.data?.rows || [])
 

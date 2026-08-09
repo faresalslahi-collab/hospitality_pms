@@ -1,6 +1,6 @@
 # Hospitality PMS — Build Acceptance Log
 
-**Current application version:** 16.2.0 (branch `version-16`)
+**Current application version:** 16.3.0 (branch `version-16`)
 
 One record per completed build, in the format required by
 `09_Hospitality_PMS_Build_Test_and_Acceptance_Standard_v1.2_APPROVED.md` section 4.
@@ -1279,3 +1279,75 @@ a reservation calendar it does not mention. They were left at their existing
 stamp rather than restamped, because restamping them to 16.2.0 would assert
 they document this release when they do not. Writing that content is its own
 piece of work and was not part of this build.
+
+---
+
+## Application version 16.3.0 — release
+
+Minor release over 16.2.0, closing the two largest gaps the UAT preparation
+found and one defect it found in 16.2.0's own work.
+
+```text
+Build: Room service screen, stay operations screen, room pre-assignment
+Why: preparing the UAT package against the code exposed three things.
+  - Room service had no /pms screen at all. The rules were right and tested,
+    but they ran through the API, so a waiter could not take an order in this
+    product.
+  - Room assignment, room moves, extend, shorten and stay notes were Desk-only,
+    and the six operational roles have no Desk (HPMS-DEC-065). Routine work
+    needed a manager every time.
+  - The arrivals board's "Assign room" action, added in 16.2.0, linked to the
+    reservation screen, which displayed the assigned room read-only and offered
+    no control to change it. A dead end of our own making.
+Frontend added:
+  - Kitchen.vue (/pms/kitchen): room service board, oldest order first, with
+    tiles, filters and a delivered toggle
+  - CreateRoomServiceOrderDialog.vue: in-house guest, order type, menu lines.
+    No price field anywhere (HPMS-DEC-104)
+  - RoomServiceOrderDialog.vue: the order, its status moves, and Deliver and
+    charge as a separate confirmed action stating the amount (HPMS-DEC-105)
+  - Stay.vue (/pms/stays/<stay>): the stay, its notes, its room moves, and the
+    four in-stay actions (HPMS-DEC-106)
+  - ChangeRoomDialog, ExtendStayDialog, ShortenStayDialog, AddStayNoteDialog
+  - AssignRoomDialog, mounted on the reservation's room lines (HPMS-DEC-107)
+  - In House and Departures link their room number to the stay screen
+Backend added: one endpoint, kitchen.board (services/kitchen.get_order_board).
+  Read-only, 4 SQL statements regardless of how many orders are open. Every
+  state change still goes through the services that already owned it — no
+  pricing, charging, locking or availability rule was touched or duplicated.
+Verified against live data, each inside a transaction rolled back afterwards so
+  the bench was left unchanged:
+  - order priced by the server: caller sent rate=1, server priced 25.00 x 2
+    = 50.00 from the menu record
+  - delivery charged the folio once: balance -50.00 -> 0.00, and 0.00 again
+    after a second delivery; exactly one folio charge line for the order
+  - a delivery that fails on insufficient stock charges nothing at all and
+    leaves the order undelivered - the whole transaction rolls back
+  - room move: guest moved 102 -> 101, move row recorded with reason
+  - extend then shorten: departure 08-09 -> 08-10 -> 08-09
+  - stay note recorded with type, author and timestamp
+  - pre-assignment: unassigned line took room 101, and the arrivals board then
+    reported it assigned and ready
+Validation: PASS
+  - frontend production build green, Kitchen and Stay each code-split
+  - 20 required routes resolve; 23 routes total, none pointing at a missing file
+  - locales 745 keys, en/ar sets identical, no placeholder mismatch, nothing
+    untranslated; every t() key used by the new screens resolves in both
+  - no physical-direction CSS in any new file
+  - UAT re-validated: 111 scenarios, sequential, no dangling references, every
+    route present in the coverage matrix
+Not verified by rendering: still no browser on this bench. A visual pass, and
+  one in Arabic, remains outstanding for these screens as for the 16.2.0 ones.
+Known, not fixed: a delivery that fails on stock surfaces ERPNext's own
+  "Insufficient Stock" message, which names a warehouse rather than telling a
+  waiter what to do. Recorded in UAT D-22 step 9 as a Medium usability finding
+  for the hotel to judge; rewording it is a domain decision, not a screen fix.
+Result: PASS
+```
+
+Version bumped in the three places it is declared and stamped on the README and
+the headers of both logs. The UAT package is restamped to 16.3.0 and its gap
+register rewritten: the two capabilities above move out of "implemented and not
+covered" into covered scenarios (D-20 to D-22, D-25, D-26), and the sign-off
+summary now carries one open decision instead of three — the payment gateway,
+which no scenario covers because no sandbox exists.

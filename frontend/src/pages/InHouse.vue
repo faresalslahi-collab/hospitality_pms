@@ -37,7 +37,14 @@
           </thead>
           <tbody>
             <tr v-for="row in stays" :key="row.name" class="border-t border-outline-gray-1">
-              <td class="p-2 font-medium text-ink-gray-9">{{ row.room }}</td>
+              <td class="p-2 font-medium">
+                <RouterLink
+                  :to="{ name: 'Stay', params: { id: row.name } }"
+                  class="text-ink-blue-3 hover:underline"
+                >
+                  {{ row.room }}
+                </RouterLink>
+              </td>
               <td class="p-2">{{ row.guest_name }}</td>
               <td class="p-2 whitespace-nowrap">{{ formatDate(row.arrival_date) }}</td>
               <td class="p-2 whitespace-nowrap">{{ formatDate(row.departure_date) }}</td>

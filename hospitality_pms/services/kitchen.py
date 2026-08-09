@@ -443,3 +443,98 @@ def get_consumption_report(property_name: str, from_date, to_date) -> dict:
 		"total_wastage_value": flt(sum(flt(row["value"]) for row in wastage), 2),
 		"total_revenue": flt(sum(flt(row["revenue"]) for row in revenue), 2),
 	}
+
+
+# ---------------------------------------------------------------------------
+# Boards
+# ---------------------------------------------------------------------------
+
+#: Orders still being worked. Delivered and Cancelled are finished, and a board
+#: that kept showing them would bury the ones that still need cooking.
+OPEN_ORDER_STATES = ("Placed", "Preparing", "Ready")
+
+
+def get_order_board(property_name: str, *, include_closed: bool = False) -> dict:
+	"""Room service orders for a property, oldest first.
+
+	Oldest first on purpose: a room service board is a queue, and the order
+	that has been waiting longest is the one the kitchen should be cooking.
+
+	Line counts come from one grouped query rather than one per order, so a
+	busy evening costs the same two queries as a quiet one.
+	"""
+	states = ("Placed", "Preparing", "Ready", "Delivered", "Cancelled") if include_closed else OPEN_ORDER_STATES
+
+	orders = frappe.get_all(
+		ORDER_DOCTYPE,
+		filters={"property": property_name, "order_status": ("in", states)},
+		fields=[
+			"name",
+			"order_status",
+			"order_type",
+			"room",
+			"stay",
+			"guest",
+			"folio",
+			"ordered_on",
+			"delivered_on",
+			"total_amount",
+			"currency",
+			"special_instructions",
+			"folio_charge_row",
+		],
+		order_by="ordered_on asc",
+		limit_page_length=0,
+	)
+
+	if orders:
+		lines = frappe.get_all(
+			"Hospitality Order Line",
+			filters={"parenttype": ORDER_DOCTYPE, "parent": ("in", [o["name"] for o in orders])},
+			fields=["parent", "quantity"],
+			limit_page_length=0,
+		)
+
+		by_order: dict[str, dict] = {}
+		for row in lines:
+			bucket = by_order.setdefault(row["parent"], {"lines": 0, "items": 0.0})
+			bucket["lines"] += 1
+			bucket["items"] += flt(row["quantity"])
+
+		# The order carries the guest link but not their name; one lookup for
+		# the whole board rather than one per row.
+		guests = {g for g in (o["guest"] for o in orders) if g}
+		names = (
+			dict(
+				frappe.get_all(
+					"Hospitality Guest",
+					filters={"name": ("in", list(guests))},
+					fields=["name", "guest_name"],
+					as_list=True,
+					limit_page_length=0,
+				)
+			)
+			if guests
+			else {}
+		)
+
+		for order in orders:
+			row = by_order.get(order["name"]) or {}
+			order["line_count"] = int(row.get("lines") or 0)
+			order["item_count"] = flt(row.get("items") or 0)
+			order["guest_name"] = names.get(order["guest"], "")
+
+	return {
+		"property": property_name,
+		"orders": orders,
+		"summary": {
+			"open": sum(1 for o in orders if o["order_status"] in OPEN_ORDER_STATES),
+			"placed": sum(1 for o in orders if o["order_status"] == "Placed"),
+			"preparing": sum(1 for o in orders if o["order_status"] == "Preparing"),
+			"ready": sum(1 for o in orders if o["order_status"] == "Ready"),
+			"delivered": sum(1 for o in orders if o["order_status"] == "Delivered"),
+			"open_value": flt(
+				sum(flt(o["total_amount"]) for o in orders if o["order_status"] in OPEN_ORDER_STATES), 2
+			),
+		},
+	}

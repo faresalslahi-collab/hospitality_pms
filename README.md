@@ -1,6 +1,6 @@
 # Hospitality PMS
 
-**Version 16.2.0** · branch `version-16` · released 2026-08-09
+**Version 16.3.0** · branch `version-16` · released 2026-08-09
 
 Hotel Property Management System built as an independent Frappe custom application
 on Frappe Framework v16 and ERPNext v16, with a Vue 3 operational frontend served
@@ -61,7 +61,7 @@ the framework generation it targets, and the branch is named for it.
 
 ```bash
 $ bench version
-hospitality_pms 16.2.0
+hospitality_pms 16.3.0
 ```
 
 A move to Frappe v17 becomes 17.x.y on a `version-17` branch, with `version-16`
