@@ -4,25 +4,19 @@
 // folios are considered.
 frappe.query_reports["Occupancy and Revenue"] = {
 	filters: [
-		{
-			fieldname: "property",
-			label: __("Property"),
-			fieldtype: "Link",
-			options: "Property",
-			reqd: 1,
-		},
+		hospitality_pms.reports.property_filter(),
 		{
 			fieldname: "from_date",
 			label: __("From Date"),
 			fieldtype: "Date",
-			default: frappe.datetime.add_days(frappe.datetime.get_today(), -30),
+			default: frappe.datetime.add_days(hospitality_pms.reports.business_date(), -30),
 			reqd: 1,
 		},
 		{
 			fieldname: "to_date",
 			label: __("To Date"),
 			fieldtype: "Date",
-			default: frappe.datetime.get_today(),
+			default: hospitality_pms.reports.business_date(),
 			reqd: 1,
 		},
 	],

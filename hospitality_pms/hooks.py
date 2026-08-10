@@ -130,8 +130,15 @@ scheduler_events = {
 # Desk
 # ------------------------------------------------------------------------------
 
-app_include_js = []
+# Shared query report filters. A plain asset path rather than a bundle: it is one
+# small file with no imports, and `bundled_asset` only consults the build
+# manifest for names carrying `.bundle.`.
+app_include_js = ["/assets/hospitality_pms/js/reports.js"]
 app_include_css = []
+
+# Puts the user's property on `frappe.boot` so a report filter can default to it
+# without waiting on a request.
+boot_session = "hospitality_pms.boot.boot_session"
 
 # ------------------------------------------------------------------------------
 # Website / Operational Frontend

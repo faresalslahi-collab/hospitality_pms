@@ -1,6 +1,6 @@
 # Hospitality PMS — Build Acceptance Log
 
-**Current application version:** 16.5.1 (branch `version-16`)
+**Current application version:** 16.5.2 (branch `version-16`)
 
 One record per completed build, in the format required by
 `09_Hospitality_PMS_Build_Test_and_Acceptance_Standard_v1.2_APPROVED.md` section 4.
@@ -1676,4 +1676,89 @@ Validation: PASS - targeted.
 
 Not verified by rendering: no browser on this bench, so the board has not been
   read on screen. The geometry was verified in the emitted CSS instead.
+Result: PASS
+
+---
+
+## Query reports: broken property filter, and a default that was never set
+
+Opening Arrivals, Departures, In House, Room Status or Availability Forecast
+raised "DocType Hospitality Property not found" and the report would not run.
+
+The source was already correct. Those reports carried their filters in the
+`Report Filter` child table, and the 16.4.0 commercial rename moved the DocType
+from `Hospitality Property` to `Property` in the app's JSON but not in the
+database: `bench migrate` re-imports a report only when the file's `modified`
+stamp is newer than the stored record, and the report files still carried their
+original `2026-08-08 00:00:00` stamp. So the stored filter kept pointing at a
+DocType that no longer existed. Eleven reports were affected - every report that
+had no client script - which is why the ten reports that define their filters in
+JS were unaffected and worked throughout.
+
+Filters now live in the client script for all twenty-one reports, which is the
+pattern the ten working ones already used and what their `"filters": []` records
+were telling us. Eleven scripts were written from the stored definitions, the
+stored filters were emptied and the stamps moved forward so migrate dropped the
+stale rows. There are now zero `Report Filter` rows in the database and no filter
+anywhere naming a DocType that does not exist.
+
+### The property filter now defaults
+
+No report defaulted it, so every one of them opened on "Please set filters" with
+the property blank. `Report Filter.default` cannot help: Frappe passes it to
+`set_input` verbatim, so it can only hold a fixed string, and the right property
+differs per user.
+
+The default is resolved per user by `services.property.get_default_property` and
+put on `frappe.boot` by a `boot_session` hook, because report filters are built
+synchronously when a report opens - an async lookup would render the filter empty
+and fill it in afterwards, which reads as the report loading twice. A user
+restricted by a Property User Permission therefore opens every report on their
+own property rather than the site default.
+
+`hospitality_pms/public/js/reports.js` holds the one definition of the property
+filter and is loaded through `app_include_js` as a plain asset path; only names
+carrying `.bundle.` are looked up in the build manifest, and this is one small
+file with no imports. All twenty-one reports call it, so how the property filter
+behaves is now one edit rather than twenty-one.
+
+Validation: PASS - targeted.
+  - `bench migrate` clean; 0 stored Report Filter rows across 21 reports, and 0
+    Link filters naming a missing DocType (was 11)
+  - every report has a client script; no report defines the property filter inline
+  - `frappe.boot` carries `{'default_property': 'DOHA01'}`, verified through
+    `frappe.boot.get_bootinfo()` rather than a hand-built dict, for both
+    Administrator and a non-Administrator System User
+  - `app_include_js` resolves and `/assets/hospitality_pms/js/reports.js` serves
+    200 with the expected content
+  - the five reported reports execute against the resolved default property and
+    business date: Arrivals 8 rows, Departures 8, In House 15, Room Status 40,
+    Availability Forecast 150; on the server calendar date the same Arrivals
+    report returns 0, which is what the old default was showing
+  - `frappe.boot` carries `business_date` 2026-08-11 against a server date of
+    2026-08-10, so the two are demonstrably not the same value
+  - no report filter default references the calendar date any more
+  - all 22 client scripts parse; boot.py and hooks.py compile
+
+### The date filters now default to the business date too
+
+Every report date defaulted to `frappe.datetime.get_today()`, the server calendar
+date, which is not the day a hotel is operating. A property that has not run its
+Night Audit is still working yesterday, and that is the date its arrivals,
+departures and room charges are filed under.
+
+The cost was not theoretical. On this site the server date is 10 Aug and the
+business date 11 Aug, and Arrivals opened on the server date returns **0 rows**
+against **8** on the business date - the desk was being shown an empty arrivals
+list for the day it was actually working.
+
+`business_date` now travels alongside `default_property` on `frappe.boot`, and
+all 31 date defaults across 18 report scripts resolve through
+`hospitality_pms.reports.business_date()`. The relative windows are unchanged in
+shape - a thirty day revenue range is still thirty days, now measured back from
+the business date rather than the calendar date - because `add_days` and
+`add_months` take the date string the helper returns. The helper falls back to
+the calendar date when no property resolves, so a site with nothing configured
+still opens on something sensible.
+
 Result: PASS

@@ -5,13 +5,7 @@
 // -- but can be widened to review any other posting state.
 frappe.query_reports["Failed Postings"] = {
 	filters: [
-		{
-			fieldname: "property",
-			label: __("Property"),
-			fieldtype: "Link",
-			options: "Property",
-			reqd: 1,
-		},
+		hospitality_pms.reports.property_filter(),
 		{
 			fieldname: "posting_type",
 			label: __("Posting Type"),

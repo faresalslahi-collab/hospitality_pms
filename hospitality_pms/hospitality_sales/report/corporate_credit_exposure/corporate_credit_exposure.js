@@ -4,13 +4,7 @@
 // accounts and folios are considered.
 frappe.query_reports["Corporate Credit Exposure"] = {
 	filters: [
-		{
-			fieldname: "property",
-			label: __("Property"),
-			fieldtype: "Link",
-			options: "Property",
-			reqd: 1,
-		},
+		hospitality_pms.reports.property_filter(),
 		{
 			fieldname: "credit_status",
 			label: __("Credit Status"),
