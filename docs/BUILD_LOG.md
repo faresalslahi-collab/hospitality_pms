@@ -1,6 +1,6 @@
 # Hospitality PMS — Build Acceptance Log
 
-**Current application version:** 16.5.2 (branch `version-16`)
+**Current application version:** 16.5.3 (branch `version-16`)
 
 One record per completed build, in the format required by
 `09_Hospitality_PMS_Build_Test_and_Acceptance_Standard_v1.2_APPROVED.md` section 4.
@@ -1761,4 +1761,58 @@ the business date rather than the calendar date - because `add_days` and
 the calendar date when no property resolves, so a site with nothing configured
 still opens on something sensible.
 
+Result: PASS
+
+---
+
+## App switcher
+
+A user who entered Hospitality PMS from Desk had no way back: `/pms` is a Vue
+SPA and its router owns nothing outside that prefix, so the only exit was the
+browser's back button or a typed URL.
+
+The profile menu now carries an Apps submenu holding Desk and whatever sibling
+apps the server says this user may open. The list comes from
+`frappe.apps.get_apps` — the same endpoint the Desk apps screen is built from —
+so the switcher reproduces no app permission logic of its own. Desk itself is
+never in that response, because `get_apps` skips the `frappe` app, so it is
+constructed locally and offered only when `session.hasDeskAccess` is true. That
+flag already existed and is role-derived on the server; showing Desk to a
+frontend-only user would land them on a login wall.
+
+Exclusion is by app name, not by route. This app's route could change, and a
+sibling can legitimately share one — ERPNext also lives at `/desk`, so a
+route-based filter would have silently dropped it.
+
+Switching is `window.location.href`, never the router. Pushing `/desk` through
+Vue Router would resolve against the SPA's own routes and land on not-found.
+
+Frappe UI's Dropdown already supports submenus, so no popover was written. An
+empty group is dropped by the component itself, which is what makes the failure
+path free: if the request fails the submenu simply is not there, and logout and
+language are untouched. The request is fired at shell boot and never awaited.
+
+Validation: PASS - targeted.
+
+  Behaviour, over HTTP as two real users:
+  - a System User with Desk access: `has_desk_access` true, `get_apps` returns
+    erpnext and hospitality_pms, so the menu offers Desk and ERPNext
+  - a Website User holding only Front Office Agent: `has_desk_access` false and
+    `get_apps` returns an empty list, so no Apps submenu appears at all. The
+    server withholds the list independently of anything the frontend decides.
+
+  Logic, against a stubbed resource so the failure path could be forced:
+  - Desk first and this app excluded; Desk withheld without desk access
+  - request failed, Desk user: Desk still offered; no desk access: submenu empty
+  - entries with a missing, non-navigable or duplicate-of-Desk route dropped
+  - `openApp` follows only `/...` and `http(s)://...`, so a `javascript:` route
+    from the server would be ignored rather than executed
+  - the boot fetch resolves even when the endpoint rejects
+
+  Frontend: `yarn build` clean on Node 24, `pms.html` repointed, and the switcher
+  is present in the emitted bundle. Locales identical at 920 keys each.
+
+Note: `nav.desk` existed but was referenced nowhere and read "Open Frappe Desk";
+it was retitled to "Desk" so it sits correctly beside app names, rather than
+adding a second near-identical key.
 Result: PASS

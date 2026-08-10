@@ -93,6 +93,7 @@ import { RouterLink } from 'vue-router'
 
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 import PropertySelector from '@/components/PropertySelector.vue'
+import { appsResource, getSwitchableApps, loadApps, openApp } from '@/resources/apps'
 import { visibleNavigationGroups } from '@/router/navigation'
 import { session } from '@/stores/session'
 import { workload } from '@/stores/workload'
@@ -103,11 +104,44 @@ const user = computed(() => session.user.value)
 
 const badgeFor = (key) => workload.badgeFor(key)
 
-const userOptions = computed(() => [
-  {
+// Fired for its side effect and never awaited: the shell must not wait on the
+// app list to render, and the menu is correct with or without it.
+loadApps()
+
+/**
+ * Apps this user may switch to.
+ *
+ * Reads `appsResource.data` through the computed so the submenu appears on its
+ * own when the request lands, rather than the menu having to be reopened.
+ */
+const switchableApps = computed(() => {
+  void appsResource.data
+
+  return getSwitchableApps(session.state.hasDeskAccess)
+})
+
+const userOptions = computed(() => {
+  const options = []
+
+  // Omitted entirely when there is nothing to switch to — a frontend-only user
+  // on a single-app site is not shown an empty "Apps" that goes nowhere.
+  if (switchableApps.value.length) {
+    options.push({
+      label: t('nav.apps'),
+      icon: 'grid',
+      submenu: switchableApps.value.map((app) => ({
+        label: app.labelKey ? t(app.labelKey) : app.title,
+        onClick: () => openApp(app.route),
+      })),
+    })
+  }
+
+  options.push({
     label: t('common.logout'),
     icon: 'log-out',
     onClick: () => session.logout(),
-  },
-])
+  })
+
+  return options
+})
 </script>
