@@ -3,26 +3,54 @@
 
   Shows the operating property and, importantly, its business date - which is
   not necessarily today. Front desk staff need to see at a glance which day
-  their charges are landing on.
+  their charges are landing on, so the date is given the emphasis normally
+  reserved for a title rather than being tucked under one.
+
+  Lives inside the dark navigation rail, and is styled for it.
 -->
 <template>
-  <div v-if="active" class="px-2 pb-2">
+  <div v-if="active" class="px-3 pb-3">
     <component
       :is="canSwitch ? 'button' : 'div'"
-      class="flex w-full items-center gap-2 rounded border border-outline-gray-1 px-2.5 py-1.5 text-start"
-      :class="canSwitch ? 'hover:bg-surface-gray-2' : ''"
+      class="relative flex w-full items-stretch gap-3 overflow-hidden rounded-xl bg-navy-800 p-3 text-start
+        ring-1 ring-inset ring-white/10 transition-colors"
+      :class="canSwitch ? 'hover:bg-navy-700' : ''"
       @click="canSwitch && (open = true)"
     >
-      <FeatherIcon name="map-pin" class="size-4 shrink-0 text-ink-gray-5" />
       <span class="min-w-0 flex-1">
-        <span class="block truncate text-p-sm font-medium text-ink-gray-8">
-          {{ active.property_name }}
+        <span class="flex items-center gap-1.5">
+          <span class="truncate text-p-base font-semibold text-white">
+            {{ active.property_name }}
+          </span>
+          <FeatherIcon
+            v-if="canSwitch"
+            name="chevron-down"
+            class="size-4 shrink-0 text-navy-300"
+          />
         </span>
-        <span class="block truncate text-xs text-ink-gray-5">
-          {{ t('common.business_date') }}: {{ formatDate(active.business_date) }}
+
+        <span class="mt-2 block text-[11px] uppercase tracking-wider text-navy-300">
+          {{ t('common.business_date') }}
+        </span>
+        <span class="mt-0.5 flex items-center gap-1.5">
+          <FeatherIcon name="calendar" class="size-3.5 shrink-0 text-navy-300" />
+          <span class="truncate text-p-sm font-semibold text-white">
+            {{ formatDate(active.business_date) }}
+          </span>
         </span>
       </span>
-      <FeatherIcon v-if="canSwitch" name="chevron-down" class="size-4 shrink-0 text-ink-gray-5" />
+
+      <!--
+        A property mark, not a photograph: Property carries no image field, and
+        inventing one would put a picture of a hotel nobody chose on the screen.
+      -->
+      <span
+        class="flex w-11 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-navy-500 to-navy-700
+          ring-1 ring-inset ring-white/10"
+        aria-hidden="true"
+      >
+        <FeatherIcon name="home" class="size-5 text-white/70" />
+      </span>
     </component>
 
     <Dialog v-model="open" :options="{ title: t('common.property') }">

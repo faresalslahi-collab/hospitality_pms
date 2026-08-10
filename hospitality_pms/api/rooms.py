@@ -70,12 +70,22 @@ def get_room_rack(property: str | None = None, room_type: str | None = None) -> 
 	)
 
 	grouped = {room_type_row["name"]: {**room_type_row, "rooms": []} for room_type_row in types}
+	floors = _floor_labels(property_name)
 
 	for room in rooms:
 		# The row already carries every dimension assignability depends on, so
 		# this stays one query for the whole rack rather than one per room.
 		room["assignable"] = is_assignable(room["name"], state=room)
 		room["blocking_reason"] = _blocking_reason(room)
+
+		# `floor` is a link, and its name is a code the property chose - which
+		# is not necessarily anything a guest or a housekeeper would recognise.
+		# The rack sends the floor's own name and level alongside it so the
+		# screens can label and order by what the floor is called and where it
+		# is in the building, rather than by how its code happens to sort.
+		floor = floors.get(room.get("floor")) or {}
+		room["floor_name"] = floor.get("floor_name") or room.get("floor")
+		room["floor_level"] = floor.get("floor_level")
 
 		bucket = grouped.setdefault(
 			room["room_type"],
@@ -87,6 +97,19 @@ def get_room_rack(property: str | None = None, room_type: str | None = None) -> 
 		"property": property_name,
 		"room_types": list(grouped.values()),
 		"summary": summarise(rooms),
+	}
+
+
+def _floor_labels(property_name: str) -> dict[str, dict]:
+	"""Every floor in the property, keyed by the value a room stores."""
+	return {
+		row["name"]: row
+		for row in frappe.get_all(
+			"Floor",
+			filters={"property": property_name},
+			fields=["name", "floor_name", "floor_level"],
+			limit_page_length=0,
+		)
 	}
 
 

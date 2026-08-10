@@ -20,11 +20,11 @@
     </Transition>
 
     <div class="flex min-w-0 flex-1 flex-col">
-      <div class="flex items-center gap-2 border-b border-outline-gray-1 px-3 py-2 md:hidden">
+      <div class="flex items-center gap-2 bg-navy-900 px-3 py-2 md:hidden">
         <Button variant="ghost" :aria-label="t('app.name')" @click="drawerOpen = true">
-          <template #icon><FeatherIcon name="menu" class="size-4" /></template>
+          <template #icon><FeatherIcon name="menu" class="size-4 text-white" /></template>
         </Button>
-        <span class="truncate text-base font-medium text-ink-gray-8">{{ t('app.name') }}</span>
+        <span class="truncate text-base font-semibold text-white">{{ t('app.name') }}</span>
       </div>
 
       <main class="min-h-0 flex-1 overflow-y-auto">

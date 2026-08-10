@@ -12,7 +12,7 @@ disagree about whether a room is clean.
 
 import frappe
 from frappe import _
-from frappe.utils import getdate, now_datetime, nowdate
+from frappe.utils import getdate, now_datetime
 
 from hospitality_pms.services import rooms as room_service
 from hospitality_pms.services.base import assert_transition, lock_document, require_role
@@ -339,7 +339,12 @@ def get_board(property_name: str, scheduled_date=None) -> dict:
 	Rooms with an arriving guest are surfaced first: those are the ones that
 	must be ready before the desk can check anyone in.
 	"""
-	scheduled_date = getdate(scheduled_date or nowdate())
+	# The property's business date, not the calendar's. A property that has not
+	# yet run its night audit is still working yesterday, and a housekeeping
+	# board that jumped to the wall clock would show a different day from the
+	# dashboard tile that links to it - which is exactly what the other boards
+	# avoid by resolving the business date the same way (SAS section 6).
+	scheduled_date = getdate(scheduled_date or get_business_date(property_name))
 
 	tasks = frappe.get_all(
 		TASK_DOCTYPE,
