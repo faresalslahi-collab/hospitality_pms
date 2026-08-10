@@ -1,6 +1,6 @@
 # Hospitality PMS — Build Acceptance Log
 
-**Current application version:** 16.5.0 (branch `version-16`)
+**Current application version:** 16.5.1 (branch `version-16`)
 
 One record per completed build, in the format required by
 `09_Hospitality_PMS_Build_Test_and_Acceptance_Standard_v1.2_APPROVED.md` section 4.
@@ -1515,4 +1515,165 @@ instruction; no full regression. 40 of 40 checks passed, executed as
 
 Not verified by rendering: no browser on this bench, so the wizard and the guest
   forms have not been driven on screen. Every endpoint behind them is confirmed.
+Result: PASS
+
+---
+
+## Desk dashboard charts
+
+The Hospitality PMS Dashboard - the "Dashboard" entry in the Desk sidebar, a
+`Dashboard` record rather than the Workspace - carried eight Number Cards and no
+charts. Frappe and ERPNext ship 49 Dashboard Charts between them and not one is
+hospitality. Six charts were added beside the cards, all on standard Frappe
+mechanisms: no Dashboard Chart Source and no custom chart code.
+
+The Night Audit record is what makes that possible. It already stores
+`occupancy_percentage`, `room_revenue` and `total_revenue` against a
+`business_date`, so the two performance charts are ordinary time series over an
+operational table rather than anything computed. Both filter to `audit_status =
+Closed`: an audit still in Posting carries provisional figures, and charting them
+would show a revenue line that moves after the fact.
+
+  Occupancy Percentage         Average of Night Audit.occupancy_percentage
+                               by business_date, daily, last quarter, Line
+  Room Revenue                 Sum of Night Audit.room_revenue by business_date,
+                               daily, last month, Bar, QAR
+  Rooms by Occupancy Status    Group By Hotel Room.occupancy_status, Donut
+  Rooms by Housekeeping Status Group By Hotel Room.housekeeping_status, Donut
+  Reservations by Type         Group By Reservation.reservation_type, Bar
+  Reservation Pickup           Count of Reservation by booked_on, daily,
+                               last month, Line
+
+The two Reservation charts exclude Cancelled, No Show and Draft: those are not
+demand that was ever served, and leaving them in overstates both the source mix
+and the pickup curve. `currency` is cleared on every chart except Room Revenue -
+Frappe defaults it from the company, which would print a currency symbol over a
+percentage and over room counts. `reservation_type` is grouped rather than
+`booking_source` because the latter is a Data field and already holds both
+"Walk-In" and "Walk In".
+
+Charts ship as a `Dashboard Chart` fixture registered in hooks and are attached
+to the Dashboard JSON in `hospitality_setup_dashboard/`, whose `modified` stamp
+was bumped so `bench migrate` re-imports it.
+
+### Correction: the Arrivals Today card counted the wrong thing
+
+The card was a Document Type card filtered only on
+`reservation_status in (Confirmed, Guaranteed)`, with no date at all. It read 19
+where the property's actual arrivals for the day were 8.
+
+A date filter cannot fix it. A hotel's operating day is the property business
+date, not the server calendar date - a property that has not run Night Audit is
+still working yesterday, and the two differed by a day on this site while the fix
+was written. A static filter cannot express that, and a dynamic filter is
+evaluated in the browser, where the business date is unknown and a workstation
+clock is not an acceptable source for it.
+
+The card is now a Custom card calling `hospitality_pms.api.dashboard`
+`.arrivals_today`, which reads the business date per property through
+`services.property.get_business_date` and counts arrivals through the existing
+`services.reservations.get_arrivals`. It sums over
+`get_permitted_properties()`, so each property is counted against its own
+business date - properties close their days independently. Percentage stats were
+switched off: they re-run the Document Type query against `creation`, which a
+custom card has no equivalent of.
+
+### Property scoping: already correct, now proven
+
+An earlier note claimed the cards and charts were not property-scoped. That was
+wrong. Both a Number Card and a Dashboard Chart fetch their numbers through
+`frappe.get_list`, which applies User Permissions, and none of the `property`
+Link fields on Hotel Room, Reservation or Night Audit set
+`ignore_user_permissions`. Property access in this app is expressed as User
+Permissions on Property (HPMS-DEC-052), so the Desk dashboard inherits the same
+restriction as the rest of the system, with no chart-level filter to maintain.
+
+Demonstrated on a rolled-back transaction: multi-property was enabled, a second
+active property owning no rooms, reservations or audits was created, and a System
+User was restricted to it.
+
+  unrestricted   rooms=40  reservations=63  night_audits=4  arrivals_card=8
+  restricted     rooms=0   reservations=0   night_audits=0  arrivals_card=0
+
+Validation: PASS - targeted, per the owner's build-first instruction.
+
+  - `bench migrate` clean on mysite.localhost; fixtures and Dashboard imported
+  - Dashboard serves 8 cards and 6 charts; every chart row resolves
+  - all six charts render through the Dashboard Chart API: Rooms by Occupancy
+    Status 4 groups, Rooms by Housekeeping Status 5, Reservations by Type 6, all
+    non-zero; Occupancy Percentage and Room Revenue return 3 non-zero points,
+    which is every Closed Night Audit this site holds; Reservation Pickup 3
+    - Arrivals Today returns 8, matching an independent count of reservations
+    arriving on the business date, against 19 before the fix
+  - charts and cards render for a System User who is not Administrator
+
+### Correction: a Custom card is fetched by POST
+
+Shipping `arrivals_today` as `@frappe.whitelist(methods=["GET"])` broke the card
+on the Desk: it sat on "Loading..." and the page raised "Not permitted". The Desk
+Number Card widget fetches a Custom card with `frappe.xcall`, which posts by
+default, so a GET-only method is refused. Reproduced over HTTP - GET 200, POST
+403 "Not permitted" - and fixed by allowing both verbs. The house rule that
+mutating endpoints are POST-only is untouched; this method changes nothing.
+
+### The workspace home no longer repeats the cards
+
+The eight Number Cards were on both the workspace home and the Dashboard, which
+meant two layouts to keep in step and the same figure reported in two places. The
+workspace keeps its six shortcuts and eleven module link cards, both of which are
+navigation the Dashboard does not carry; the Number Cards section and its header
+were removed and the workspace stamp bumped so migrate re-imported it.
+
+Known, not changed here:
+  - Frappe caches Dashboard Chart results under `chart-data:<chart name>`, with
+    no user in the key, so a value computed for one user is served to the next.
+    On a multi-property site with property-restricted users that would show one
+    property's figures to another. This is framework behaviour, not something
+    this app can fix without modifying Frappe core; the Number Cards are not
+    affected, since a Custom card calls its method on every render.
+
+Not verified by rendering: no browser on this bench, so the charts have not been
+  read on screen. Each one's data was fetched through the API that draws them.
+Result: PASS
+
+---
+
+## Room status board alignment
+
+The board on the `/pms` dashboard did not line up: room 508 did not sit above
+408, which did not sit above 308. The cause was not spacing. Chips were laid out
+in a `flex flex-wrap` row at `min-w-[3.25rem]`, and a chip for an out of order or
+out of service room carried its slash glyph *inline* - icon plus gap plus digits
+- so it grew past that minimum. Flex packs, it does not track, so one wider chip
+pushed every chip after it on that floor out of step with the floor above. Every
+floor that held an unsellable room drifted by a different amount.
+
+Chips now sit on `grid-cols-[repeat(auto-fill,3.5rem)]`. Each floor's grid is the
+same width, so it resolves to the same track count and the columns line up down
+the building; a floor with more rooms than tracks wraps onto the same columns
+rather than scrolling. For that to hold the chip width has to be fixed, so the
+glyph was pinned to the chip corner with a logical inset (`end-1`, so it stays
+in the correct corner under RTL) instead of taking part in the layout.
+
+Alongside: room numbers are `tabular-nums` so digits occupy equal width, floor
+labels are top-aligned and end-aligned against the rack, `hover:scale-105` was
+replaced with the app's own `shadow-card-hover` lift (a transform on a dense grid
+reads as jitter and overlaps neighbours), and a focus halo was added that
+composes with the existing inset ring rather than replacing it, so keyboard focus
+is visible on every fill colour.
+
+No colour changed. The palette in `components/dashboard/theme.js` was chosen
+against measured contrast and colour-vision separation, and this was a layout fix.
+
+Validation: PASS - targeted.
+  - `yarn build` clean on Node 24; `pms.html` repointed
+  - the four utilities the fix depends on are present in the built CSS:
+    `grid-template-columns:repeat(auto-fill,3.5rem)`, `inset-inline-end:.25rem`,
+    `font-variant-numeric` tabular, and a focus shadow that composes as
+    `box-shadow: ring-offset, ring, shadow` so the inset ring survives
+  - SFC compiles; no physical-direction classes in the file; locale key sets
+    unchanged at 919 each, since the fix introduced no new strings
+
+Not verified by rendering: no browser on this bench, so the board has not been
+  read on screen. The geometry was verified in the emitted CSS instead.
 Result: PASS

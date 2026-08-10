@@ -12,13 +12,13 @@
 <template>
   <DashboardCard :title="t('page.dashboard.board.title')" :padded="false" class="overflow-hidden">
     <template #action>
-      <div class="flex flex-wrap items-center gap-x-3.5 gap-y-1">
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5">
         <span
           v-for="entry in legend"
           :key="entry.key"
-          class="flex items-center gap-1.5 text-xs text-ink-gray-6"
+          class="flex items-center gap-1.5 whitespace-nowrap text-xs text-ink-gray-6"
         >
-          <span class="size-2.5 rounded-full" :style="{ backgroundColor: entry.dot }" aria-hidden="true" />
+          <span class="size-2.5 shrink-0 rounded-full" :style="{ backgroundColor: entry.dot }" aria-hidden="true" />
           {{ entry.label }}
         </span>
       </div>
@@ -34,22 +34,36 @@
         {{ t('page.dashboard.board.empty') }}
       </p>
 
-      <div v-else class="space-y-2 overflow-x-auto">
-        <div v-for="floor in floors" :key="floor.key" class="flex items-center gap-3">
+      <!--
+        Chips sit on a grid of fixed 3.5rem tracks rather than in a flex row.
+        Every floor's grid is the same width, so it resolves to the same number
+        of tracks and room N on one floor sits directly above room N on the next
+        — which a packed flex row cannot guarantee, because any chip that is
+        wider than its neighbours pushes the whole rest of that floor out of step.
+
+        The width has to be fixed for that to hold, so the glyph marking an
+        unsellable room is taken out of the flow and pinned to the chip's corner.
+        In the flow it added its own width plus a gap and was exactly what broke
+        the alignment.
+      -->
+      <div v-else class="space-y-2.5">
+        <div v-for="floor in floors" :key="floor.key" class="flex items-start gap-3">
           <span
-            class="w-28 shrink-0 truncate text-p-sm font-medium text-ink-gray-6"
+            class="w-28 shrink-0 truncate pt-2 text-end text-p-sm font-medium text-ink-gray-6"
             :title="floor.label"
           >
             {{ floor.label }}
           </span>
 
-          <div class="flex flex-wrap gap-1.5">
+          <div class="grid min-w-0 flex-1 grid-cols-[repeat(auto-fill,3.5rem)] gap-2">
             <button
               v-for="room in floor.rooms"
               :key="room.name"
               type="button"
-              class="flex h-7 min-w-[3.25rem] items-center justify-center gap-1 rounded px-2 text-p-sm
-                font-semibold ring-1 ring-inset transition-transform hover:scale-105"
+              class="relative flex h-9 w-full items-center justify-center rounded-md text-p-sm font-semibold
+                leading-none tabular-nums ring-1 ring-inset transition-shadow hover:shadow-card-hover
+                focus-visible:z-10 focus-visible:outline-none
+                focus-visible:shadow-[0_0_0_2px_#ffffff,0_0_0_4px_#171717]"
               :style="{
                 backgroundColor: room.style.fill,
                 color: room.style.text,
@@ -59,10 +73,12 @@
               :aria-label="room.title"
               @click="$emit('select', room.room)"
             >
+              <!-- Pinned, not inline: the chip's width is what keeps the rack
+                   aligned, and logical inset keeps the corner correct in RTL. -->
               <FeatherIcon
                 v-if="room.style.glyph"
                 name="slash"
-                class="size-3 shrink-0"
+                class="pointer-events-none absolute end-1 top-1 size-2.5 opacity-80"
                 aria-hidden="true"
               />
               {{ room.room.room_number }}

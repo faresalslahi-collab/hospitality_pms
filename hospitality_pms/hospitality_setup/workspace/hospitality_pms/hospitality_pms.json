@@ -1,7 +1,7 @@
 {
  "app": "hospitality_pms",
  "charts": [],
- "content": "[{\"id\":\"hdr1\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Your Shortcuts</b></span>\",\"col\":12}},{\"id\":\"shortcut2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"PMS Portal\",\"col\":3}},{\"id\":\"shortcut3\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Reservation\",\"col\":3}},{\"id\":\"shortcut4\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Hotel Room\",\"col\":3}},{\"id\":\"shortcut5\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Guest\",\"col\":3}},{\"id\":\"shortcut6\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Guest Folio\",\"col\":3}},{\"id\":\"shortcut7\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Night Audit\",\"col\":3}},{\"id\":\"spacer8\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"hdr9\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Number Cards</b></span>\",\"col\":12}},{\"id\":\"numcard10\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Arrivals Today\",\"col\":3}},{\"id\":\"numcard11\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"In House\",\"col\":3}},{\"id\":\"numcard12\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Rooms Out of Order\",\"col\":3}},{\"id\":\"numcard13\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Housekeeping Tasks Pending\",\"col\":3}},{\"id\":\"numcard14\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Open Maintenance Tickets\",\"col\":3}},{\"id\":\"numcard15\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Failed Postings\",\"col\":3}},{\"id\":\"numcard16\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Integration Failures Pending\",\"col\":3}},{\"id\":\"numcard17\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Overdue Guest Requests\",\"col\":3}},{\"id\":\"spacer18\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"hdr19\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Modules</b></span>\",\"col\":12}},{\"id\":\"card20\",\"type\":\"card\",\"data\":{\"card_name\":\"Operations\",\"col\":4}},{\"id\":\"card21\",\"type\":\"card\",\"data\":{\"card_name\":\"Rooms\",\"col\":4}},{\"id\":\"card22\",\"type\":\"card\",\"data\":{\"card_name\":\"Housekeeping and Maintenance\",\"col\":4}},{\"id\":\"card23\",\"type\":\"card\",\"data\":{\"card_name\":\"Guests and Sales\",\"col\":4}},{\"id\":\"card24\",\"type\":\"card\",\"data\":{\"card_name\":\"Rates and Revenue\",\"col\":4}},{\"id\":\"card25\",\"type\":\"card\",\"data\":{\"card_name\":\"Food and Service\",\"col\":4}},{\"id\":\"card26\",\"type\":\"card\",\"data\":{\"card_name\":\"Finance and Reconciliation\",\"col\":4}},{\"id\":\"card27\",\"type\":\"card\",\"data\":{\"card_name\":\"Integrations\",\"col\":4}},{\"id\":\"card28\",\"type\":\"card\",\"data\":{\"card_name\":\"Regulatory\",\"col\":4}},{\"id\":\"card29\",\"type\":\"card\",\"data\":{\"card_name\":\"Setup\",\"col\":4}},{\"id\":\"card30\",\"type\":\"card\",\"data\":{\"card_name\":\"Audit Trails\",\"col\":4}}]",
+ "content": "[{\"id\": \"hdr1\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Your Shortcuts</b></span>\", \"col\": 12}}, {\"id\": \"shortcut2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"PMS Portal\", \"col\": 3}}, {\"id\": \"shortcut3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Reservation\", \"col\": 3}}, {\"id\": \"shortcut4\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Hotel Room\", \"col\": 3}}, {\"id\": \"shortcut5\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Guest\", \"col\": 3}}, {\"id\": \"shortcut6\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Guest Folio\", \"col\": 3}}, {\"id\": \"shortcut7\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Night Audit\", \"col\": 3}}, {\"id\": \"spacer18\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"hdr19\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Modules</b></span>\", \"col\": 12}}, {\"id\": \"card20\", \"type\": \"card\", \"data\": {\"card_name\": \"Operations\", \"col\": 4}}, {\"id\": \"card21\", \"type\": \"card\", \"data\": {\"card_name\": \"Rooms\", \"col\": 4}}, {\"id\": \"card22\", \"type\": \"card\", \"data\": {\"card_name\": \"Housekeeping and Maintenance\", \"col\": 4}}, {\"id\": \"card23\", \"type\": \"card\", \"data\": {\"card_name\": \"Guests and Sales\", \"col\": 4}}, {\"id\": \"card24\", \"type\": \"card\", \"data\": {\"card_name\": \"Rates and Revenue\", \"col\": 4}}, {\"id\": \"card25\", \"type\": \"card\", \"data\": {\"card_name\": \"Food and Service\", \"col\": 4}}, {\"id\": \"card26\", \"type\": \"card\", \"data\": {\"card_name\": \"Finance and Reconciliation\", \"col\": 4}}, {\"id\": \"card27\", \"type\": \"card\", \"data\": {\"card_name\": \"Integrations\", \"col\": 4}}, {\"id\": \"card28\", \"type\": \"card\", \"data\": {\"card_name\": \"Regulatory\", \"col\": 4}}, {\"id\": \"card29\", \"type\": \"card\", \"data\": {\"card_name\": \"Setup\", \"col\": 4}}, {\"id\": \"card30\", \"type\": \"card\", \"data\": {\"card_name\": \"Audit Trails\", \"col\": 4}}]",
  "creation": "2026-08-08 15:19:30.804329",
  "custom_blocks": [],
  "docstatus": 0,
@@ -664,44 +664,11 @@
    "type": "Link"
   }
  ],
- "modified": "2026-08-09 16:27:19.991965",
+ "modified": "2026-08-10 15:40:00.000000",
  "modified_by": "Administrator",
  "module": "Hospitality Setup",
  "name": "Hospitality PMS",
- "number_cards": [
-  {
-   "label": "Arrivals Today",
-   "number_card_name": "Arrivals Today"
-  },
-  {
-   "label": "In House",
-   "number_card_name": "In House"
-  },
-  {
-   "label": "Rooms Out of Order",
-   "number_card_name": "Rooms Out of Order"
-  },
-  {
-   "label": "Housekeeping Tasks Pending",
-   "number_card_name": "Housekeeping Tasks Pending"
-  },
-  {
-   "label": "Open Maintenance Tickets",
-   "number_card_name": "Open Maintenance Tickets"
-  },
-  {
-   "label": "Failed Postings",
-   "number_card_name": "Failed Postings"
-  },
-  {
-   "label": "Integration Failures Pending",
-   "number_card_name": "Integration Failures Pending"
-  },
-  {
-   "label": "Overdue Guest Requests",
-   "number_card_name": "Overdue Guest Requests"
-  }
- ],
+ "number_cards": [],
  "owner": "Administrator",
  "parent_page": "",
  "public": 1,

@@ -69,6 +69,23 @@ fixtures = [
 			]
 		],
 	},
+	{
+		"dt": "Dashboard Chart",
+		"filters": [
+			[
+				"name",
+				"in",
+				[
+					"Occupancy Percentage",
+					"Room Revenue",
+					"Rooms by Occupancy Status",
+					"Rooms by Housekeeping Status",
+					"Reservations by Type",
+					"Reservation Pickup",
+				],
+			]
+		],
+	},
 ]
 
 # ------------------------------------------------------------------------------

@@ -25,7 +25,32 @@
    "card": "Integration Failures Pending"
   }
  ],
- "charts": [],
+ "charts": [
+  {
+   "chart": "Occupancy Percentage",
+   "width": "Half"
+  },
+  {
+   "chart": "Room Revenue",
+   "width": "Half"
+  },
+  {
+   "chart": "Rooms by Occupancy Status",
+   "width": "Half"
+  },
+  {
+   "chart": "Rooms by Housekeeping Status",
+   "width": "Half"
+  },
+  {
+   "chart": "Reservations by Type",
+   "width": "Half"
+  },
+  {
+   "chart": "Reservation Pickup",
+   "width": "Full"
+  }
+ ],
  "creation": "2026-08-09 09:00:00.000000",
  "dashboard_name": "Hospitality PMS",
  "docstatus": 0,
@@ -33,7 +58,7 @@
  "idx": 0,
  "is_default": 0,
  "is_standard": 1,
- "modified": "2026-08-09 09:00:00.000000",
+ "modified": "2026-08-10 14:30:00.000000",
  "modified_by": "Administrator",
  "module": "Hospitality Setup",
  "name": "Hospitality PMS",

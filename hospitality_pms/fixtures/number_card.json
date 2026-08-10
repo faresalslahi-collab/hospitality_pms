@@ -9,12 +9,12 @@
   "document_type": "Reservation",
   "dynamic_filters_json": null,
   "filters_config": null,
-  "filters_json": "[[\"Reservation\", \"reservation_status\", \"in\", [\"Confirmed\", \"Guaranteed\"]]]",
-  "function": "Count",
+  "filters_json": "[]",
+  "function": null,
   "is_public": 1,
   "is_standard": 0,
   "label": "Arrivals Today",
-  "method": null,
+  "method": "hospitality_pms.api.dashboard.arrivals_today",
   "modified": "2026-08-08 18:39:43.709332",
   "module": "Hospitality Reservations",
   "name": "Arrivals Today",
@@ -23,9 +23,9 @@
   "report_function": "Sum",
   "report_name": null,
   "show_full_number": 0,
-  "show_percentage_stats": 1,
-  "stats_time_interval": "Daily",
-  "type": "Document Type"
+  "show_percentage_stats": 0,
+  "stats_time_interval": null,
+  "type": "Custom"
  },
  {
   "aggregate_function_based_on": null,
