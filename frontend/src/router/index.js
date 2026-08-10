@@ -51,6 +51,11 @@ const routes = [
     component: () => import('@/pages/ReservationNew.vue'),
   },
   {
+    path: '/walk-in',
+    name: 'WalkIn',
+    component: () => import('@/pages/WalkIn.vue'),
+  },
+  {
     path: '/reservations/:id',
     name: 'Reservation',
     component: () => import('@/pages/Reservation.vue'),
@@ -103,10 +108,23 @@ const routes = [
     name: 'Guests',
     component: () => import('@/pages/Guests.vue'),
   },
+  // `/guests/new` is declared before `/guests/:id`: vue-router matches in
+  // declaration order, so the parameterised route would otherwise swallow it and
+  // the create screen would try to load a guest called "new".
+  {
+    path: '/guests/new',
+    name: 'GuestNew',
+    component: () => import('@/pages/GuestNew.vue'),
+  },
   {
     path: '/guests/:id',
     name: 'GuestProfile',
     component: () => import('@/pages/GuestProfile.vue'),
+  },
+  {
+    path: '/guests/:id/edit',
+    name: 'GuestEdit',
+    component: () => import('@/pages/GuestEdit.vue'),
   },
   {
     path: '/guest-services',

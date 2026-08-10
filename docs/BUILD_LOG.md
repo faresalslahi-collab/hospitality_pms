@@ -1,6 +1,6 @@
 # Hospitality PMS — Build Acceptance Log
 
-**Current application version:** 16.4.0 (branch `version-16`)
+**Current application version:** 16.5.0 (branch `version-16`)
 
 One record per completed build, in the format required by
 `09_Hospitality_PMS_Build_Test_and_Acceptance_Standard_v1.2_APPROVED.md` section 4.
@@ -1405,4 +1405,114 @@ Validation: PASS — targeted, per the owner's instruction; no full regression.
 
 Not verified by rendering: no browser on this bench, so the renamed labels have
   not been read on screen. The link targets behind them are all confirmed.
+Result: PASS
+
+---
+
+## HPMS-16.5.0 — Guest lifecycle and Walk-In check-in
+
+Two operational flows, plus the root-cause fix for the guest list that would
+not populate.
+
+**Guest list defect.** Existing guests were in the database and the endpoint
+was correct; the list rendered empty on every first load. `Guests.vue` passed
+`query: undefined`, and frappe-ui serialises GET parameters with
+`URLSearchParams.append`, which stringifies that into the literal text
+`undefined`. The browser sent `?query=undefined`, `search_guests` took its
+non-empty branch and searched `LIKE '%undefined%'`, and matched nothing. Fixed
+in two layers: `apiResource` now drops `undefined`/`null` keys before a request
+is built, so no GET resource in the app can reintroduce the class of bug, and
+`utils/params.py` (`clean_str`/`clean_int`/`clean_bool`) treats the placeholder
+tokens as "not supplied" server side.
+
+**Second defect, found during validation.** `services.base.transaction()` named
+its savepoint with a raw hex hash. MariaDB lexes an identifier such as
+`06e5d9b647` as the number `06e5` followed by junk, so the helper failed on the
+fraction of hashes matching `<digits>e`. It had no callers until this build; the
+Walk-In service is the first, and would have failed intermittently. Savepoint
+names are now prefixed `sp_`.
+
+**Guest lifecycle.** `create_guest` and `update_guest` on the existing guest
+API. Both run under normal permissions and normal controller validation — no
+`ignore_permissions`, and no ERPNext Customer is ever created (HPMS-DEC-012).
+Writable fields are an allow list shared by both paths, so a field added to the
+DocType later is not writable from the front desk by default. Stay statistics,
+lifetime value, Customer linkage and the blacklist fields are dropped on create
+and refused on update. Identification rows are gated on permlevel 1 read *and*
+write. Duplicate detection reuses `services.guests.find_duplicates` — no second
+algorithm — and create returns candidates instead of inserting until the desk
+either opens one or explicitly asks to create anyway. Nothing is auto-merged;
+merge authorisation is unchanged. Routes `/guests/new` and `/guests/:id/edit`
+were added alongside the existing list and profile.
+
+Also fixed while wiring the edit round trip: `get_guest` omitted child-row
+`name`, so saving a guest recreated every identification row — re-stamping
+`verified_by`/`verified_on` with whoever last corrected an address, and nulling
+`id_image`. Inbound rows are now merged over their stored values, keyed only on
+rows that belong to that guest.
+
+**Walk-In.** `services/walk_in.py` and `api/walk_in.py` orchestrate; they
+reimplement nothing. Arrival is the property business date, never the server
+calendar date. One normal Reservation is created with `reservation_type` and
+`booking_source` both "Walk In" and a single room line, priced by the controller
+— a caller-supplied rate is never accepted. `reservations.confirm` then owns the
+room-type lock, the availability re-check, overbooking protection, rate
+restrictions and the state machine, and is never passed `allow_overbooking`.
+`stays.check_in` owns room assignment, duplicate-stay prevention, the blacklist
+check, the identification requirement, the deposit requirement, room readiness
+and its override authority, the Stay, the Folio, the room's move to Occupied,
+the reservation's move to Checked In and the deposit transfer. The three steps
+run inside one `services.base.transaction()` savepoint with no
+`frappe.db.commit()`, so a failure at confirm or check-in leaves no orphan
+Walk-In reservation holding inventory for a guest still standing in the lobby.
+
+Frontend: `/walk-in`, a four-step wizard reusing `availability.search`,
+`availability.assignable_rooms` and `reservations.quote` rather than duplicating
+them. Server errors render verbatim; Vue detects no blocker itself and offers no
+bypass.
+
+Migration: n/a — no schema change, no patch.
+Frontend build: PASS — Node 24, `yarn build` clean, `pms.html` repointed.
+Localisation: PASS — en.json and ar.json at 919 keys each, key sets identical,
+  no Arabic value left as its English source.
+
+Validation: PASS — one consolidated focused run, per the owner's build-first
+instruction; no full regression. 40 of 40 checks passed, executed as
+`hpms-agent@example.com` (Front Office Agent) and rolled back in full.
+
+  Guest
+  - list loads with no query (44 of 44), and survives a literal `undefined` and
+    `null` query — the regression guard for the reported defect
+  - search by name, by email and by mobile each return the expected guest
+  - profile loads; identification present at permlevel 1, blacklist reason
+    absent below permlevel 3
+  - create; stay statistics and Customer linkage not writable from the desk
+  - duplicate warning before a second create (score 145, four reasons), the
+    candidate names the existing guest, and Create Anyway inserts
+  - edit applies; a protected-field write is refused; the edit duplicate check
+    excludes the record being edited
+
+  Walk-In
+  - arrival equals the business date, not the server date
+  - existing-guest and new-guest walk-ins both reach Stay + Folio
+  - reservation type and booking source are "Walk In"; status Checked In with a
+    Confirmed entry in the Reservation Log, so confirmation ran through the
+    service rather than around it
+  - selected room assigned to the line; Stay In House in that room; Guest Folio
+    opened and linked; room Occupied; rate server-resolved (BAR, 950/night)
+  - repeat check-in on the same line refused — no second active Stay
+  - blacklisted guest refused; guest without required identification refused;
+    neither refusal left an orphan Walk-In reservation
+  - unready room refused without an override, and the override itself refused to
+    a role that does not hold it
+  - an unmet deposit refuses check-in
+
+  Transport
+  - authenticated HTTP round trip confirms the guest list, all three searches
+    and the walk-in context endpoint; every mutating endpoint returns 403 on
+    GET, so they are POST-only and CSRF applies
+  - `/pms` serves the freshly built bundle
+
+Not verified by rendering: no browser on this bench, so the wizard and the guest
+  forms have not been driven on screen. Every endpoint behind them is confirmed.
 Result: PASS

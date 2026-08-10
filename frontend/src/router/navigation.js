@@ -63,6 +63,16 @@ export const navigation = [
     group: 'front_desk',
   },
   {
+    // A walk-in is an arrival the property did not know was coming, so it sits
+    // with the front desk next to Arrivals rather than under Bookings.
+    key: 'walk_in',
+    labelKey: 'nav.walk_in',
+    to: { name: 'WalkIn' },
+    icon: 'user-plus',
+    roles: FRONT_DESK_ROLES,
+    group: 'front_desk',
+  },
+  {
     key: 'in_house',
     labelKey: 'nav.in_house',
     to: { name: 'InHouse' },

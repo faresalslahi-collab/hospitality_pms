@@ -23,6 +23,8 @@ declare module 'vue' {
     EmptyState: typeof import('./src/components/states/EmptyState.vue')['default']
     ErrorState: typeof import('./src/components/states/ErrorState.vue')['default']
     ExtendStayDialog: typeof import('./src/components/ExtendStayDialog.vue')['default']
+    GuestDuplicateDialog: typeof import('./src/components/GuestDuplicateDialog.vue')['default']
+    GuestForm: typeof import('./src/components/GuestForm.vue')['default']
     GuestRequestDialog: typeof import('./src/components/GuestRequestDialog.vue')['default']
     GuestRequestFormDialog: typeof import('./src/components/GuestRequestFormDialog.vue')['default']
     HousekeepingTaskDialog: typeof import('./src/components/HousekeepingTaskDialog.vue')['default']
@@ -56,5 +58,6 @@ declare module 'vue' {
     StatTile: typeof import('./src/components/dashboard/StatTile.vue')['default']
     TakeOutOfServiceDialog: typeof import('./src/components/TakeOutOfServiceDialog.vue')['default']
     VerifyMaintenanceDialog: typeof import('./src/components/VerifyMaintenanceDialog.vue')['default']
+    WalkInStepper: typeof import('./src/components/WalkInStepper.vue')['default']
   }
 }

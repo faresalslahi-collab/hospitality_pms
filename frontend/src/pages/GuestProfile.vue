@@ -22,6 +22,9 @@
             variant="subtle"
             :label="guest.is_blacklisted ? t('page.guest_profile.blacklisted') : t('page.guest_profile.not_blacklisted')"
           />
+          <Button variant="subtle" @click="router.push({ name: 'GuestEdit', params: { id: guest.name } })">
+            {{ t('common.edit') }}
+          </Button>
         </template>
       </PageHeader>
 
@@ -119,9 +122,9 @@
 </template>
 
 <script setup>
-import { Badge } from 'frappe-ui'
+import { Badge, Button } from 'frappe-ui'
 import { computed, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import PageHeader from '@/components/PageHeader.vue'
 import EmptyState from '@/components/states/EmptyState.vue'
@@ -132,6 +135,7 @@ import { formatDate } from '@/utils/format'
 import { t } from '@/utils/i18n'
 
 const route = useRoute()
+const router = useRouter()
 
 const detail = getGuestResource()
 

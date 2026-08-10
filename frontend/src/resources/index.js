@@ -15,15 +15,38 @@ export function apiPath(method) {
 }
 
 /**
+ * Drop parameters the caller did not actually supply.
+ *
+ * frappe-ui serialises GET parameters with `URLSearchParams.append`, which
+ * stringifies whatever it is given: `{ query: undefined }` leaves the browser
+ * as `?query=undefined`, and the server then searches for the literal text
+ * "undefined". Omitting the key is the only way to say "not supplied" over a
+ * query string, so it is done once here rather than at every call site.
+ */
+export function omitEmptyParams(params) {
+  if (!params || typeof params !== 'object' || Array.isArray(params)) return params
+
+  return Object.fromEntries(
+    Object.entries(params).filter(([, value]) => value !== undefined && value !== null),
+  )
+}
+
+/**
  * A resource bound to a whitelisted Hospitality PMS method.
  *
  * @param {string} method  short method path, e.g. `rooms.get_room_rack`
  * @param {object} options passed through to frappe-ui's createResource
  */
 export function apiResource(method, options = {}) {
+  const { makeParams, ...rest } = options
+
   return createResource({
     url: apiPath(method),
-    ...options,
+    ...rest,
+    // Runs before every fetch, including the resource's own `params` option.
+    makeParams(params) {
+      return omitEmptyParams(makeParams ? makeParams.call(this, params) : params)
+    },
   })
 }
 

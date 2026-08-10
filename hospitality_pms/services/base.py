@@ -117,7 +117,12 @@ def transaction():
 	This keeps a failed sub-operation from discarding work the caller already
 	committed to the current transaction.
 	"""
-	savepoint = frappe.generate_hash(length=10)
+	# The `sp_` prefix is not cosmetic. A savepoint name is an unquoted SQL
+	# identifier, and a random hex hash such as `06e5d9b647` is lexed by MariaDB
+	# as the number `06e5` followed by junk - a syntax error that would strike
+	# only on the fraction of hashes that happen to start `<digits>e`. Leading
+	# with a letter makes the identifier unambiguous every time.
+	savepoint = f"sp_{frappe.generate_hash(length=10)}"
 	frappe.db.savepoint(savepoint)
 
 	try:

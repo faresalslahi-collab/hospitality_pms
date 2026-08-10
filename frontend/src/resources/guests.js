@@ -22,6 +22,23 @@ export function findGuestMatchesResource() {
   return apiResource('guests.find_matches')
 }
 
+/**
+ * Register a new guest.
+ *
+ * The server answers a duplicate-looking payload with `{ created: false,
+ * duplicates: [...] }` rather than an error, because "this may already be a
+ * guest we hold" is a decision for the desk, not a failure. Re-submitting with
+ * `ignore_duplicates: 1` is the "Create Anyway" branch.
+ */
+export function createGuestResource() {
+  return apiResource('guests.create_guest')
+}
+
+/** Correct an existing guest. Returns the same payload shape as `get_guest`. */
+export function updateGuestResource() {
+  return apiResource('guests.update_guest')
+}
+
 /** Whether the server included a permission-gated field in the payload. */
 export function hasField(payload, field) {
   return Boolean(payload) && Object.prototype.hasOwnProperty.call(payload, field)

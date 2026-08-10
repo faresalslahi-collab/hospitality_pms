@@ -8,7 +8,14 @@
 -->
 <template>
   <div>
-    <PageHeader :title="t('page.guests.title')" :subtitle="t('page.guests.subtitle')" />
+    <PageHeader :title="t('page.guests.title')" :subtitle="t('page.guests.subtitle')">
+      <template #actions>
+        <Button variant="solid" @click="router.push({ name: 'GuestNew' })">
+          <template #prefix><FeatherIcon name="plus" class="size-4" /></template>
+          {{ t('page.guests.new_guest') }}
+        </Button>
+      </template>
+    </PageHeader>
 
     <div class="space-y-4 p-5">
       <FormControl
@@ -39,6 +46,7 @@
               <th class="p-2 text-start">{{ t('page.guests.vip') }}</th>
               <th class="p-2 text-start">{{ t('page.guests.total_stays') }}</th>
               <th class="p-2 text-start">{{ t('page.guests.last_stay') }}</th>
+              <th class="p-2 text-end">{{ t('common.actions') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -58,6 +66,16 @@
               <td class="p-2">{{ row.guest_type || '—' }}</td>
               <td class="p-2">{{ row.total_stays ?? 0 }}</td>
               <td class="p-2 whitespace-nowrap">{{ row.last_stay_on ? formatDate(row.last_stay_on) : '—' }}</td>
+              <!-- The row itself opens the profile; the buttons stop the click so
+                   "Edit" does not first navigate to the profile it is bypassing. -->
+              <td class="p-2 whitespace-nowrap text-end">
+                <Button variant="ghost" @click.stop="router.push({ name: 'GuestProfile', params: { id: row.name } })">
+                  {{ t('common.view') }}
+                </Button>
+                <Button variant="ghost" @click.stop="router.push({ name: 'GuestEdit', params: { id: row.name } })">
+                  {{ t('common.edit') }}
+                </Button>
+              </td>
             </tr>
           </tbody>
         </table>
