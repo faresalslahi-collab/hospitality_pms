@@ -21,6 +21,46 @@ What consumes inventory
 
 Overbooking is added back on top, and only up to the property's configured
 limit (SAS section 3.5).
+
+Snapshot reads and current reads
+-------------------------------
+Every count here is a plain read by default, and must stay that way: the search
+screen, the calendar and the room rack ask these questions constantly and must
+never take a row lock to answer them.
+
+That default is wrong for the handful of callers that are about to *commit*
+inventory. Those hold a lock while they decide - and **a lock serialises without
+refreshing**. Under REPEATABLE READ a transaction's consistent read view is
+established at its first read and answers every plain read afterwards, so a
+caller that queued behind another writer still counts the rooms as they stood
+before that writer committed, grants itself the room that has just gone, and
+oversells the house. No amount of locking fixes it, because within one
+transaction there is no plain read that will ever see the winner's commit (N1;
+`tests/test_locking.py` pins the hazard, `services/base.py` documents it).
+
+So `check_availability`, `check_demand` and `get_availability` take `current`.
+Left `False`, nothing changes. Set `True`, the sold count comes from a locking
+read and is therefore the latest committed state as of the moment the lock was
+granted - the same contract `lock_and_read`/`lock_and_find` offer for a single
+row. It is set only on the paths that commit inventory: `reservations.confirm`,
+`change_line_interval`, `add_room_line`, `change_line_room_type` and
+`stays.extend_stay`.
+
+Only the *sold* count is made current, because that is the number those callers
+themselves change. Physical rooms and room blocks are configuration, changed by
+operations that do not race these.
+
+**What a current read costs, and the open question it raises.** A locking read
+locks every row it examines until the transaction ends, and MariaDB chooses the
+index, so the rows locked are a range rather than the handful counted. That is
+harmless between the commit paths themselves - they already queue on the Room
+Type row before they get here - but it is *not* harmless against a caller that is
+holding its own reservation's rows (`lock_and_get_doc` locks a document's child
+rows) while it waits for that same Room Type lock. Those two can close a cycle,
+and on this bench they do: see HPMS-QA-16.7.2-C in
+`tests/test_reservation_modification_concurrency.py`. Resolving it means deciding
+whether the Room Type lock should be taken *before* the Reservation rather than
+after it - a change to the documented chain, and not one to make in passing.
 """
 
 from collections import defaultdict
@@ -158,12 +198,19 @@ def _sold_by_night(
 	nights: list,
 	room_type: str | None = None,
 	exclude_reservation: str | None = None,
+	*,
+	current: bool = False,
 ) -> dict:
 	"""Rooms already committed to reservations, per night, per room type.
 
 	Returns an empty result until the reservation build lands, so availability
 	is correct at every stage rather than importing a DocType that does not
 	exist yet.
+
+	`current` decides whether the rows come from this transaction's snapshot or
+	from a locking read - see the module docstring. A caller deciding under a
+	lock must pass `True`, or it counts the house as it was before the writer it
+	just queued behind committed (N1).
 	"""
 	if not frappe.db.table_exists(RESERVATION_ROOM_DOCTYPE):
 		return defaultdict(lambda: defaultdict(int))
@@ -181,12 +228,29 @@ def _sold_by_night(
 	if exclude_reservation:
 		filters["parent"] = ("!=", exclude_reservation)
 
-	rows = frappe.get_all(
-		RESERVATION_ROOM_DOCTYPE,
-		filters=filters,
-		fields=["room_type", "arrival_date", "departure_date", "rooms"],
-		limit_page_length=0,
-	)
+	fields = ["room_type", "arrival_date", "departure_date", "rooms"]
+
+	if current:
+		# `SELECT ... FOR UPDATE`, so InnoDB answers from the current row
+		# versions rather than from this transaction's read view, and so the
+		# rows counted stay counted until this transaction ends - a rival
+		# cannot commit a booking into the interval between this count and the
+		# write it justifies.
+		rows = (
+			frappe.db.get_values(
+				RESERVATION_ROOM_DOCTYPE,
+				filters,
+				fields,
+				as_dict=True,
+				order_by=None,
+				for_update=True,
+			)
+			or []
+		)
+	else:
+		rows = frappe.get_all(
+			RESERVATION_ROOM_DOCTYPE, filters=filters, fields=fields, limit_page_length=0
+		)
 
 	sold = defaultdict(lambda: defaultdict(int))
 
@@ -209,6 +273,8 @@ def get_availability(
 	departure,
 	room_type: str | None = None,
 	exclude_reservation: str | None = None,
+	*,
+	current: bool = False,
 ) -> dict:
 	"""Availability per night, per room type.
 
@@ -227,6 +293,10 @@ def get_availability(
 
 	`min_available` is what a booking decision uses: a stay is only sellable if
 	every one of its nights has room.
+
+	`current` is passed straight to `_sold_by_night`: leave it alone for anything
+	a screen renders, set it for a caller that is about to commit inventory under
+	a lock (see the module docstring).
 	"""
 	nights = nights_between(arrival, departure)
 	rooms = _physical_rooms(property_name, room_type)
@@ -234,7 +304,7 @@ def get_availability(
 
 	blocks = _blocks(property_name, arrival, departure, room_type)
 	rooms_blocked, quantity_blocked = _blocked_by_night(blocks, nights, rooms_by_name)
-	sold = _sold_by_night(property_name, nights, room_type, exclude_reservation)
+	sold = _sold_by_night(property_name, nights, room_type, exclude_reservation, current=current)
 
 	overbooking = int(get_property(property_name).overbooking_limit or 0)
 
@@ -297,17 +367,26 @@ def check_availability(
 	*,
 	allow_overbooking: bool = False,
 	exclude_reservation: str | None = None,
+	current: bool = False,
 ) -> dict:
 	"""Raise unless `rooms` of `room_type` can be sold for every night.
 
 	Callers that are about to commit inventory must hold the room-type row
-	first - see `lock_room_type`. Checking without locking is fine for a
-	search, never for a confirmation.
+	first - see `lock_room_type` - **and pass `current=True`**. The lock alone is
+	not enough: it serialises the two callers but leaves the loser counting from
+	the read view it opened before the winner committed, so both are told the
+	last room is free (N1, and the module docstring). Checking without either is
+	fine for a search, never for a confirmation.
 	"""
 	rooms = max(int(rooms or 1), 1)
 
 	availability = get_availability(
-		property_name, arrival, departure, room_type, exclude_reservation=exclude_reservation
+		property_name,
+		arrival,
+		departure,
+		room_type,
+		exclude_reservation=exclude_reservation,
+		current=current,
 	)
 
 	bucket = availability["room_types"].get(room_type)
@@ -424,6 +503,7 @@ def check_demand(
 	*,
 	allow_overbooking: bool = False,
 	exclude_reservation: str | None = None,
+	current: bool = False,
 ) -> list[dict]:
 	"""Check what a whole booking needs, night by night, not line by line.
 
@@ -431,6 +511,11 @@ def check_demand(
 	`check_availability` once per row asks "is there a room free?" three times -
 	and a house with one room left answers yes to all three. The demand has to
 	be summed per room type per night before it is compared with anything.
+
+	`current` carries the same meaning as it does on `check_availability`, and
+	`confirm` - the one place a booking actually takes its inventory - sets it.
+	Summing the demand correctly and then comparing it with a stale count sells
+	the same room twice just as surely as not summing it at all.
 
 	Returns one result per room type, in the shape `overbooking_evidence`
 	expects, so the Wave-1 override audit keeps working unchanged.
@@ -453,6 +538,7 @@ def check_demand(
 			add_days(nights[-1], 1),
 			room_type,
 			exclude_reservation=exclude_reservation,
+			current=current,
 		)
 		bucket = availability["room_types"].get(room_type)
 

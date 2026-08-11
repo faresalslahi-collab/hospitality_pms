@@ -4,7 +4,7 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import getdate, now_datetime
+from frappe.utils import flt, getdate, now_datetime
 
 from hospitality_pms.services.availability import nights_between
 from hospitality_pms.services.exceptions import (
@@ -44,13 +44,77 @@ CREATABLE_STATUSES = (DRAFT, TENTATIVE)
 
 #: Room line fields a document save may not touch once the line holds
 #: inventory. Each has a service that owns it and re-checks under lock.
+#:
+#: `room_rate` is here because nothing else was holding it. It is not derived on
+#: a holding line - `price_reservation` does not run past a holding status and
+#: `sync_room_lines` recomputes neither the rate nor the line total - so a save
+#: could put 500 down to 50 on a confirmed line while `total_amount`, the
+#: booking's totals and every `Reservation Rate Line` kept the figure the guest
+#: was actually quoted, and nothing recorded that anyone had done it.
 LOCKED_ROOM_LINE_FIELDS = (
 	"arrival_date",
 	"departure_date",
 	"assigned_room",
 	"rooms",
 	"room_type",
+	"room_rate",
 )
+
+#: Header fields a document save may not touch once the booking is holding.
+#:
+#: The first four are what a fresh availability check depends on, and are the
+#: original four. The rest decide what happens when the booking *ends*, and were
+#: open to a plain form save:
+#:
+#: * `cancellation_policy` and `no_show_policy` decide the charge. `cancel()`
+#:   requires `CANCEL_OVERRIDE_ROLES` only when there is a charge to waive, so
+#:   editing the policy to one that charges nothing waived the fee without ever
+#:   meeting the role check that exists to authorise waiving it.
+#: * `corporate_account` decides whose credit comes back. Credit is consumed at
+#:   confirmation against the account named then; editing the field before
+#:   cancelling released credit to an account that never consumed any and left
+#:   the original consuming it forever.
+#: * `deposit_required` is what `stays._assert_deposit_satisfied` gates check-in
+#:   on, so lowering it walked a guest in without the deposit the booking was
+#:   sold on.
+#:
+#: Each has a service that owns it, or none at all - in which case the answer is
+#: cancel and rebook, not a silent edit.
+GUARDED_HEADER_FIELDS = (
+	"arrival_date",
+	"departure_date",
+	"property",
+	"guest",
+	"cancellation_policy",
+	"no_show_policy",
+	"corporate_account",
+	"deposit_required",
+)
+
+#: Fieldtypes whose values must be compared as numbers rather than as text.
+NUMERIC_FIELDTYPES = ("Currency", "Float", "Percent")
+
+
+def _values_agree(field, before, after) -> bool:
+	"""Whether a guarded field still holds the value it held before this save.
+
+	Text comparison is the default and is what the room line guard has always
+	used: it makes a date that arrived as a string equal to the same date, and an
+	empty link equal to `None`.
+
+	Numbers are compared as numbers at the column's own precision instead. A
+	Currency is stored rounded to two places and read back as a float, so a
+	value recomputed in memory to full precision differs from the stored one in
+	the ninth decimal - and as text that reads as a change, which would refuse a
+	save that altered nothing. This became load-bearing when `room_rate` and
+	`deposit_required` joined the guarded sets.
+	"""
+	if field is not None and field.fieldtype in NUMERIC_FIELDTYPES:
+		precision = frappe.get_precision(field.parent, field.fieldname) or 2
+
+		return flt(before, precision) == flt(after, precision)
+
+	return str(before or "") == str(after or "")
 
 
 class Reservation(Document):
@@ -307,19 +371,26 @@ class Reservation(Document):
 	# ------------------------------------------------------------------
 
 	def _guard_holding_immutability(self):
-		"""Refuse edits to the fields a new availability check would depend on.
+		"""Refuse edits a document save cannot make safely.
 
-		Changing dates, property or guest once a reservation is holding
-		inventory (or has moved beyond that into a terminal state) can only be
-		done safely by re-running availability under lock, which is a service
-		operation ("move/rebook") that does not exist yet. Until it does, the
-		only correct path is cancel and rebook.
+		Two kinds of field. The dates, the property and the guest are what a
+		fresh availability check depends on, and changing them once the booking
+		holds inventory is only safe if that check is re-run under lock - which
+		is `reservations.change_line_interval`, the move/rebook service, and not
+		something a `doc.save()` does. The policies, the corporate account and
+		the required deposit are what the *ending* of the booking depends on, and
+		each of them routed around a control when edited here (see
+		`GUARDED_HEADER_FIELDS`).
+
+		For every one of them the supported answer is a service operation or
+		cancel and rebook. This guard is what makes that true rather than merely
+		documented.
 		"""
 		if self.is_new() or self._is_editable():
 			return
 
-		for fieldname in ("arrival_date", "departure_date", "property", "guest"):
-			if self.has_value_changed(fieldname):
+		for fieldname in GUARDED_HEADER_FIELDS:
+			if self._guarded_value_changed(fieldname):
 				frappe.throw(
 					_(
 						"{0} cannot be changed once a reservation is {1}; cancel and rebook instead."
@@ -328,6 +399,23 @@ class Reservation(Document):
 				)
 
 		self._guard_room_line_immutability()
+
+	def _guarded_value_changed(self, fieldname: str) -> bool:
+		"""`has_value_changed`, but comparing a Currency as a number.
+
+		Frappe's own `has_value_changed` compares with `!=` and answers True when
+		it cannot see the document's previous state at all. Both behaviours are
+		kept: the conservative answer to "we do not know" is still "refuse", and
+		only the comparison itself is corrected (see `_values_agree`).
+		"""
+		before = self.get_doc_before_save()
+
+		if not before:
+			return True
+
+		return not _values_agree(
+			self.meta.get_field(fieldname), before.get(fieldname), self.get(fieldname)
+		)
 
 	def _guard_room_line_immutability(self):
 		"""The same protection, one level down, where the inventory actually is.
@@ -363,7 +451,7 @@ class Reservation(Document):
 			old = previous[row.name]
 
 			for fieldname in LOCKED_ROOM_LINE_FIELDS:
-				if str(old.get(fieldname) or "") == str(row.get(fieldname) or ""):
+				if _values_agree(row.meta.get_field(fieldname), old.get(fieldname), row.get(fieldname)):
 					continue
 
 				frappe.throw(

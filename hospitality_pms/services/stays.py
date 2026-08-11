@@ -127,7 +127,7 @@ def check_in(
 		)
 
 	_assert_reservation_ready(reservation_doc)
-	_assert_arrival_is_due(reservation_doc)
+	_assert_arrival_is_due(reservation_doc, line.arrival_date)
 
 	if reservation_doc.guest:
 		assert_not_blacklisted(reservation_doc.guest)
@@ -271,14 +271,26 @@ def _assert_reservation_ready(doc):
 		)
 
 
-def _assert_arrival_is_due(doc):
-	"""A guest cannot check in before the business date reaches their arrival."""
+def _assert_arrival_is_due(doc, arrival=None):
+	"""A guest cannot check in before the business date reaches their arrival.
+
+	The **room line's** arrival, not the booking's. The header is the earliest
+	arrival across the rooms and never a copy of one of them (HPMS-DEC-154), so
+	the two diverge the moment a multi-room booking's rooms do - and after
+	`reservations.change_line_interval` moves one room out by a week, the header
+	still says today. Checked against the header, that room would pass this gate,
+	get a Stay dated in the future, and have its room marked Occupied now.
+
+	Falls back to the header when no line arrival is supplied, so a caller that
+	is asking about the booking as a whole still gets an answer.
+	"""
+	arrival = getdate(arrival or doc.arrival_date)
 	business_date = get_business_date(doc.property)
 
-	if getdate(doc.arrival_date) > getdate(business_date):
+	if arrival > getdate(business_date):
 		throw(
-			_("Reservation {0} arrives on {1}; the business date is {2}.").format(
-				doc.name, getdate(doc.arrival_date), getdate(business_date)
+			_("This room of reservation {0} arrives on {1}; the business date is {2}.").format(
+				doc.name, arrival, getdate(business_date)
 			),
 			exc=InvalidStateTransitionError,
 		)
@@ -343,11 +355,38 @@ def _all_lines_checked_in(reservation: str) -> bool:
 def change_room(stay: str, new_room: str, reason: str, *, allow_unready: bool = False) -> dict:
 	"""Move an in-house guest to another room.
 
-	Both rooms are locked, in a deterministic order, so two simultaneous moves
-	cannot cross over each other.
+	Takes the inventory row first, then the Stay, then both Hotel Rooms in a
+	deterministic order, so two simultaneous moves cannot cross over each other -
+	and neither can this and a reservation-side date change (see below).
 	"""
 	if not reason or not reason.strip():
 		throw(_("A reason is required to change room."))
+
+	# The inventory row, **before** the Stay and before either Hotel Room.
+	#
+	# This function writes `Reservation Room.assigned_room` at the end, and until
+	# 16.7.2 it did so without taking that row's lock, on the reasoning that
+	# nothing was being decided from the row. That reasoning was wrong in the way
+	# that matters: an `UPDATE` takes the row's exclusive lock whether or not
+	# anybody called `lock_document`, so declining to call it removed the
+	# documentation and not the lock - and took it last, from a function already
+	# holding the Hotel Rooms.
+	#
+	# Against the documented chain (Reservation -> Reservation Room -> Room Type
+	# -> Hotel Room -> Stay) that is an inversion, and it closed a real cycle:
+	# `reservations.change_line_interval` holds the Reservation Room row and then
+	# asks for the assigned Hotel Room, while this held the Hotel Rooms and then
+	# wanted the row. InnoDB broke it with a deadlock (1213) rather than either
+	# caller being refused for a reason a human could read.
+	#
+	# Locked first instead. Every counterpart - `change_line_interval`,
+	# `_lock_stay_chain` for `extend_stay` and `shorten_stay` - takes this row
+	# before any Hotel Room, so whichever caller wins the row runs to completion
+	# and the other queues behind it. The line is found with a plain read because
+	# `Stay.reservation_room_line` is set at check-in and never changes; every
+	# value decided on afterwards comes from the locking read.
+	line_name = frappe.db.get_value(STAY_DOCTYPE, stay, "reservation_room_line")
+	line = reservation_service.lock_inventory_line(line_name) if line_name else None
 
 	# Current under lock: the status guard below decides whether the guest is
 	# still in the room at all, and a pre-lock read of it could move a guest
@@ -372,6 +411,32 @@ def change_room(stay: str, new_room: str, reason: str, *, allow_unready: bool = 
 	new_property, new_type = frappe.db.get_value("Hotel Room", new_room, ["property", "room_type"])
 	if new_property != doc.property:
 		throw(_("Room {0} belongs to another property.").format(new_room))
+
+	# The room the guest is being moved into must not already be promised to
+	# somebody else for these nights.
+	#
+	# This was missing entirely. `assert_assignable` asks only about the room's
+	# own state - sellable, not out of order, clean enough - and a room reserved
+	# for tomorrow's arrival is all of those things today. So a move into it
+	# committed, and left two `Reservation Room` rows naming one physical room
+	# over overlapping intervals: exactly the state `_assert_room_free` exists to
+	# make impossible, reached by the one writer that never asked it.
+	#
+	# Asked over the **inventory row's** interval, which is the authoritative one
+	# (a Stay's departure date on its own is a display value), and excluding this
+	# line, which must not be treated as its own rival. Safe to ask here and not
+	# merely useful: the row is locked above, so the answer cannot go stale
+	# between this check and the write below.
+	interval_start = getdate(line["arrival_date"] if line else doc.arrival_date)
+	interval_end = getdate(line["departure_date"] if line else doc.departure_date)
+
+	reservation_service._assert_room_free(
+		new_room,
+		interval_start,
+		interval_end,
+		exclude_line=line_name,
+		remedy=_("Choose another room, or move the booking that already holds this one."),
+	)
 
 	previous_room = doc.room
 
@@ -401,6 +466,39 @@ def change_room(stay: str, new_room: str, reason: str, *, allow_unready: bool = 
 
 	if doc.folio:
 		frappe.db.set_value(folio_service.FOLIO_DOCTYPE, doc.folio, "room", new_room, update_modified=False)
+
+	# The inventory row has to follow the guest, and until 16.7.2 it did not.
+	#
+	# `Reservation Room` is the authoritative record of which physical room is
+	# promised to whom, and `reservations._assert_room_free` reads *only* that
+	# table - a checked-in guest is counted there because check-in does not move a
+	# booking out of the holding states. So a move that updated the Stay and not
+	# the row left the protection guarding the room the guest had left, and
+	# reporting the room they were now asleep in as free. Found on this bench:
+	# one stay with the guest in 503 while its row still said 504, and
+	# `_assert_room_free("DOHA01-503")` answering "free". The next assignment of
+	# that room would have put two guests in it.
+	#
+	# The row is locked at the top of this function, before the Stay and before
+	# either Hotel Room, and this is the write that lock exists for. Taking it
+	# here instead - last, from a caller already holding the Hotel Rooms - is what
+	# deadlocked against `change_line_interval`; the reasoning that no lock was
+	# needed is recorded and corrected in the comment at the top.
+	#
+	# Not corrected here: `Reservation Room.room_type` is left naming the type the
+	# booking was made for, even when the guest has been moved into a room of a
+	# different one. Availability then counts the night against the old type and
+	# the new type looks freer than it is. That is a separate defect with a
+	# separate decision behind it - what a cross-type move does to the rate the
+	# guest was quoted - and it is deliberately out of scope for this change.
+	if doc.reservation_room_line:
+		frappe.db.set_value(
+			reservation_service.RESERVATION_ROOM_DOCTYPE,
+			doc.reservation_room_line,
+			"assigned_room",
+			new_room,
+			update_modified=False,
+		)
 
 	return {"stay": stay, "from_room": previous_room, "to_room": new_room}
 
@@ -453,6 +551,11 @@ def extend_stay(
 
 	# Only the added nights are checked; the nights already in house are the
 	# guest's by right.
+	#
+	# `current=True` because `_lock_stay_chain` above holds the Room Type row and
+	# a lock serialises without refreshing: an extension that queued behind a
+	# confirmation would otherwise count the house as it stood before that
+	# confirmation committed, and take the room it had just sold (N1).
 	check = check_availability(
 		doc.property,
 		doc.room_type,
@@ -460,6 +563,7 @@ def extend_stay(
 		new_departure,
 		rooms=1,
 		allow_overbooking=allow_overbooking,
+		current=True,
 	)
 
 	# Room-type capacity and this particular room are different questions, and

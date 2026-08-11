@@ -13,6 +13,7 @@ from hospitality_pms.services import reservations as service
 from hospitality_pms.services.base import authorise_document, require_permission
 from hospitality_pms.services.property import resolve_operational_date, resolve_property
 from hospitality_pms.services.rates import get_rate_breakdown
+from hospitality_pms.utils.params import clean_bool, clean_int, clean_str
 
 RESERVATION_DOCTYPE = "Reservation"
 
@@ -245,6 +246,126 @@ def assign_room(reservation: str, room_line: str, room: str, allow_unready: int 
 	service.assign_room(reservation, room_line, room, allow_unready=bool(int(allow_unready or 0)))
 
 	return get_reservation(reservation)
+
+
+# ---------------------------------------------------------------------------
+# Modification
+# ---------------------------------------------------------------------------
+#
+# Every one of these is a POST, so CSRF applies, and every one calls
+# `authorise_document` on the reservation the client named rather than
+# `require_permission` on the DocType: the second answers "may this user ever
+# edit a booking", which every reservation agent may, for every property in the
+# estate (P1-15, N2).
+#
+# `authorise_document` is called here and not inside the services on purpose -
+# see its docstring. The same service functions are called by the channel
+# importer and the night audit, which act for no session user; the services
+# assert `check_permission("write")` on the locked document instead.
+#
+# Nothing here decides anything. The services own the state guards, the lock
+# chain, the availability re-check, the allow list and the audit record.
+
+
+@frappe.whitelist(methods=["POST"])
+def update_reservation_details(reservation: str, changes: dict | str) -> dict:
+	"""Correct the non-inventory details of a booking.
+
+	`changes` is a field map, not a document: the service refuses any key outside
+	`DETAIL_WRITABLE_FIELDS`, so this is not a generic saver with a reservation
+	name attached to it.
+	"""
+	authorise_document(RESERVATION_DOCTYPE, reservation, "write")
+
+	result = service.update_reservation_details(
+		reservation, frappe.parse_json(changes) if isinstance(changes, str) else changes
+	)
+
+	return {**get_reservation(reservation), "update": result}
+
+
+@frappe.whitelist(methods=["POST"])
+def change_line_interval(
+	reservation: str,
+	room_line: str,
+	arrival: str | None = None,
+	departure: str | None = None,
+	allow_overbooking: int = 0,
+	reason: str | None = None,
+) -> dict:
+	"""Move one room line's dates, re-checking inventory under lock."""
+	authorise_document(RESERVATION_DOCTYPE, reservation, "write")
+
+	result = service.change_line_interval(
+		reservation,
+		room_line,
+		arrival=clean_str(arrival),
+		departure=clean_str(departure),
+		allow_overbooking=clean_bool(allow_overbooking),
+		reason=clean_str(reason),
+	)
+
+	return {**get_reservation(reservation), "interval": result}
+
+
+@frappe.whitelist(methods=["POST"])
+def add_room_line(
+	reservation: str,
+	room_type: str,
+	arrival: str,
+	departure: str,
+	adults: int = 1,
+	children: int = 0,
+	rate_plan: str | None = None,
+) -> dict:
+	"""Add one more room to a booking that is still editable."""
+	authorise_document(RESERVATION_DOCTYPE, reservation, "write")
+
+	result = service.add_room_line(
+		reservation,
+		room_type,
+		arrival,
+		departure,
+		adults=clean_int(adults, 1) or 1,
+		children=clean_int(children, 0) or 0,
+		rate_plan=clean_str(rate_plan),
+	)
+
+	return {**get_reservation(reservation), "room_line": result}
+
+
+@frappe.whitelist(methods=["POST"])
+def remove_room_line(reservation: str, room_line: str) -> dict:
+	"""Drop one room from a booking that is still editable."""
+	authorise_document(RESERVATION_DOCTYPE, reservation, "write")
+
+	result = service.remove_room_line(reservation, room_line)
+
+	return {**get_reservation(reservation), "room_line": result}
+
+
+@frappe.whitelist(methods=["POST"])
+def change_line_room_type(reservation: str, room_line: str, room_type: str) -> dict:
+	"""Move one room line onto a different room type."""
+	authorise_document(RESERVATION_DOCTYPE, reservation, "write")
+
+	result = service.change_line_room_type(reservation, room_line, room_type)
+
+	return {**get_reservation(reservation), "room_line": result}
+
+
+@frappe.whitelist(methods=["POST"])
+def set_line_rate_plan(reservation: str, room_line: str, rate_plan: str) -> dict:
+	"""Put one room line on a different rate plan.
+
+	There is no rate parameter, here or in the service. The plan is the choice;
+	the rate is the rate service's answer to it.
+	"""
+	authorise_document(RESERVATION_DOCTYPE, reservation, "write")
+
+	result = service.set_line_rate_plan(reservation, room_line, rate_plan)
+
+	return {**get_reservation(reservation), "room_line": result}
 
 
 @frappe.whitelist(methods=["GET"])

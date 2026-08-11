@@ -3587,3 +3587,325 @@ overruled with reasons recorded here: the alert grade's original exclusion, and 
 search's row-hiding.
 
 Result: **PASS**
+
+---
+
+## 16.7.2 — Reservation & Booking Workspace
+
+Baseline: **`3ab5a74`** — `version-16` with 16.7.1 merged locally, `--no-ff`,
+history preserved. Pre-merge `version-16` was `f596eae`; the 16.7.1 head was
+`a74d274`; merge-base equalled `version-16`, so 16.7.1 was exactly one commit
+ahead with **no divergent commits**, and the merged tree is identical to
+`a74d274`. Nothing was pushed, pulled or fetched at any point.
+
+This build gives a reservation agent the practical booking lifecycle in the PMS
+frontend, and closes **nine defects** — one deferred from 16.7.0, and eight found
+by review during the build. Three of those were reproduced oversells or
+deadlocks, and two were in code this build wrote.
+
+### The date defect, and its twin
+
+`toServerDate` parsed a date-only string with `new Date('2026-08-12')` — UTC
+midnight by the specification — and read `getDate()` back in *local* time. Those
+disagree anywhere west of Greenwich: at `America/New_York` the round trip
+returned `2026-08-11`. Deferred by 16.7.0 and 16.7.1 because its only reach was
+the unmigrated Calendar; 16.7.2 owns booking dates, so it is fixed here.
+
+Fixing it surfaced **the same defect in `formatDate`**, which no earlier review
+had found. `Intl` formats in the local zone, so a UTC-midnight `Date` *displays*
+as the previous day — and every arrival and departure on every board renders
+through that function. At a negative offset the whole product would have shown
+dates one day early, which is the worse of the two bugs.
+
+The rule now: a value with no time and no zone is **sliced, never parsed**;
+converting it through an instant is never correct. A `Date` object is a different
+thing — a real instant the caller built — and its local parts are read. A value
+carrying its own offset (`Z`, `+03:00`) is a genuine instant and goes to the
+platform parser untouched. One trap caught in the fix itself: `formatDateTime`
+routes through `formatDate`, so narrowing everything to a day would have printed
+every audit timestamp as midnight; the parser keeps a time when the value has one.
+
+Eleven tests across **seven timezones** — two negative offsets, UTC (where it
+accidentally worked, which is how it hid), a half-hour offset, this bench's UTC+3,
+and UTC+14 — including a guard that the *original* implementation still
+reproduces the bug, so the file cannot go quietly vacuous. **The Calendar needed
+no change at all**: the defect was in the shared utility it consumes.
+
+### The repricing rule was already decided
+
+`Reservation._is_editable()` restricts repricing to Draft, Tentative and
+Waitlisted, and says why: once a booking holds inventory "the guest has been
+quoted these amounts and re-running today's rate grid would silently change what
+they owe". So the booked rate is preserved automatically for any edit to a held
+booking, and **no product decision was required**. No operator "Reprice" action
+was added: there is no reprice service today, and adding one would be new
+financial behaviour on a confirmed booking.
+
+### The editability matrix, and the gap the code named itself
+
+`_guard_holding_immutability` already refused, once holding: header dates,
+property, guest, adding or removing room lines, and `LOCKED_ROOM_LINE_FIELDS` —
+"cancel and rebook instead", because a safe change "can only be done safely by
+re-running availability under lock, which is a service operation ("move/rebook")
+**that does not exist yet**". That named gap is what this build implements.
+
+| Edit | Draft / Tentative / Waitlisted | Confirmed / Guaranteed | Checked In | Terminal |
+|---|---|---|---|---|
+| details (source, segment, requests, notes, ETA, guarantee) | yes | yes | yes | no |
+| room-line interval | yes | **yes, equal night count only** | no (the Stay owns it) | no |
+| add / remove room line | yes | no | no | no |
+| room type | yes | no | no | no |
+| rate plan | yes (reprices) | no (the snapshot is the quote) | no | no |
+| assign room | yes | yes | n/a | no |
+| deposit | **display only, in every state** | | | |
+
+**Why equal-night-count only.** `set_line_interval` writes dates and nights;
+`price_reservation` cannot run once holding. A length-changing move would leave
+`total_amount`, the header totals and every `Reservation Rate Line.rate_date`
+describing an interval the guest no longer has — and `_first_night_amount` would
+then compute a First Night cancellation charge from a night they do not hold. An
+equal-length shift keeps the money arithmetically true; the snapshot rows are
+**re-dated** onto the new nights with every amount untouched. That is bookkeeping,
+not repricing. Re-projecting a rate across a *changed* night count would be a
+pricing decision, and this build makes none.
+
+Checking only the **added** nights is both correct and sufficient: the added
+interval is by definition the new nights minus what the line already holds, so it
+can never double-count the booking's own hold — which is what makes it safe
+without line-level exclusion in the availability engine, where none exists. That
+reasoning is written into `_added_nights` so nobody "improves" it into checking
+the whole interval.
+
+### Nine defects fixed
+
+**1. `formatDate`'s date shift** — above.
+
+**2. `room_rate` editable on a room line at any status**, with no reprice and no
+audit: a save could set 500 → 50 on a confirmed line while the totals kept the old
+figures. Added to `LOCKED_ROOM_LINE_FIELDS`. The guard's text comparison had to
+become numeric first (`flt` at the column's precision) or every save of a held
+booking would have been refused over a field nobody touched.
+
+**3. Four policy and corporate fields editable post-confirmation** with no guard
+and no audit. Editing `cancellation_policy` to a No-Charge policy routed around
+`require_role(CANCEL_OVERRIDE_ROLES)`, which only fires when there *is* a charge;
+editing `corporate_account` between confirm and cancel released credit to an
+account that never consumed it while the original stayed consumed forever. All
+four added to the holding guard.
+
+**4. `assign_room` had no status guard and no live-Stay check.** Fired at a
+checked-in line it desynchronised `Reservation Room.assigned_room` from
+`Stay.room` without moving the guest, the occupancy, the housekeeping state or the
+folio.
+
+**5. `_assert_arrival_is_due` read the header date, not the line's.** Harmless
+until this build: after a multi-room move the header is the *earliest* line's
+arrival, so a room moved a week out would have passed the gate today and produced
+a Stay dated in the future with the room marked Occupied now. The move service
+opened it; the move service closes it.
+
+**6. `deposit_credited` counted reversed payments** — no `is_reversed` filter.
+
+**7. A room move left the inventory row naming the room the guest had left.**
+`_assert_room_free` reads *only* `Reservation Room`, so the protection guarded an
+empty room and reported the occupied one as free. **Confirmed on live data**: one
+stay with the guest in 503 while its row still said 504, and
+`_assert_room_free("DOHA01-503")` answering "free". The next assignment of that
+room would have put two guests in it. There was no `change_room` coverage anywhere
+in the suite before this build; there is now a module. The same change adds the
+clash check `change_room` never had, so a guest can no longer be moved into a room
+pre-assigned to a future arrival.
+
+**8. `get_history` disclosed `Reservation Log` to 14 roles that cannot read it.**
+Found by the security review, in code this build wrote. The endpoint gated on
+`Reservation.read` and then read the log with a permission-free query: the
+approved matrix makes Reservation readable by **23** roles and Reservation Log by
+**9**, and the gap includes Room Attendant, kitchen and housekeeping — while a log
+row carries the actor, the transition and a free-text `reason` holding
+cancellation reasons and manager override justifications. The justification in the
+code ("permission to see the log is permission to see that document") was a
+decision contradicting the matrix, not a derivation from it — the 16.7.1 defect
+shape, in the one place this build had not applied its own rule. Worse, **the test
+asserted the leak** rather than catching it. Both are fixed; the replacement test
+proves the refusal, proves the workspace still opens for that role, and proves a
+log reader still gets the history.
+
+**9. A reproduced oversell, pre-existing in the availability engine.** Two callers
+both took the last room: **5 sold in a house of 4, with no exception raised**.
+`_sold_by_night` counted with a plain read, and under REPEATABLE READ a lock
+serialises without refreshing the snapshot — the project's own N1 rule. Proved
+pre-existing: **two plain `confirm`s overselled identically**, so
+`change_line_interval` was a second door, not the cause. The engine now threads an
+explicit `current` keyword through `_sold_by_night` / `get_availability` /
+`check_availability` / `check_demand`, using a `for_update` read, set **only** on
+the five paths that commit inventory. Search, rack, calendar, forecast and channel
+push keep the snapshot read and take no locks.
+
+### Concurrency
+
+Fourteen races on real independent connections through the established harness,
+each asserting the availability engine's **count** afterwards rather than only
+that something raised — an oversell that raises nothing is the failure that
+matters. Two moves of one line; a move against a competing confirmation for the
+last room; two plain confirmations; a re-type against a competing booking; line
+removal against check-in; a move against `assign_room`; a move against
+`change_room`; `extend_stay` against `change_room`; two concurrent line additions;
+and a move into a pre-assigned room. Also a control proving the guards that were
+*already* current-read remain so.
+
+**A deadlock introduced deliberately, and recorded: HPMS-QA-16.7.2-C.** A locking
+read locks every row the optimiser *examines*, so a caller holding its own
+booking's child rows can now deadlock against another taking the same ranged read
+— including **two agents moving the same booking's dates**, which is an ordinary
+event, not a knife-edge. The trade was taken on purpose: a deadlock is detected,
+rolls one whole transaction back, commits nothing partial, and surfaces as a
+retryable refusal, where the snapshot read it replaced sold the same room twice in
+silence. `QueryDeadlockError` is mapped into the frontend's conflict category so an
+operator gets a retry rather than a generic server error.
+
+The structural remedy — taking the Room Type lock *before* the Reservation, i.e.
+reordering the documented chain across `confirm`, `_lock_line_chain` and
+`_lock_stay_chain` together — was **declined for this build**: three lock chains at
+once, at the end of a build, without its own concurrency campaign, is a larger risk
+than the defect it removes. Carried to the next build. The security reviewer
+concurred and made recording the widened characterisation a condition, which this
+entry discharges.
+
+C now has an **executable marker**: the two-moves race records a reproduction and
+asserts the invariant that actually matters — the row ends up describing one
+coherent interval, never a mixture — instead of demanding that no deadlock occur.
+A harness defect that crashed on a `None` worker result, reporting a test bug as a
+product failure, was fixed at the same time. The suite was flaky before both
+changes and is not now: 14/14 three times, and the full backend suite 547/547
+twice.
+
+### The workspace
+
+`pages/Reservation.vue` evolved into a six-tab workspace — Overview, Rooms &
+rates, Guests, Guarantee & deposit, Notes, History — with tab state in the URL,
+combobox-grade keyboard handling, and an unsaved-change guard. Edits across
+Overview and Notes are collected and saved through **one** call; the transactional
+verbs (Confirm, Cancel, No-show, Assign, Check-in) stay separate server operations.
+
+Every control's availability comes from a server-computed `editability` block, so
+Vue re-derives no state machine, and the block mirrors guards that refuse
+regardless — it is what to *offer*, never a substitute for the check.
+
+**Rooms & Rates** is per line, because a booking is one row per physical room.
+`room_rate` is labelled **average nightly rate**, never "Rate": it is
+`total / nights` *including* extra-adult, extra-child and extra-bed supplements,
+so on any stay with an uplift or a free night it equals no actual night; the real
+figures sit in an expandable six-column breakdown. Per-line status comes from the
+line's **Stay**, never from `Reservation Room.reservation_status`, which is a copy
+of the header status and identical on every line. Where a line has a stay, the
+room shown is `stay_room` — a room move updates the Stay and never writes back.
+Assign is withheld from a line with a live stay, and add / remove / room-type /
+rate-plan are hidden, not disabled, outside draft-like states.
+
+**No rate-comparison panel was built.** `get_rate_breakdown` never consults the
+negotiated corporate rate, so for a corporate booking the "difference" would be
+the contract discount, and the panel would tell an agent the hotel is out of pocket
+by an amount it agreed to.
+
+**Deposit is display-only**, and the tab says why. Nothing in the application
+writes `deposit_received` — no writer exists outside tests and the demo seeder —
+and money can only enter through a folio, whose only production creator is
+check-in. So no pre-arrival deposit can be recorded at all, and setting
+`deposit_required` *blocks* check-in with no in-app remedy. The tab warns rather
+than showing a red outstanding figure that would send an agent hunting a screen
+that does not exist.
+
+### Permissions
+
+The 16.7.1 rule is applied field by field: every group is gated on
+`frappe.has_permission(<the DocType the value came from>, "read")`, and an
+uncleared caller gets **no key** rather than a blank. Guest standing on Guest
+(blacklist flag additionally on `may_see_blacklist()`); `deposit.credited` on
+**Guest Folio**, because it joins `Folio Payment`; corporate context on Corporate
+Account; room number and condition on Hotel Room; room-type display name on **Room
+Type** and rate-plan display name on **Rate Plan** — two separate DocTypes that a
+first draft wrongly gated on Hotel Room; per-line Stay linkage on Stay.
+
+A `disclosure` block names which sources the caller may read, because an absent
+`corporate` block otherwise means either "no company" or "not shown to you" and a
+screen cannot say the honest thing about either. It describes the caller's own
+permissions, never the record.
+
+History reads the purpose-built `Reservation Log` — no `Version` rows, no raw
+document JSON — and its `details` blob is filtered to an allow list, so a service
+that later logs something sensitive does not retroactively publish it.
+
+### API changes
+
+New, all read-only GET: `api/reservation_workspace.get_workspace`, `.get_history`,
+`api/rates.applicable_rate_plans`. New POST, each `authorise_document`-gated:
+`update_reservation_details`, `change_line_interval`, `add_room_line`,
+`remove_room_line`, `change_line_room_type`, `set_line_rate_plan`. Room-line
+ownership is proved on **identity** before anything is locked, so a line belonging
+to another reservation is refused regardless of permission.
+
+`applicable_rate_plans` exposes a service that already existed but was not
+whitelisted. It answers which plans will price *this* room type on *this* night —
+strictly narrower than the unfiltered `listResource('Rate Plan')` that New
+Reservation and Walk-In still use — and returns an empty list without a room type
+rather than dumping a property's commercial configuration.
+
+### Validation
+
+- **Frontend:** 16 files, **467 tests** (321 at 16.7.1).
+- **Node checks:** 7/7.
+- **Backend:** **547 tests**, green on two consecutive full runs (440 at 16.7.1).
+- **Production build:** passes, no new warnings.
+- **Bundle:** 1,847,832 → **1,911,185 B** (+3.4 %); the reservation page 9.9 kB →
+  54.6 kB, which is the six tabs and their dialogs.
+- **Performance:** workspace load is two requests, 15 queries, ~15 ms, and **flat
+  in room-line count** — a three-line booking costs one query more than a
+  one-line booking, not three times as many. `get_workspace` 9 queries / 12.6 ms,
+  `get_history` 6 / 2.7 ms, `applicable_rate_plans` 5 / 4.7 ms.
+- **Generic CRUD:** none. The services call `doc.save()` internally, each behind a
+  locking read, a permission check, a status gate and a field allow list — a
+  hardened service owning its rule, not a mutation surface.
+- **Business date:** unchanged. No `new Date()` in the workspace or its
+  components, enforced by a source-level spec.
+- **Site:** no configuration change, no business-date movement, no Night Audit
+  movement, no financial residue.
+
+### Deferred
+
+**16.7.3** — the lock-chain reorder for HPMS-QA-16.7.2-C; a pre-arrival
+`extend_reservation` (a guest wanting one more night before arrival currently has
+no path: cancel-and-rebook loses the booked rate, and `extend_stay` only works
+once in house); `assert_assignable` refusing a *future* move because a room is
+dirty *today*, which contradicts the availability engine's own reasoning about
+future dates; line-scoped `adults`/`children` editing; Guest 360.
+
+**Also recorded:** `change_room` leaves `Reservation Room.room_type` naming the old
+type on a cross-type move; the history allow list is shallow and does not surface
+overbooking evidence; `api/guests.search_guests` returns 50 rows with email,
+nationality and stay history to any Guest reader; `api/corporate.get_credit_position`
+exposes credit with no property authorisation; ten older dialogs pass `rows="3"` as
+a string to a Number prop.
+
+**16.7.4** — Services consolidation, room service from a board row, `RoomRack`
+accepting a room parameter. **16.7.5** — Cashier, and the deposit path that would
+make a pre-arrival deposit possible at all.
+
+### Subagent usage
+
+Nine specialist roles under a Lead: a reservation domain expert; a service
+developer for the modification services; two Vue engineers (workspace shell and
+tabs; Rooms & Rates); a backend QA/concurrency engineer; and a security reviewer
+whose sign-off was mandatory and who **blocked the build** until three findings
+were fixed. File ownership was assigned before any parallel edit; the locale
+catalogues, shared test helpers, this log and cross-cutting integration stayed
+with the Lead. Two agents were lost when a session process exited and were resumed
+from their transcripts rather than restarted.
+
+Specialist findings changed the design six times: the equal-nights restriction on
+a held move; the deposit's display-only verdict and its warning; the `disclosure`
+block; the rate-plan endpoint; the widened characterisation of C; and the
+correction of a source guard that would have held a document-scoped page to the
+property-board contract. Two Lead positions were overruled by review and are
+recorded as such: the history permission gate, and the unlocked inventory write.
+
+Result: **PASS** (security: APPROVED WITH NOTES)
