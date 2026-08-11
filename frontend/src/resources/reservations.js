@@ -71,3 +71,25 @@ export const RESERVATION_STATUS_THEME = {
 export function reservationStatusTheme(status) {
   return RESERVATION_STATUS_THEME[status] || 'gray'
 }
+
+/**
+ * Roles the server accepts for recording a no-show.
+ *
+ * A visibility hint only: `services.reservations.mark_no_show` calls
+ * `require_role(NO_SHOW_ROLES)` and enforces this regardless of what the
+ * frontend offered.
+ *
+ * Mirrors `services/reservations.py: NO_SHOW_ROLES` exactly, and that list is
+ * deliberately NOT `FRONT_DESK_ROLES`: a no-show is an end-of-day audit
+ * judgement, so **Front Office Agent is excluded**. Offering the verb to an
+ * agent by reusing the front-desk list would put a control on the board that
+ * the server refuses every single time.
+ */
+export const NO_SHOW_ROLES = [
+  'Night Auditor',
+  'Front Office Manager',
+  'Hotel Manager',
+  'General Manager',
+  'Hospitality Administrator',
+  'System Manager',
+]

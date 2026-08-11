@@ -40,6 +40,13 @@ export const OPERATIONAL_ROUTES = [
   { path: '/check-in/:reservation', name: 'CheckIn', component: Blank },
   { path: '/checkout/:stay', name: 'Checkout', component: Blank },
   { path: '/guests/:id', name: 'GuestProfile', component: Blank },
+  // Added in 16.7.1: the global search and the Command Center's quick actions
+  // link to all three. RoomRack takes no room parameter today — it holds the
+  // opened room in local state — so a search result for a room lands on the
+  // rack itself. If that ever changes, it changes here too.
+  { path: '/guests', name: 'Guests', component: Blank },
+  { path: '/rooms', name: 'RoomRack', component: Blank },
+  { path: '/walk-in', name: 'WalkIn', component: Blank },
 ]
 
 export function testRouter() {

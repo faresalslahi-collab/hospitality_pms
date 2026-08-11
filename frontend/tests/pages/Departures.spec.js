@@ -21,6 +21,7 @@ vi.mock('@/resources/frontOffice', async (importOriginal) => {
 })
 
 const { default: Departures } = await import('@/pages/Departures.vue')
+const { default: PostPaymentDialog } = await import('@/components/PostPaymentDialog.vue')
 
 /** One departures row, shaped as `services.front_office` sends it. */
 function row(overrides = {}) {
@@ -68,6 +69,23 @@ function boardData(rows, summary = {}) {
 
 function buttonsWithText(wrapper, text) {
   return wrapper.findAll('button').filter((button) => button.text().trim() === text)
+}
+
+async function openDrawer(wrapper) {
+  await buttonsWithText(wrapper, 'Details')[0].trigger('click')
+  await flush(wrapper)
+
+  return document.body.querySelector('[data-drawer-panel]')
+}
+
+/** Click a button inside the open drawer panel by its visible text. */
+async function clickInDrawer(wrapper, text) {
+  const button = Array.from(document.body.querySelectorAll('[data-drawer-panel] button')).find(
+    (candidate) => candidate.textContent.trim() === text,
+  )
+
+  button.click()
+  await flush(wrapper)
 }
 
 beforeEach(() => {
@@ -157,7 +175,9 @@ describe('Departures checkout verdict', () => {
 
     const wrapper = await mountOperational(Departures)
 
-    expect(wrapper.text()).toContain('Blocked')
+    // `page.departures.blocked` reads "Cannot check out" as of 16.7.1: "Blocked"
+    // on its own said nothing about what was blocked.
+    expect(wrapper.text()).toContain('Cannot check out')
     expect(wrapper.text()).toContain(blocker)
   })
 
@@ -182,7 +202,7 @@ describe('Departures checkout verdict', () => {
     // the tile counts what the server said, which is a different statement.
     const body = wrapper.find('tbody').text()
 
-    expect(body).toContain('Blocked')
+    expect(body).toContain('Cannot check out')
     expect(body).toContain('Stay is not due out.')
     expect(body).not.toContain('Ready to check out')
   })
@@ -296,5 +316,109 @@ describe('Departures row actions', () => {
 
     expect(panel.textContent).toContain('Blocked by')
     expect(panel.textContent).toContain(blocker)
+  })
+})
+
+/**
+ * Take payment.
+ *
+ * The rules here are all about the balance being on screen when an amount is
+ * typed, and about not paying the wrong folio of a split.
+ */
+describe('Departures take payment', () => {
+  it('is offered in the drawer and nowhere on the row', async () => {
+    board.data = boardData([row({ balance: 420 })])
+
+    const wrapper = await mountOperational(Departures)
+
+    // Not a row button: a payment dialog opened from the row would take an
+    // amount with the balance nowhere on screen.
+    expect(buttonsWithText(wrapper, 'Take payment')).toHaveLength(0)
+
+    const panel = await openDrawer(wrapper)
+
+    expect(panel.textContent).toContain('Take payment')
+  })
+
+  it('withholds it on a stay with split folios, where the folio link is the route', async () => {
+    // `get_departure_blockers` blocks on each folio individually; a control bound
+    // to `row.folio` settles only the primary and the blocker survives it.
+    board.data = boardData([row({ balance: 100, related_folios: 2, related_balance: 300 })])
+
+    const wrapper = await mountOperational(Departures)
+    const panel = await openDrawer(wrapper)
+
+    expect(panel.textContent).not.toContain('Take payment')
+    expect(panel.textContent).toContain('Open folio')
+  })
+
+  it('withholds it on a stay with no folio at all', async () => {
+    board.data = boardData([row({ folio: null })])
+
+    const wrapper = await mountOperational(Departures)
+    const panel = await openDrawer(wrapper)
+
+    expect(panel.textContent).not.toContain('Take payment')
+  })
+
+  it('closes the drawer before the dialog opens, and hands it the balance', async () => {
+    board.data = boardData([row({ balance: 420.5 })])
+
+    const wrapper = await mountOperational(Departures)
+    await openDrawer(wrapper)
+    await clickInDrawer(wrapper, 'Take payment')
+
+    expect(document.body.querySelector('[data-drawer-panel]')).toBeNull()
+
+    const dialog = document.body.textContent
+
+    expect(dialog).toContain('Take a payment')
+    // The figure the agent read in the drawer is the figure in front of them
+    // while they type, and the guest it belongs to is named.
+    expect(dialog).toContain('420.50')
+    expect(dialog).toContain('Balance due')
+    expect(dialog).toContain('Layla Haddad')
+  })
+
+  it('pre-fills the amount with the outstanding balance', async () => {
+    board.data = boardData([row({ balance: 420.5 })])
+
+    const wrapper = await mountOperational(Departures)
+    await openDrawer(wrapper)
+    await clickInDrawer(wrapper, 'Take payment')
+
+    const amount = document.body.querySelector('input[type="number"]')
+
+    expect(amount.value).toBe('420.5')
+  })
+
+  it('pre-fills nothing when the folio is already settled', async () => {
+    board.data = boardData([row({ balance: 0 })])
+
+    const wrapper = await mountOperational(Departures)
+    await openDrawer(wrapper)
+    await clickInDrawer(wrapper, 'Take payment')
+
+    const amount = document.body.querySelector('input[type="number"]')
+
+    // There is nothing to collect, and a pre-filled zero is not a payment.
+    expect(amount.value).toBe('')
+  })
+
+  it('reloads the board once a payment is posted', async () => {
+    board.data = boardData([row({ balance: 420 })])
+
+    const wrapper = await mountOperational(Departures)
+    await openDrawer(wrapper)
+    await clickInDrawer(wrapper, 'Take payment')
+
+    board.fetch.mockClear()
+
+    // A payment is not a settlement: until the board is refetched the row still
+    // shows the balance from before it.
+    wrapper.findComponent(PostPaymentDialog).vm.$emit('posted')
+    await flush(wrapper)
+
+    expect(board.fetch).toHaveBeenCalledWith({ property: 'DOHA01' })
   })
 })

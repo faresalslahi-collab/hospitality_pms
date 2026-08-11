@@ -34,6 +34,7 @@ from hospitality_pms.services.base import (
 	lock_document,
 	require_role,
 	service_context,
+	transaction,
 )
 from hospitality_pms.services.exceptions import NightAuditError, throw
 from hospitality_pms.services.property import BUSINESS_DATE_FLAG, get_business_date, get_property
@@ -270,15 +271,48 @@ def mark_no_shows(audit: str) -> list[str]:
 	Deliberately a separate, explicit step rather than part of review: a
 	no-show applies a charge under the guest's policy, and the auditor should
 	choose to do it.
+
+	One booking that refuses does not stop the sweep. `get_unresolved_arrivals`
+	selects on the *header* status, and a multi-room booking whose party has only
+	partly arrived still reads `Confirmed` - `stays.check_in` does not promote the
+	header until every line is in house. `reservations.mark_no_show` now refuses
+	such a booking outright, because calling a room a no-show while its guest is
+	asleep in it is a lie that also releases corporate credit for a consumed room.
+	Before this containment the refusal propagated out of the loop, so a single
+	partly-arrived booking stopped the whole step and the genuine no-shows queued
+	behind it were never marked.
+
+	Nothing is hidden by skipping one. A booking that is not marked stays an
+	unresolved arrival, and `review` already raises a **blocking** "Unresolved
+	Arrival" exception for each of those, so the day still cannot close until the
+	auditor resolves it by hand - which is the correct outcome, because only a
+	human can decide whether the rest of that party is arriving.
+
+	Each attempt runs in its own savepoint so a refusal rolls back only that
+	booking and leaves the sweep's earlier work intact.
 	"""
 	require_role(AUDITOR_ROLES)
 
 	doc = frappe.get_doc(AUDIT_DOCTYPE, audit)
 	marked = []
+	refused = []
 
 	for row in reservation_service.get_unresolved_arrivals(doc.property, doc.business_date):
-		reservation_service.mark_no_show(row["name"], reason=_("Night Audit {0}").format(audit))
-		marked.append(row["name"])
+		try:
+			with transaction():
+				reservation_service.mark_no_show(
+					row["name"], reason=_("Night Audit {0}").format(audit)
+				)
+
+			marked.append(row["name"])
+		except Exception as exc:  # noqa: BLE001
+			# Diagnosable without putting a stack trace in front of an auditor.
+			# The operational signal is review's blocking exception, not this.
+			refused.append(row["name"])
+			frappe.log_error(
+				title=f"Night Audit {audit}: no-show refused for {row['name']}",
+				message=str(exc),
+			)
 
 	frappe.db.set_value(AUDIT_DOCTYPE, audit, "no_shows", len(marked), update_modified=False)
 

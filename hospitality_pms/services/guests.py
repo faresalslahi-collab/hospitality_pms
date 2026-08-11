@@ -341,6 +341,118 @@ def assert_not_blacklisted(guest: str):
 	)
 
 
+def may_see_blacklist() -> bool:
+	"""Whether this user is cleared for the blacklist flag itself (permlevel 2).
+
+	The one place this question is answered. `is_blacklisted` is permlevel 2 with
+	a deliberately narrower reader set than Guest itself: the desk holds it so it
+	can refuse a check-in, and housekeeping, maintenance, kitchen and revenue do
+	not.
+
+	It exists because the permlevel is only enforced on the *document* path.
+	Anything that reads the column through `frappe.get_all`, `frappe.db.get_value`
+	or raw SQL bypasses it silently, so every aggregate that wants to report the
+	flag has to ask this first. 16.7.0's architecture review found exactly that
+	hole in the arrivals board (`front_office.get_guest_flags`), which is the
+	second time a permission-free column read has defeated this design -
+	`assert_not_blacklisted` above records the first.
+	"""
+	return 2 in frappe.get_meta(GUEST_DOCTYPE).get_permlevel_access("read")
+
+
+def may_see_blacklist_reason() -> bool:
+	"""Whether this user may read *why* a guest is blacklisted (permlevel 3).
+
+	A strictly smaller set than `may_see_blacklist`: the reason can carry incident
+	detail, police references or HR material, which is why it never travels on an
+	operational board and is never interpolated into a refusal message.
+	"""
+	return 3 in frappe.get_meta(GUEST_DOCTYPE).get_permlevel_access("read")
+
+
+#: Alert severities, weakest first. The order is the DocType's own Select order
+#: and is what makes "the worst alert on this guest" a defined question.
+ALERT_SEVERITY_ORDER = ("Info", "Warning", "Critical")
+
+
+def get_active_alert_summary(
+	guests: list[str], property_name: str | None = None, business_date=None
+) -> dict[str, dict]:
+	"""How many active alerts each guest carries, and how bad the worst one is.
+
+	`{guest: {"count": int, "severity": str}}` - a count and a grade, never a
+	body. Alert text is free-form and a guest can be standing on the other side
+	of the counter reading the screen, so a board is told how many alerts there
+	are and how serious the worst is; whoever needs to read one opens the guest,
+	where the endpoint that returns them applies its own permissions.
+
+	The severity is here because a bare count fuses an allergy note with "likes a
+	high floor", and staff learn to ignore a number that means both. The grade is
+	what makes it a signal.
+
+	One query for the whole board rather than `get_active_alerts` per row: that
+	one loads a cached Guest document each time, which is an N+1 the moment a
+	board has a hundred rows.
+
+	`business_date` may be passed by a caller that has already resolved the
+	property's operating day, which spares a second read of the same column. The
+	validity window is answered on that day for the same reason
+	`get_active_alerts` does it: a hotel still working the 8th must still see an
+	alert that runs to the 8th.
+	"""
+	guests = [g for g in set(guests or []) if g]
+	if not guests:
+		return {}
+
+	if business_date:
+		today = frappe.utils.getdate(business_date)
+	elif property_name:
+		today = resolve_operational_date(property_name)
+	else:
+		today = frappe.utils.getdate()
+
+	rows = frappe.get_all(
+		"Guest Alert",
+		filters={
+			"parent": ("in", guests),
+			"parenttype": GUEST_DOCTYPE,
+			"is_active": 1,
+		},
+		fields=["parent", "valid_upto", "severity"],
+		limit_page_length=0,
+	)
+
+	summary: dict[str, dict] = {}
+
+	for row in rows:
+		if row["valid_upto"] and frappe.utils.getdate(row["valid_upto"]) < today:
+			continue
+
+		entry = summary.setdefault(row["parent"], {"count": 0, "severity": ""})
+		entry["count"] += 1
+
+		if _is_worse(row["severity"], entry["severity"]):
+			entry["severity"] = row["severity"]
+
+	return summary
+
+
+def _is_worse(candidate: str | None, current: str | None) -> bool:
+	"""Whether `candidate` outranks `current` on `ALERT_SEVERITY_ORDER`.
+
+	An unrecognised or empty severity never outranks a known one: a row the
+	DocType's Select has since changed under must not quietly become the worst
+	alert on the guest.
+	"""
+	if candidate not in ALERT_SEVERITY_ORDER:
+		return False
+
+	if current not in ALERT_SEVERITY_ORDER:
+		return True
+
+	return ALERT_SEVERITY_ORDER.index(candidate) > ALERT_SEVERITY_ORDER.index(current)
+
+
 def get_active_alerts(guest: str, property_name: str | None = None) -> list[dict]:
 	"""Alerts a front desk agent must see when serving this guest.
 

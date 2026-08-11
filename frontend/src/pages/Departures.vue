@@ -11,6 +11,18 @@
   screen is where a manager resolves the blocker; the badge explains why it is not
   a clean exit. Nothing here is disabled on a blocker: the blocked rows are exactly
   the ones a supervisor has to be able to open.
+
+  16.7.1 adds Take payment, and adds it to the drawer only. Two reasons, both about
+  money:
+
+  - The drawer is the one place on this screen where the balance is already
+    displayed in full (`FolioBalance`, `size="md"`). A payment dialog reached from a
+    row button would take an amount with the balance off screen, which is how 40
+    becomes 400.
+  - A row with split folios is not payable from one button. `get_departure_blockers`
+    blocks on each folio individually, and a control bound to `row.folio` settles
+    only the primary — so the blocker survives the payment and the agent pays
+    twice. On a split row the verb is withheld and the folio link is the route.
 -->
 <template>
   <div>
@@ -168,6 +180,9 @@
         <Button v-if="canExtend(selected)" variant="subtle" @click="extendFromDrawer">
           {{ t('page.departures.action.extend') }}
         </Button>
+        <Button v-if="canTakePayment(selected)" variant="subtle" @click="paymentFromDrawer">
+          {{ t('page.folio.take_payment') }}
+        </Button>
         <Button v-if="selected && !selected.is_checked_out" variant="solid" @click="openCheckout">
           {{ t('page.departures.action.checkout') }}
         </Button>
@@ -175,6 +190,21 @@
     </ActionDrawer>
 
     <ExtendStayDialog v-model="extendOpen" :stay="extendTarget" @changed="reload" />
+
+    <!--
+      The balance and the guest travel with the folio, so the figure the agent read
+      in the drawer is the figure in front of them while they type. `@posted`
+      reloads the board: a payment is not a settlement, and until the board is
+      refetched the row still shows the balance from before it.
+    -->
+    <PostPaymentDialog
+      v-model="paymentOpen"
+      :folio="paymentTarget?.folio || ''"
+      :balance="paymentTarget?.balance ?? null"
+      :currency="paymentTarget?.currency || null"
+      :guest-name="paymentTarget?.guest_name || ''"
+      @posted="reload"
+    />
   </div>
 </template>
 
@@ -185,6 +215,7 @@ import { RouterLink, useRouter } from 'vue-router'
 
 import ExtendStayDialog from '@/components/ExtendStayDialog.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import PostPaymentDialog from '@/components/PostPaymentDialog.vue'
 import ActionDrawer from '@/components/operational/ActionDrawer.vue'
 import FolioBalance from '@/components/operational/FolioBalance.vue'
 import OperationalDataTable from '@/components/operational/OperationalDataTable.vue'
@@ -208,6 +239,11 @@ const selected = ref(null)
 
 const extendOpen = ref(false)
 const extendTarget = ref(null)
+
+// Held apart from `selected` so the drawer can close before the dialog opens
+// without the dialog losing the folio and the balance it was opened for.
+const paymentOpen = ref(false)
+const paymentTarget = ref(null)
 
 /** Predicates over the rows already in memory; no filter re-fetches the board. */
 const FILTERS = {
@@ -333,6 +369,31 @@ function canExtend(row) {
   return !row.is_checked_out && session.hasRole(STAY_OPERATION_ROLES)
 }
 
+/**
+ * Taking a payment needs a folio to take it against, and needs that folio to be
+ * the only one on the stay.
+ *
+ * The split-folio case is withheld rather than disabled, because the right route
+ * exists next to it: Open folio, where each folio is settled on its own terms. It
+ * is not a role decision — the folio screen gates this dialog on no role either,
+ * and `folio.post_payment` authorises the posting itself. The stay status is not
+ * tested: whether money may be posted is the folio's state, not the stay's, and
+ * the server refuses a closed one.
+ *
+ * No role mirror, and none is needed for the case that matters. A caller who may
+ * not read Guest Folio is no longer sent `folio` at all — the board withholds the
+ * whole folio position (`front_office._folio_position`) — so the control vanishes
+ * with the data rather than being hidden on top of it. A caller who may *read* the
+ * folio but not write it still sees the verb and is refused by the server, exactly
+ * as they are on the folio screen itself; 16.7.0's authorization review looked at
+ * this specific case and said not to invent a folio-write role constant for it.
+ */
+function canTakePayment(row) {
+  if (!row?.folio) return false
+
+  return !(Number(row.related_folios) > 0)
+}
+
 function onRowAction({ action, row }) {
   if (action === 'details') {
     selected.value = row
@@ -368,6 +429,13 @@ function extendFromDrawer() {
   drawerOpen.value = false
   extendTarget.value = stayShape(row)
   extendOpen.value = true
+}
+
+/** Same rule: the panel closes before the payment dialog takes the overlay. */
+function paymentFromDrawer() {
+  paymentTarget.value = selected.value
+  drawerOpen.value = false
+  paymentOpen.value = true
 }
 
 function openStay() {

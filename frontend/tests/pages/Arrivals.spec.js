@@ -10,14 +10,27 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { flush, mountOperational, resetStores, stubProperty, stubSession, testRouter } from '../helpers'
 
-const { board } = vi.hoisted(() => ({
+const { board, cancelRes, noShowRes } = vi.hoisted(() => ({
   board: { data: null, loading: false, error: null, fetch: vi.fn() },
+  cancelRes: { data: null, loading: false, error: null, submit: vi.fn() },
+  noShowRes: { data: null, loading: false, error: null, submit: vi.fn() },
 }))
 
 vi.mock('@/resources/frontOffice', async (importOriginal) => {
   const actual = await importOriginal()
 
   return { ...actual, arrivalsBoardResource: () => board }
+})
+
+/**
+ * The two ending verbs post to the server, so their resources are stubbed. The
+ * role constants come from the real module: `NO_SHOW_ROLES` mirrors the server
+ * list, and a test that stubbed it would prove nothing about the role rule.
+ */
+vi.mock('@/resources/reservations', async (importOriginal) => {
+  const actual = await importOriginal()
+
+  return { ...actual, cancelReservationResource: () => cancelRes, noShowResource: () => noShowRes }
 })
 
 const { default: Arrivals } = await import('@/pages/Arrivals.vue')
@@ -29,6 +42,11 @@ function row(overrides = {}) {
     reservation: 'HPMS-RES-2026-00001',
     room_line: 'RES-LINE-1',
     reservation_status: 'Confirmed',
+    // The server's own state machine, sent per row. Never re-derived in Vue.
+    allowed_transitions: ['Guaranteed', 'Checked In', 'Cancelled', 'No Show'],
+    // How many rooms the *reservation* holds. This board is one row per room
+    // line, so a three-room booking sends three rows all carrying 3.
+    total_rooms: 1,
     reservation_type: 'Individual',
     booking_source: 'Direct',
     guest: 'HPMS-GUEST-0001',
@@ -73,9 +91,59 @@ function boardData(rows, summary = {}) {
   }
 }
 
-/** All buttons carrying this exact visible text, in either rendering. */
+/**
+ * All buttons carrying this exact visible text, in either rendering.
+ *
+ * Scoped to the mounted tree, which is what makes the "drawer only" tests mean
+ * something: the drawer and the dialogs teleport to `document.body` and are
+ * therefore invisible to this helper by construction.
+ */
 function buttonsWithText(wrapper, text) {
   return wrapper.findAll('button').filter((button) => button.text().trim() === text)
+}
+
+async function openDrawer(wrapper) {
+  await buttonsWithText(wrapper, 'Details')[0].trigger('click')
+  await flush(wrapper)
+
+  return document.body.querySelector('[data-drawer-panel]')
+}
+
+async function clickInDrawer(wrapper, text) {
+  const button = Array.from(document.body.querySelectorAll('[data-drawer-panel] button')).find(
+    (candidate) => candidate.textContent.trim() === text,
+  )
+
+  button.click()
+  await flush(wrapper)
+}
+
+/** Click a button in the open dialog, which is outside the drawer panel. */
+async function clickInDialog(wrapper, text) {
+  const button = Array.from(document.body.querySelectorAll('button')).find(
+    (candidate) =>
+      candidate.textContent.trim() === text && !candidate.closest('[data-drawer-panel]'),
+  )
+
+  button.click()
+  await flush(wrapper)
+}
+
+function dialogConfirm(text) {
+  return Array.from(document.body.querySelectorAll('button')).find(
+    (candidate) => candidate.textContent.trim() === text,
+  )
+}
+
+/** Type into the dialog's reason field the way a keyboard does. */
+async function typeReason(wrapper, value) {
+  const textarea = document.body.querySelector('textarea')
+
+  textarea.value = value
+  textarea.dispatchEvent(new Event('input'))
+  await flush(wrapper)
+
+  return textarea
 }
 
 beforeEach(() => {
@@ -86,6 +154,8 @@ beforeEach(() => {
   board.loading = false
   board.error = null
   board.fetch.mockClear()
+  cancelRes.submit.mockReset()
+  noShowRes.submit.mockReset()
 })
 
 describe('Arrivals board', () => {
@@ -296,6 +366,26 @@ describe('Arrivals alert disclosure', () => {
     expect(wrapper.text()).not.toContain('No alerts')
   })
 
+  it('distinguishes "not flagged" from "not disclosed to you"', async () => {
+    // The server omits `is_blacklisted` entirely for a caller who is not cleared
+    // for it, rather than sending `false` — so the cell has three states, and two
+    // of them must not look alike. A cleared reader seeing the dash has been told
+    // this guest is not flagged; an uncleared reader has been told nothing, and
+    // borrowing the dash would hand them a clearance the server withheld.
+    const disclosed = row({ is_blacklisted: false })
+    const withheld = row({ key: 'RES-LINE-2', guest_name: 'Omar Nasser' })
+    delete withheld.is_blacklisted
+
+    board.data = boardData([disclosed, withheld])
+
+    const wrapper = await mountOperational(Arrivals)
+    const cells = wrapper.findAll('tbody tr').map((tr) => tr.findAll('td').at(-2).text())
+
+    expect(cells[0]).toBe('—')
+    expect(cells[1]).not.toBe('—')
+    expect(wrapper.text()).not.toContain('Blacklisted')
+  })
+
   it('never renders a blacklist reason, even when one is smuggled onto the row', async () => {
     const reason = 'Card chargeback, incident 2025-114'
     board.data = boardData([row({ is_blacklisted: true, blacklist_reason: reason })])
@@ -326,5 +416,361 @@ describe('Arrivals money', () => {
     const wrapper = await mountOperational(Arrivals)
 
     expect(wrapper.text()).not.toContain('Deposit due')
+  })
+})
+
+describe('Arrivals folio link', () => {
+  it('is offered only where the row actually carries a folio', async () => {
+    // An arrival has no folio before check-in; a checked-in row may have one.
+    board.data = boardData([row()])
+
+    let wrapper = await mountOperational(Arrivals)
+    expect(buttonsWithText(wrapper, 'Open folio')).toHaveLength(0)
+
+    board.data = boardData([row({ is_checked_in: true, stay: 'HPMS-STAY-1', folio: 'HPMS-FOL-2026-00001' })])
+    wrapper = await mountOperational(Arrivals)
+
+    expect(buttonsWithText(wrapper, 'Open folio').length).toBeGreaterThan(0)
+  })
+
+  it('navigates to the folio it was given', async () => {
+    board.data = boardData([row({ is_checked_in: true, folio: 'HPMS-FOL-2026-00001' })])
+    const router = testRouter()
+
+    const wrapper = await mountOperational(Arrivals, { router })
+    await buttonsWithText(wrapper, 'Open folio')[0].trigger('click')
+    await flush(wrapper)
+
+    expect(router.currentRoute.value.name).toBe('Folio')
+    expect(router.currentRoute.value.params.id).toBe('HPMS-FOL-2026-00001')
+  })
+})
+
+/**
+ * Cancel and no-show.
+ *
+ * The rule these tests exist to defend: both verbs act on the whole reservation
+ * and `_propagate_status` stamps every room line, while this board is one row per
+ * room line. Neither may be a row action, and the scope has to be on screen
+ * before either can be reached.
+ */
+describe('Arrivals ending verbs are drawer-only', () => {
+  beforeEach(() => {
+    // A manager holds both roles, so both verbs are on offer and the "row action"
+    // assertions below cannot pass merely because a role withheld them.
+    stubSession(['Front Office Manager'])
+  })
+
+  it('puts neither verb in the row action list', async () => {
+    board.data = boardData([row()])
+
+    const wrapper = await mountOperational(Arrivals)
+
+    expect(buttonsWithText(wrapper, 'Cancel reservation')).toHaveLength(0)
+    expect(buttonsWithText(wrapper, 'Mark no-show')).toHaveLength(0)
+  })
+
+  it('offers both in the drawer', async () => {
+    board.data = boardData([row()])
+
+    const wrapper = await mountOperational(Arrivals)
+    const panel = await openDrawer(wrapper)
+
+    expect(panel.textContent).toContain('Cancel reservation')
+    expect(panel.textContent).toContain('Mark no-show')
+  })
+
+  it('names the room count in the drawer for a multi-room reservation', async () => {
+    board.data = boardData([row({ total_rooms: 3 })])
+
+    const wrapper = await mountOperational(Arrivals)
+    const panel = await openDrawer(wrapper)
+
+    expect(panel.textContent).toContain('all 3 of its rooms')
+    expect(panel.textContent).toContain('This cancels the whole reservation')
+    expect(panel.textContent).toContain('marks the whole reservation as a no-show')
+  })
+
+  it('states the single-room scope when the reservation holds one room', async () => {
+    board.data = boardData([row({ total_rooms: 1 })])
+
+    const wrapper = await mountOperational(Arrivals)
+    const panel = await openDrawer(wrapper)
+
+    expect(panel.textContent).toContain('This cancels the reservation and its room.')
+    expect(panel.textContent).not.toContain('whole reservation')
+  })
+
+  it('withholds both from a row that is already checked in', async () => {
+    // A checked-in room line is a stay, and ending it is a checkout. The server
+    // agrees: `Checked In` transitions only to `Checked Out`.
+    board.data = boardData([
+      row({ is_checked_in: true, stay: 'HPMS-STAY-1', reservation_status: 'Checked In', allowed_transitions: ['Checked Out'] }),
+    ])
+
+    const wrapper = await mountOperational(Arrivals)
+    const panel = await openDrawer(wrapper)
+
+    expect(panel.textContent).not.toContain('Cancel reservation')
+    expect(panel.textContent).not.toContain('Mark no-show')
+  })
+
+  it('withholds both when the server offered neither transition', async () => {
+    board.data = boardData([row({ allowed_transitions: ['Guaranteed', 'Checked In'] })])
+
+    const wrapper = await mountOperational(Arrivals)
+    const panel = await openDrawer(wrapper)
+
+    // The state machine is the server's; an absent offer is not second-guessed.
+    expect(panel.textContent).not.toContain('Cancel reservation')
+    expect(panel.textContent).not.toContain('Mark no-show')
+  })
+
+  it('withholds both when the row does not say how many rooms are at stake', async () => {
+    const { total_rooms: _dropped, ...withoutCount } = row()
+    board.data = boardData([withoutCount])
+
+    const wrapper = await mountOperational(Arrivals)
+    const panel = await openDrawer(wrapper)
+
+    // The count is never counted from the visible rows: a filtered board is a
+    // subset, and understating the scope is the accident being prevented.
+    expect(panel.textContent).not.toContain('Cancel reservation')
+    expect(panel.textContent).not.toContain('Mark no-show')
+  })
+
+  it('offers neither as a disabled control — they are withheld or offered', async () => {
+    board.data = boardData([row()])
+
+    const wrapper = await mountOperational(Arrivals)
+    await openDrawer(wrapper)
+
+    const buttons = Array.from(document.body.querySelectorAll('[data-drawer-panel] button')).filter(
+      (button) => ['Cancel reservation', 'Mark no-show'].includes(button.textContent.trim()),
+    )
+
+    expect(buttons).toHaveLength(2)
+    // `allowed_transitions` is as old as the last board fetch, and the board is
+    // never polled. A stale offer must reach the server and be refused there.
+    for (const button of buttons) expect(button.disabled).toBe(false)
+  })
+})
+
+describe('Arrivals no-show role', () => {
+  it('is hidden from a Front Office Agent, whom the server refuses', async () => {
+    stubSession(['Front Office Agent'])
+    board.data = boardData([row()])
+
+    const wrapper = await mountOperational(Arrivals)
+    const panel = await openDrawer(wrapper)
+
+    // `NO_SHOW_ROLES` excludes Front Office Agent: a no-show is an end-of-day
+    // audit judgement. Cancellation is a front-desk verb and stays on offer.
+    expect(panel.textContent).not.toContain('Mark no-show')
+    expect(panel.textContent).toContain('Cancel reservation')
+  })
+
+  it('is shown to a Front Office Manager', async () => {
+    stubSession(['Front Office Manager'])
+    board.data = boardData([row()])
+
+    const wrapper = await mountOperational(Arrivals)
+    const panel = await openDrawer(wrapper)
+
+    expect(panel.textContent).toContain('Mark no-show')
+  })
+
+  it('is shown to a Night Auditor, who is not a front-desk role at all', async () => {
+    stubSession(['Night Auditor'])
+    board.data = boardData([row()])
+
+    const wrapper = await mountOperational(Arrivals)
+    const panel = await openDrawer(wrapper)
+
+    expect(panel.textContent).toContain('Mark no-show')
+    // Cancellation mirrors FRONT_DESK_ROLES, which a Night Auditor is not in.
+    expect(panel.textContent).not.toContain('Cancel reservation')
+  })
+})
+
+describe('Arrivals cancellation dialog', () => {
+  beforeEach(() => {
+    stubSession(['Front Office Manager'])
+  })
+
+  it('closes the drawer before opening, and repeats the scope there', async () => {
+    board.data = boardData([row({ total_rooms: 3 })])
+
+    const wrapper = await mountOperational(Arrivals)
+    await openDrawer(wrapper)
+    await clickInDrawer(wrapper, 'Cancel reservation')
+
+    expect(document.body.querySelector('[data-drawer-panel]')).toBeNull()
+    expect(document.body.textContent).toContain('Cancel this reservation')
+    expect(document.body.textContent).toContain('all 3 of its rooms')
+  })
+
+  it('refuses to submit until a reason is given', async () => {
+    board.data = boardData([row()])
+
+    const wrapper = await mountOperational(Arrivals)
+    await openDrawer(wrapper)
+    await clickInDrawer(wrapper, 'Cancel reservation')
+
+    // `services.reservations.cancel` throws on a blank reason, so the dialog
+    // never spends a round trip discovering that.
+    expect(dialogConfirm('Cancel the reservation').disabled).toBe(true)
+
+    await typeReason(wrapper, '   ')
+    expect(dialogConfirm('Cancel the reservation').disabled).toBe(true)
+
+    await typeReason(wrapper, 'Guest cancelled by phone')
+    expect(dialogConfirm('Cancel the reservation').disabled).toBe(false)
+  })
+
+  it('sends the reservation and the trimmed reason, and reloads the board', async () => {
+    cancelRes.submit.mockResolvedValue({ cancellation: { status: 'Cancelled', cancellation_charge: 0 } })
+    board.data = boardData([row()])
+
+    const wrapper = await mountOperational(Arrivals)
+    await openDrawer(wrapper)
+    await clickInDrawer(wrapper, 'Cancel reservation')
+    await typeReason(wrapper, '  Guest cancelled by phone  ')
+
+    board.fetch.mockClear()
+    await clickInDialog(wrapper, 'Cancel the reservation')
+
+    expect(cancelRes.submit).toHaveBeenCalledWith({
+      reservation: 'HPMS-RES-2026-00001',
+      reason: 'Guest cancelled by phone',
+    })
+    // No waive_charge is sent: it needs CANCEL_OVERRIDE_ROLES and the server's
+    // default is the right answer for this build.
+    expect(Object.keys(cancelRes.submit.mock.calls[0][0])).toEqual(['reservation', 'reason'])
+    expect(board.fetch).toHaveBeenCalledWith({ property: 'DOHA01' })
+  })
+
+  it('reports the policy charge as policy, and never as a payment', async () => {
+    cancelRes.submit.mockResolvedValue({ cancellation: { status: 'Cancelled', cancellation_charge: 250 } })
+    board.data = boardData([row()])
+
+    const wrapper = await mountOperational(Arrivals)
+    await openDrawer(wrapper)
+    await clickInDrawer(wrapper, 'Cancel reservation')
+    await typeReason(wrapper, 'Guest cancelled by phone')
+    await clickInDialog(wrapper, 'Cancel the reservation')
+
+    const text = document.body.textContent
+
+    expect(text).toContain('The reservation was cancelled.')
+    expect(text).toContain('Cancellation charge')
+    expect(text).toContain('250.00')
+
+    // `cancel` writes `Reservation.cancellation_charge` and posts nothing: no
+    // Folio Charge, no ledger entry. Nothing here may read as a receipt.
+    expect(text).not.toMatch(/paid|payment|received|collected|refunded/i)
+  })
+
+  it('says nothing about a charge when the policy charged nothing', async () => {
+    cancelRes.submit.mockResolvedValue({ cancellation: { status: 'Cancelled', cancellation_charge: 0 } })
+    board.data = boardData([row()])
+
+    const wrapper = await mountOperational(Arrivals)
+    await openDrawer(wrapper)
+    await clickInDrawer(wrapper, 'Cancel reservation')
+    await typeReason(wrapper, 'Guest cancelled by phone')
+    await clickInDialog(wrapper, 'Cancel the reservation')
+
+    expect(document.body.textContent).toContain('The reservation was cancelled.')
+    expect(document.body.textContent).not.toContain('Cancellation charge')
+  })
+
+  it('shows no charge before submitting: the row carries none and Vue prices nothing', async () => {
+    board.data = boardData([row()])
+
+    const wrapper = await mountOperational(Arrivals)
+    await openDrawer(wrapper)
+    await clickInDrawer(wrapper, 'Cancel reservation')
+
+    expect(document.body.textContent).not.toContain('Cancellation charge')
+  })
+
+  it("surfaces the server's refusal of a stale offer in the server's words", async () => {
+    // The board is fetched once per load. By the time the row is acted on the
+    // reservation may already be cancelled, and the server re-reads it under a
+    // lock — so the offer fails cleanly rather than being pre-emptively disabled.
+    cancelRes.submit.mockRejectedValue({
+      status: 409,
+      exc_type: 'InvalidStateTransitionError',
+      message: 'Reservation HPMS-RES-2026-00001 cannot move from Cancelled to Cancelled.',
+    })
+    board.data = boardData([row()])
+
+    const wrapper = await mountOperational(Arrivals)
+    await openDrawer(wrapper)
+    await clickInDrawer(wrapper, 'Cancel reservation')
+    await typeReason(wrapper, 'Guest cancelled by phone')
+    await clickInDialog(wrapper, 'Cancel the reservation')
+
+    expect(document.body.textContent).toContain('cannot move from Cancelled to Cancelled')
+    expect(document.body.textContent).not.toContain('The reservation was cancelled.')
+  })
+})
+
+describe('Arrivals no-show dialog', () => {
+  beforeEach(() => {
+    stubSession(['Front Office Manager'])
+  })
+
+  it('states the scope and that the charge is the property policy', async () => {
+    board.data = boardData([row({ total_rooms: 3 })])
+
+    const wrapper = await mountOperational(Arrivals)
+    await openDrawer(wrapper)
+    await clickInDrawer(wrapper, 'Mark no-show')
+
+    expect(document.body.querySelector('[data-drawer-panel]')).toBeNull()
+    expect(document.body.textContent).toContain('Mark this reservation as a no-show')
+    expect(document.body.textContent).toContain('all 3 of its rooms')
+    expect(document.body.textContent).toContain("The server decides any no-show charge")
+  })
+
+  it('submits without a reason, which the server accepts', async () => {
+    noShowRes.submit.mockResolvedValue({ no_show: { status: 'No Show', no_show_charge: 0 } })
+    board.data = boardData([row()])
+
+    const wrapper = await mountOperational(Arrivals)
+    await openDrawer(wrapper)
+    await clickInDrawer(wrapper, 'Mark no-show')
+
+    // `mark_no_show` accepts `reason=None` and records its own wording.
+    expect(dialogConfirm('Mark as no-show').disabled).toBe(false)
+
+    board.fetch.mockClear()
+    await clickInDialog(wrapper, 'Mark as no-show')
+
+    expect(noShowRes.submit).toHaveBeenCalledWith({
+      reservation: 'HPMS-RES-2026-00001',
+      reason: undefined,
+    })
+    expect(board.fetch).toHaveBeenCalledWith({ property: 'DOHA01' })
+  })
+
+  it('reports the no-show charge as policy, and never as a payment', async () => {
+    noShowRes.submit.mockResolvedValue({ no_show: { status: 'No Show', no_show_charge: 400 } })
+    board.data = boardData([row()])
+
+    const wrapper = await mountOperational(Arrivals)
+    await openDrawer(wrapper)
+    await clickInDrawer(wrapper, 'Mark no-show')
+    await clickInDialog(wrapper, 'Mark as no-show')
+
+    const text = document.body.textContent
+
+    expect(text).toContain('The reservation was marked as a no-show.')
+    expect(text).toContain('No-show charge')
+    expect(text).toContain('400.00')
+    // `mark_no_show` computes the figure and posts nothing.
+    expect(text).not.toMatch(/paid|payment|received|collected|refunded/i)
   })
 })

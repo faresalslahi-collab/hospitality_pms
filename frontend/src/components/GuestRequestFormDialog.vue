@@ -5,6 +5,14 @@
   validates a subject and description are present (Frontend Standards
   section 5) — this dialog only keeps the submit button honest so an empty
   form is not a wasted round trip.
+
+  The four link fields — room, guest, reservation, stay — can be prefilled by the
+  caller (16.7.1). Raised from the guest services page there is no context to
+  prefill and the props are simply absent, which is the behaviour this dialog has
+  always had. Raised from an operational board there is a row, and the context is
+  the operational value of the request: a complaint typed against a mistyped room
+  number is worse than none, because it sends someone to the wrong door. The
+  fields stay editable — the row is a starting point, not a verdict.
 -->
 <template>
   <Dialog v-model="open" :options="{ title: t('page.guest_services.create_title'), size: 'lg' }">
@@ -76,6 +84,14 @@ import { t } from '@/utils/i18n'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
+  /**
+   * Optional context to start the form from. All four default to '', so a caller
+   * that has none — the guest services page — is unaffected.
+   */
+  room: { type: String, default: '' },
+  guest: { type: String, default: '' },
+  reservation: { type: String, default: '' },
+  stay: { type: String, default: '' },
 })
 
 const emit = defineEmits(['update:modelValue', 'created'])
@@ -98,10 +114,12 @@ function blankForm() {
     sla_minutes: '',
     subject: '',
     description: '',
-    room: '',
-    guest: '',
-    reservation: '',
-    stay: '',
+    // The caller's context, re-read on every open so a second request raised
+    // from a different row does not inherit the first row's room.
+    room: props.room || '',
+    guest: props.guest || '',
+    reservation: props.reservation || '',
+    stay: props.stay || '',
   }
 }
 

@@ -43,17 +43,38 @@ export const ROOM_STATE_STYLE = {
   vacant_dirty: { fill: '#D98A04', text: '#171717', ring: 'transparent', dot: '#D98A04' },
   out_of_order: { fill: '#B02020', text: '#FFFFFF', ring: 'transparent', dot: '#B02020', glyph: 'slash' },
   out_of_service: { fill: '#EDEDED', text: '#525252', ring: '#D6D6D6', dot: '#9A9A9A', glyph: 'slash' },
+  // Deliberately the same fill, text and glyph as `out_of_service`: both are
+  // "parked, cannot be given to a guest", and the palette above was validated as
+  // an ordered set, so a sixth hue would need the same measurement rather than a
+  // guess. What a blocked room does not share is the *word* - it is not out of
+  // service, and the chip says so through ROOM_STATE_LABEL_KEY below.
+  blocked: { fill: '#EDEDED', text: '#525252', ring: '#D6D6D6', dot: '#9A9A9A', glyph: 'slash' },
   other: { fill: '#F3F3F3', text: '#525252', ring: '#E2E2E2', dot: '#C7C7C7' },
 }
 
 /**
+ * Inventory states that stop a sale.
+ *
+ * Mirrors `services.rooms.BLOCKING_INVENTORY`. Exported because the room
+ * attention queue asks the same question about the same three values, and two
+ * copies of a server constant are two chances to fall behind it.
+ */
+export const BLOCKING_INVENTORY = new Set(['Blocked', 'Not Assignable', 'Stop Sell'])
+
+/**
  * Which chip a room gets, from the four independent status dimensions.
  *
- * Ordered by what stops the desk first: a room that is out of order is out of
- * order whatever its housekeeping says, and an occupied room is occupied even
- * if it is also dirty. This mirrors the order `_blocking_reason` uses on the
- * server, so the board and the room detail dialog never disagree about why a
- * room cannot be sold.
+ * Ordered by what stops the desk first, following `_blocking_reason` on the
+ * server (`api/rooms`): maintenance, then inventory, then occupancy, then
+ * housekeeping — so the board, the legend and the room detail dialog never
+ * disagree about why a room cannot be sold. An inactive room is unsellable
+ * whatever else it says, and is checked with the maintenance states it reads as.
+ *
+ * Inventory is the dimension this used to skip, and skipping it was a defect
+ * with a price: a vacant, clean, Stop Sell room came out `vacant_clean` — solid
+ * green, "Vacant clean" in the legend — for a room the availability service
+ * refuses to sell. Blocked, Not Assignable and Stop Sell now read as the parked,
+ * slash-marked state they operationally are.
  */
 export function roomStateKey(room) {
   if (!room) return 'other'
@@ -63,6 +84,8 @@ export function roomStateKey(room) {
   if (maintenance === 'Out of Service' || maintenance === 'Under Maintenance') return 'out_of_service'
 
   if (!room.is_active) return 'out_of_service'
+
+  if (BLOCKING_INVENTORY.has(room.inventory_status)) return 'blocked'
 
   const occupancy = room.occupancy_status
   if (occupancy === 'Occupied' || occupancy === 'Due Out' || occupancy === 'House Use') return 'occupied'
@@ -74,7 +97,13 @@ export function roomStateKey(room) {
   return 'vacant_dirty'
 }
 
-/** Legend order: occupancy first, then housekeeping, then what is unsellable. */
+/**
+ * Legend order: occupancy first, then housekeeping, then what is unsellable.
+ *
+ * A visual key, so it has one row per distinct *appearance*. `blocked` is absent
+ * on purpose — it draws exactly like `out_of_service`, and two identical swatches
+ * with two different words is a legend that has stopped explaining anything.
+ */
 export const ROOM_STATE_LEGEND = [
   { key: 'occupied', labelKey: 'page.dashboard.board.occupied' },
   { key: 'vacant_clean', labelKey: 'page.dashboard.board.vacant_clean' },
@@ -83,3 +112,18 @@ export const ROOM_STATE_LEGEND = [
   { key: 'out_of_order', labelKey: 'page.dashboard.board.out_of_order' },
   { key: 'out_of_service', labelKey: 'page.dashboard.board.out_of_service' },
 ]
+
+/**
+ * What each state is *called*, which is not the same list as the legend.
+ *
+ * A room chip names its own state in its tooltip and its accessible label, and
+ * that name has to be true per room rather than true per swatch: a Stop Sell room
+ * shares the parked appearance of an out-of-service room but is not out of
+ * service, and telling the desk it is would be a new inaccuracy introduced by
+ * fixing an old one. Colour is never the only channel here, and now neither is
+ * the legend.
+ */
+export const ROOM_STATE_LABEL_KEY = {
+  ...Object.fromEntries(ROOM_STATE_LEGEND.map((entry) => [entry.key, entry.labelKey])),
+  blocked: 'page.dashboard.blocked',
+}

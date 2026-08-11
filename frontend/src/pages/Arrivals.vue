@@ -10,6 +10,22 @@
   the screen that owns the readiness override and the billing instructions, and
   room assignment opens the dialog that reaches `reservations.assign_room`, which
   locks the room and re-checks it server side. Nothing here mutates state itself.
+
+  16.7.1 adds the two verbs that end a booking — cancel and no-show — and they are
+  the reason this file has a rule the other boards do not need. Both act on the
+  WHOLE RESERVATION: `reservations.cancel` and `mark_no_show` transition the
+  reservation and `_propagate_status` stamps every room line. This board is one row
+  per room line, so a "cancel" on one row of a three-room booking cancels all three
+  rooms and all three rows disappear. Neither verb is therefore a row action: both
+  live only in the drawer, which states the scope from the row's `total_rooms`
+  before the agent can reach either.
+
+  Whether the verb is offered is the server's answer, restated: `allowed_transitions`
+  comes back on the row and is never re-derived here. It is never used to *disable*
+  anything either — the board is fetched once per load and never polled, so the set
+  can be stale by the time it is read, and the server re-reads the status under a
+  lock. A stale offer therefore fails cleanly and the refusal is shown in the
+  server's own words.
 -->
 <template>
   <div>
@@ -139,12 +155,20 @@
         -->
         <template #cell:alerts="{ row }">
           <AlertBadge
-            v-if="row.is_blacklisted"
+            v-if="hasField(row, 'is_blacklisted') && row.is_blacklisted"
             present
             severity="high"
             :label="t('common.blacklisted')"
           />
-          <span v-else class="text-ink-gray-5">—</span>
+          <!--
+            Three states here, not two, and the difference is the point. A cleared
+            reader seeing the dash has been told this guest is not flagged; a
+            reader the server did not clear for the flag has been told nothing.
+            `hasField` separates them, so the second case does not borrow the
+            first case's reassurance.
+          -->
+          <span v-else-if="hasField(row, 'is_blacklisted')" class="text-ink-gray-5">—</span>
+          <span v-else class="text-ink-gray-4" :title="t('ui.alert_badge.restricted')">·</span>
         </template>
       </OperationalDataTable>
     </div>
@@ -170,11 +194,36 @@
         </div>
       </dl>
 
+      <!--
+        The scope of the two ending verbs, stated in the panel that offers them and
+        again inside the dialog that performs them. One short sentence repeated is
+        the right trade for an action that can end three rooms from one row.
+      -->
+      <div
+        v-if="canCancel(selected) || canNoShow(selected)"
+        class="mt-4 rounded border border-outline-gray-1 p-3 text-p-sm text-ink-gray-6"
+      >
+        <p v-if="canCancel(selected)">{{ cancelScope }}</p>
+        <p v-if="canNoShow(selected) && noShowScope" class="mt-1">{{ noShowScope }}</p>
+      </div>
+
       <template #footer>
         <Button variant="subtle" @click="openReservation">{{ t('page.arrivals.action.open') }}</Button>
         <Button variant="subtle" @click="openGuest">{{ t('page.arrivals.action.guest_profile') }}</Button>
+        <!-- Only where a folio actually exists: an arrival has none before
+             check-in, and a checked-in row may have picked one up. -->
+        <Button v-if="selected?.folio" variant="subtle" @click="openFolio">
+          {{ t('page.arrivals.action.folio') }}
+        </Button>
         <Button v-if="canAssign(selected)" variant="subtle" @click="assignFromDrawer">
           {{ t('page.arrivals.action.assign_room') }}
+        </Button>
+        <!-- Never disabled, only withheld: see the file header on stale offers. -->
+        <Button v-if="canNoShow(selected)" variant="subtle" theme="red" @click="noShowFromDrawer">
+          {{ t('page.arrivals.action.no_show') }}
+        </Button>
+        <Button v-if="canCancel(selected)" variant="subtle" theme="red" @click="cancelFromDrawer">
+          {{ t('page.arrivals.action.cancel') }}
         </Button>
         <Button v-if="selected && !selected.is_checked_in" variant="solid" @click="openCheckIn">
           {{ t('page.arrivals.action.check_in') }}
@@ -188,6 +237,26 @@
       :line="assignLine"
       @changed="reload"
     />
+
+    <!--
+      Both carry the room count so they can name the scope, and the currency so the
+      policy charge the server returns reads in the booking's own money.
+    -->
+    <CancelReservationDialog
+      v-model="cancelOpen"
+      :reservation="actionTarget?.reservation || ''"
+      :rooms="roomCount(actionTarget)"
+      :currency="actionTarget?.currency || null"
+      @cancelled="reload"
+    />
+
+    <MarkNoShowDialog
+      v-model="noShowOpen"
+      :reservation="actionTarget?.reservation || ''"
+      :rooms="roomCount(actionTarget)"
+      :currency="actionTarget?.currency || null"
+      @marked="reload"
+    />
   </div>
 </template>
 
@@ -197,6 +266,8 @@ import { computed, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 
 import AssignRoomDialog from '@/components/AssignRoomDialog.vue'
+import CancelReservationDialog from '@/components/CancelReservationDialog.vue'
+import MarkNoShowDialog from '@/components/MarkNoShowDialog.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import RoomStatusBadge from '@/components/RoomStatusBadge.vue'
 import ActionDrawer from '@/components/operational/ActionDrawer.vue'
@@ -205,8 +276,8 @@ import MoneyDisplay from '@/components/operational/MoneyDisplay.vue'
 import OperationalDataTable from '@/components/operational/OperationalDataTable.vue'
 import ErrorState from '@/components/states/ErrorState.vue'
 import { FRONT_DESK_ROLES, arrivalsBoardResource } from '@/resources/frontOffice'
-import { vipStatusTheme } from '@/resources/guests'
-import { reservationStatusTheme } from '@/resources/reservations'
+import { hasField, vipStatusTheme } from '@/resources/guests'
+import { NO_SHOW_ROLES, reservationStatusTheme } from '@/resources/reservations'
 import { property } from '@/stores/property'
 import { session } from '@/stores/session'
 import { formatDate } from '@/utils/format'
@@ -223,6 +294,13 @@ const selected = ref(null)
 
 const assignOpen = ref(false)
 const assignTarget = ref(null)
+
+// The row a drawer action is being performed on. Held separately from `selected`
+// so the panel can close — a dialog is never stacked inside it — without the
+// dialog losing the reservation it is about to end.
+const actionTarget = ref(null)
+const cancelOpen = ref(false)
+const noShowOpen = ref(false)
 
 /** Each filter is a predicate over a row; the board itself is never re-fetched. */
 const FILTERS = {
@@ -278,9 +356,20 @@ const columns = computed(() => [
  * request and mirrors the role at the point where it mutates. Only the one
  * action that opens a mutating dialog from this board mirrors a role, and it
  * imports the existing constant rather than declaring a list here.
+ *
+ * Cancel and no-show are deliberately ABSENT from this list — see the file
+ * header. Their scope is the reservation, not the row, so they are offered only
+ * in the drawer, where the room count is on screen next to them.
  */
 const actions = computed(() => [
   { key: 'details', label: t('page.arrivals.action.details'), icon: 'info' },
+  {
+    key: 'folio',
+    label: t('page.arrivals.action.folio'),
+    // An arrival has no folio until it becomes a stay, so this is offered only
+    // where the row carries one. No folio identifier is invented from the stay.
+    available: (row) => Boolean(row.folio),
+  },
   {
     key: 'assign_room',
     label: t('page.arrivals.action.assign_room'),
@@ -366,6 +455,77 @@ function canAssign(row) {
   return !row.assigned_room && !row.is_checked_in && session.hasRole(FRONT_DESK_ROLES)
 }
 
+/**
+ * How many rooms the reservation holds, or `null` when the row does not say.
+ *
+ * Read from the row's `total_rooms`, which the reservations query has always
+ * fetched and now puts on the row. It is never counted from the visible rows: a
+ * filtered or searched board shows a subset, and "all 2 of its rooms" on a
+ * three-room booking is exactly the misstatement the scope sentence exists to
+ * prevent. An unknown count therefore withholds both verbs rather than guessing.
+ */
+function roomCount(row) {
+  const total = Number(row?.total_rooms)
+
+  return Number.isFinite(total) && total > 0 ? total : null
+}
+
+/**
+ * Whether the server offered this transition for the row.
+ *
+ * The state machine is not mirrored here in any form: `allowed_transitions` is
+ * the server's own answer, and a row that does not carry it gets no offer rather
+ * than a locally reconstructed one. Used to decide what to *show* only; nothing
+ * is disabled on it, because the set is as old as the last board fetch.
+ */
+function serverOffers(row, target) {
+  return Array.isArray(row?.allowed_transitions) && row.allowed_transitions.includes(target)
+}
+
+/**
+ * Cancellation is offered to the front desk on a booking the server still lets
+ * go, and never on one that is already in house — a checked-in room line is a
+ * stay, and ending it is a checkout, not a cancellation. The role mirrors
+ * `FRONT_DESK_ROLES`; the server re-checks it, and re-checks the override roles
+ * a late or in-policy-window cancellation additionally needs.
+ */
+function canCancel(row) {
+  if (!row || row.is_checked_in) return false
+  if (roomCount(row) === null) return false
+
+  return serverOffers(row, 'Cancelled') && session.hasRole(FRONT_DESK_ROLES)
+}
+
+/**
+ * A no-show is a narrower verb than a cancellation, and deliberately not a
+ * front-desk one: `NO_SHOW_ROLES` on the server excludes Front Office Agent, so
+ * mirroring `FRONT_DESK_ROLES` here would put a control in front of an agent
+ * that `require_role` refuses every time.
+ */
+function canNoShow(row) {
+  if (!row || row.is_checked_in) return false
+  if (roomCount(row) === null) return false
+
+  return serverOffers(row, 'No Show') && session.hasRole(NO_SHOW_ROLES)
+}
+
+/** The scope sentences, named by the room count the row carries. */
+const cancelScope = computed(() => {
+  const rooms = roomCount(selected.value)
+
+  return rooms > 1
+    ? t('page.arrivals.cancel_whole_reservation', { count: rooms })
+    : t('page.arrivals.cancel_single_room')
+})
+
+// Only the multi-room wording exists for a no-show, and it is the only case that
+// needs stating: a one-room reservation has no hidden reach to warn about.
+const noShowScope = computed(() => {
+  const rooms = roomCount(selected.value)
+
+  return rooms > 1 ? t('page.arrivals.no_show_whole_reservation', { count: rooms }) : ''
+})
+
 /** The room line, in the shape AssignRoomDialog reads it. */
 const assignLine = computed(() => {
   const row = assignTarget.value
@@ -383,6 +543,11 @@ function onRowAction({ action, row }) {
   if (action === 'details') {
     selected.value = row
     drawerOpen.value = true
+    return
+  }
+
+  if (action === 'folio') {
+    router.push({ name: 'Folio', params: { id: row.folio } })
     return
   }
 
@@ -412,6 +577,19 @@ function assignFromDrawer() {
   openAssign(row)
 }
 
+/** Same rule as above for the two ending verbs: the panel closes first. */
+function cancelFromDrawer() {
+  actionTarget.value = selected.value
+  drawerOpen.value = false
+  cancelOpen.value = true
+}
+
+function noShowFromDrawer() {
+  actionTarget.value = selected.value
+  drawerOpen.value = false
+  noShowOpen.value = true
+}
+
 function openReservation() {
   const row = selected.value
   drawerOpen.value = false
@@ -422,6 +600,12 @@ function openGuest() {
   const row = selected.value
   drawerOpen.value = false
   router.push({ name: 'GuestProfile', params: { id: row.guest } })
+}
+
+function openFolio() {
+  const row = selected.value
+  drawerOpen.value = false
+  router.push({ name: 'Folio', params: { id: row.folio } })
 }
 
 function openCheckIn() {

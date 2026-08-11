@@ -95,7 +95,12 @@ import { FeatherIcon, LoadingIndicator } from 'frappe-ui'
 import { computed } from 'vue'
 
 import DashboardCard from '@/components/dashboard/DashboardCard.vue'
-import { ROOM_STATE_LEGEND, ROOM_STATE_STYLE, roomStateKey } from '@/components/dashboard/theme'
+import {
+  ROOM_STATE_LABEL_KEY,
+  ROOM_STATE_LEGEND,
+  ROOM_STATE_STYLE,
+  roomStateKey,
+} from '@/components/dashboard/theme'
 import { t } from '@/utils/i18n'
 
 const props = defineProps({
@@ -114,8 +119,12 @@ const legend = computed(() =>
   })),
 )
 
+// From the label map, not the legend: a blocked room draws like an out-of-service
+// one but must not be called one, so there are more names than there are swatches.
 const stateLabel = computed(() =>
-  Object.fromEntries(ROOM_STATE_LEGEND.map((entry) => [entry.key, t(entry.labelKey)])),
+  Object.fromEntries(
+    Object.entries(ROOM_STATE_LABEL_KEY).map(([key, labelKey]) => [key, t(labelKey)]),
+  ),
 )
 
 /**
