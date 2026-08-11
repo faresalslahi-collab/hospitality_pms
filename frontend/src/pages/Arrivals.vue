@@ -1,11 +1,15 @@
 <!--
-  Arrivals board for the property's business date.
+  Arrivals board for the property's business date, on the shared operational table.
 
-  One request returns the whole day, so the filter below is client side: a single
-  property-day is small and re-fetching per filter would only add latency.
+  One request returns the whole day, so the filter and the search below are client
+  side: a single property-day is small, and re-fetching per keystroke would only
+  add latency. The table itself filters nothing — it renders the rows this page
+  hands it, in the order it hands them.
 
-  This screen decides nothing. Check-in and room assignment are links to the
-  screens that own those rules; nothing here mutates state.
+  This screen still decides nothing about the hotel. Check-in remains a link to
+  the screen that owns the readiness override and the billing instructions, and
+  room assignment opens the dialog that reaches `reservations.assign_room`, which
+  locks the room and re-checks it server side. Nothing here mutates state itself.
 -->
 <template>
   <div>
@@ -18,162 +22,207 @@
       </template>
     </PageHeader>
 
-    <LoadingState v-if="board.loading && !board.data" />
-    <ErrorState v-else-if="board.error" :error="board.error" :on-retry="reload" />
-    <EmptyState v-else-if="!rows.length" :message="t('page.arrivals.empty')" />
-
-    <div v-else class="space-y-4 p-5">
-      <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div class="space-y-4 p-5">
+      <div v-if="rows.length" class="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div v-for="tile in tiles" :key="tile.key" class="rounded border border-outline-gray-1 px-3 py-2">
           <p class="text-xs uppercase tracking-wide text-ink-gray-5">{{ tile.label }}</p>
           <p class="mt-0.5 text-lg font-semibold text-ink-gray-9">{{ tile.value }}</p>
         </div>
       </div>
 
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <FormControl v-model="filter" type="select" :label="t('page.arrivals.filter')" :options="filterOptions" />
-      </div>
+      <OperationalDataTable
+        :columns="columns"
+        :rows="visibleRows"
+        row-key="key"
+        :loading="board.loading"
+        :error="board.error"
+        :empty-message="emptyMessage"
+        :actions="actions"
+        searchable
+        :search="search"
+        :search-label="t('page.arrivals.search_label')"
+        :aria-label="t('page.arrivals.title')"
+        sticky-header
+        @search-change="search = $event"
+        @row-action="onRowAction"
+      >
+        <template #toolbar>
+          <div class="w-full sm:w-56">
+            <FormControl
+              v-model="filter"
+              type="select"
+              size="sm"
+              :label="t('page.arrivals.filter')"
+              :options="filterOptions"
+            />
+          </div>
+        </template>
 
-      <EmptyState v-if="!visibleRows.length" :message="t('page.arrivals.filter_empty')" />
+        <!-- Retry stays with the page, which owns the request. -->
+        <template #error="{ error }">
+          <ErrorState :error="error" :on-retry="reload" />
+        </template>
 
-      <div v-else class="overflow-x-auto rounded border border-outline-gray-1">
-        <table class="w-full min-w-max text-p-sm">
-          <thead class="bg-surface-gray-1 text-xs uppercase tracking-wide text-ink-gray-5">
-            <tr>
-              <th class="p-2 text-start">{{ t('page.arrivals.reservation') }}</th>
-              <th class="p-2 text-start">{{ t('page.arrivals.guest') }}</th>
-              <th class="p-2 text-start">{{ t('page.reservations.arrival') }}</th>
-              <th class="p-2 text-start">{{ t('page.reservations.departure') }}</th>
-              <th class="p-2 text-start">{{ t('page.arrivals.room_type') }}</th>
-              <th class="p-2 text-start">{{ t('page.arrivals.room') }}</th>
-              <th class="p-2 text-start">{{ t('page.arrivals.readiness') }}</th>
-              <th class="p-2 text-start">{{ t('page.reservations.status') }}</th>
-              <th class="p-2 text-start">{{ t('page.arrivals.guarantee') }}</th>
-              <th class="p-2 text-start">{{ t('page.arrivals.deposit') }}</th>
-              <th class="p-2 text-start">{{ t('page.arrivals.pax') }}</th>
-              <th class="p-2 text-end">{{ t('common.actions') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in visibleRows" :key="row.key" class="border-t border-outline-gray-1">
-              <td class="p-2 font-medium whitespace-nowrap">
-                <RouterLink
-                  :to="{ name: 'Reservation', params: { id: row.reservation } }"
-                  class="text-ink-blue-3 hover:underline"
-                >
-                  {{ row.reservation }}
-                </RouterLink>
-              </td>
-              <td class="p-2">
-                <span class="text-ink-gray-9">{{ row.guest_name }}</span>
-                <Badge
-                  v-if="row.vip_status"
-                  class="ms-1"
-                  :theme="vipStatusTheme(row.vip_status)"
-                  variant="subtle"
-                  :label="row.vip_status"
-                />
-                <Badge
-                  v-if="row.is_blacklisted"
-                  class="ms-1"
-                  theme="red"
-                  variant="subtle"
-                  :label="t('common.blacklisted')"
-                />
-              </td>
-              <td class="p-2 whitespace-nowrap">{{ formatDate(row.arrival_date) }}</td>
-              <td class="p-2 whitespace-nowrap">{{ formatDate(row.departure_date) }}</td>
-              <td class="p-2">{{ row.room_type_name || row.room_type }}</td>
-              <td class="p-2 whitespace-nowrap">
-                <span v-if="row.room_number" class="font-medium text-ink-gray-9">{{ row.room_number }}</span>
-                <span v-else class="text-ink-gray-5">{{ t('page.arrivals.no_room_yet') }}</span>
-              </td>
-              <!--
-                Housekeeping is only one of the four room dimensions; it is the
-                one that decides whether a guest can walk in, so it is the one
-                shown here. Occupancy, maintenance and inventory stay separate
-                signals on the room rack rather than being merged into a verdict.
-              -->
-              <td class="p-2">
-                <RoomStatusBadge v-if="row.assigned_room && row.housekeeping_status" :status="row.housekeeping_status" />
-                <span v-else class="text-ink-gray-5">—</span>
-              </td>
-              <td class="p-2">
-                <Badge
-                  :theme="reservationStatusTheme(row.reservation_status)"
-                  variant="subtle"
-                  :label="row.reservation_status"
-                />
-              </td>
-              <td class="p-2 whitespace-nowrap">
-                <span v-if="row.guarantee_type && row.guarantee_type !== 'None'">{{ row.guarantee_type }}</span>
-                <span v-else class="text-ink-gray-5">—</span>
-              </td>
-              <td class="p-2 whitespace-nowrap">
-                <span v-if="row.deposit_outstanding > 0.005" class="text-ink-amber-3">
-                  {{ t('page.arrivals.deposit_outstanding', { amount: formatCurrency(row.deposit_outstanding, row.currency) }) }}
-                </span>
-                <span v-else class="text-ink-gray-5">—</span>
-              </td>
-              <td class="p-2 whitespace-nowrap">{{ row.adults }}A {{ row.children }}C</td>
-              <td class="p-2 text-end whitespace-nowrap">
-                <RouterLink
-                  :to="{ name: 'Reservation', params: { id: row.reservation } }"
-                  class="text-ink-blue-3 hover:underline"
-                >
-                  {{ t('page.arrivals.action.open') }}
-                </RouterLink>
-                <!-- Room assignment lives on the reservation screen, which holds the lock. -->
-                <RouterLink
-                  v-if="!row.assigned_room && !row.is_checked_in"
-                  :to="{ name: 'Reservation', params: { id: row.reservation } }"
-                  class="ms-3 text-ink-blue-3 hover:underline"
-                >
-                  {{ t('page.arrivals.action.assign_room') }}
-                </RouterLink>
-                <RouterLink
-                  v-if="!row.is_checked_in"
-                  :to="{ name: 'CheckIn', params: { reservation: row.reservation } }"
-                  class="ms-3 text-ink-blue-3 hover:underline"
-                >
-                  {{ t('page.arrivals.action.check_in') }}
-                </RouterLink>
-                <Badge
-                  v-else
-                  class="ms-3"
-                  theme="green"
-                  variant="subtle"
-                  :label="t('page.arrivals.checked_in')"
-                />
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+        <template #cell:reservation="{ row }">
+          <RouterLink
+            :to="{ name: 'Reservation', params: { id: row.reservation } }"
+            class="font-medium text-ink-blue-3 hover:underline"
+          >
+            {{ row.reservation }}
+          </RouterLink>
+        </template>
+
+        <template #cell:guest_name="{ row }">
+          <span class="text-ink-gray-9">{{ row.guest_name }}</span>
+          <Badge
+            v-if="row.vip_status"
+            class="ms-1"
+            :theme="vipStatusTheme(row.vip_status)"
+            variant="subtle"
+            :label="row.vip_status"
+          />
+        </template>
+
+        <!-- The ETA is the booking's, not the room line's: a three-room
+             reservation arrives once. It is shown beside the arrival date rather
+             than as a per-room commitment. -->
+        <template #cell:eta="{ row }">
+          <span>{{ formatDate(row.arrival_date) }}</span>
+          <span v-if="row.arrival_time" class="ms-1 text-ink-gray-5">{{ shortTime(row.arrival_time) }}</span>
+        </template>
+
+        <template #cell:room_type="{ row }">{{ row.room_type_name || row.room_type }}</template>
+
+        <template #cell:room_number="{ row }">
+          <span v-if="row.room_number" class="font-medium text-ink-gray-9">{{ row.room_number }}</span>
+          <span v-else class="text-ink-gray-5">{{ t('page.arrivals.no_room_yet') }}</span>
+        </template>
+
+        <!--
+          Housekeeping is only one of the four room dimensions; it is the one that
+          decides whether a guest can walk in, so it is the one shown here.
+          Occupancy, maintenance and inventory stay separate signals on the room
+          rack rather than being merged into a verdict.
+        -->
+        <template #cell:readiness="{ row }">
+          <RoomStatusBadge v-if="row.assigned_room && row.housekeeping_status" :status="row.housekeeping_status" />
+          <span v-else class="text-ink-gray-5">—</span>
+        </template>
+
+        <template #cell:guarantee_type="{ row }">
+          <span v-if="row.guarantee_type && row.guarantee_type !== 'None'">{{ row.guarantee_type }}</span>
+          <span v-else class="text-ink-gray-5">—</span>
+        </template>
+
+        <template #cell:pax="{ row }">{{ row.adults }}A {{ row.children }}C</template>
+
+        <!--
+          The deposit is owed once per booking and the server copies it onto every
+          room line of that booking, so this is deliberately not a plain money
+          column: three rows of a three-room reservation would read as three
+          deposits. It is a qualified flag, and only when something is outstanding.
+        -->
+        <template #cell:deposit_outstanding="{ row }">
+          <span v-if="row.deposit_outstanding > 0.005" class="inline-flex items-center gap-1 text-ink-amber-3">
+            <MoneyDisplay :value="row.deposit_outstanding" :currency="row.currency" />
+            <span class="text-xs">{{ t('page.arrivals.deposit_due') }}</span>
+          </span>
+          <span v-else class="text-ink-gray-5">—</span>
+        </template>
+
+        <!--
+          The board is told that a guest is blacklisted; it is never told why, and
+          the reason is permlevel-restricted to the roles that set it. The badge
+          says an alert exists and nothing more. There is deliberately no
+          "no alerts" state: this board never queries the alert register, so an
+          empty cell is honest where a green tick would be a false clearance.
+        -->
+        <template #cell:alerts="{ row }">
+          <AlertBadge
+            v-if="row.is_blacklisted"
+            present
+            severity="high"
+            :label="t('common.blacklisted')"
+          />
+          <span v-else class="text-ink-gray-5">—</span>
+        </template>
+      </OperationalDataTable>
     </div>
+
+    <!--
+      Contextual detail without leaving the board. It carries the summary and the
+      navigation; the one action that needs a dialog closes the panel first, so a
+      dialog is never stacked inside it.
+    -->
+    <ActionDrawer
+      v-model="drawerOpen"
+      :title="selected?.guest_name || ''"
+      :subtitle="selected ? `${selected.reservation} · ${selected.room_type_name || selected.room_type}` : ''"
+    >
+      <dl v-if="selected" class="space-y-3">
+        <div v-for="item in detailItems" :key="item.label">
+          <dt class="text-xs uppercase tracking-wide text-ink-gray-5">{{ item.label }}</dt>
+          <dd class="text-p-sm text-ink-gray-8">{{ item.value }}</dd>
+        </div>
+        <div v-if="selected.special_requests">
+          <dt class="text-xs uppercase tracking-wide text-ink-gray-5">{{ t('page.arrivals.notes') }}</dt>
+          <dd class="text-p-sm text-ink-gray-8">{{ selected.special_requests }}</dd>
+        </div>
+      </dl>
+
+      <template #footer>
+        <Button variant="subtle" @click="openReservation">{{ t('page.arrivals.action.open') }}</Button>
+        <Button variant="subtle" @click="openGuest">{{ t('page.arrivals.action.guest_profile') }}</Button>
+        <Button v-if="canAssign(selected)" variant="subtle" @click="assignFromDrawer">
+          {{ t('page.arrivals.action.assign_room') }}
+        </Button>
+        <Button v-if="selected && !selected.is_checked_in" variant="solid" @click="openCheckIn">
+          {{ t('page.arrivals.action.check_in') }}
+        </Button>
+      </template>
+    </ActionDrawer>
+
+    <AssignRoomDialog
+      v-model="assignOpen"
+      :reservation="assignTarget?.reservation || ''"
+      :line="assignLine"
+      @changed="reload"
+    />
   </div>
 </template>
 
 <script setup>
 import { Badge, Button, FeatherIcon, FormControl } from 'frappe-ui'
 import { computed, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 
+import AssignRoomDialog from '@/components/AssignRoomDialog.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import RoomStatusBadge from '@/components/RoomStatusBadge.vue'
-import EmptyState from '@/components/states/EmptyState.vue'
+import ActionDrawer from '@/components/operational/ActionDrawer.vue'
+import AlertBadge from '@/components/operational/AlertBadge.vue'
+import MoneyDisplay from '@/components/operational/MoneyDisplay.vue'
+import OperationalDataTable from '@/components/operational/OperationalDataTable.vue'
 import ErrorState from '@/components/states/ErrorState.vue'
-import LoadingState from '@/components/states/LoadingState.vue'
-import { arrivalsBoardResource } from '@/resources/frontOffice'
+import { FRONT_DESK_ROLES, arrivalsBoardResource } from '@/resources/frontOffice'
 import { vipStatusTheme } from '@/resources/guests'
 import { reservationStatusTheme } from '@/resources/reservations'
 import { property } from '@/stores/property'
-import { formatCurrency, formatDate } from '@/utils/format'
+import { session } from '@/stores/session'
+import { formatDate } from '@/utils/format'
 import { t } from '@/utils/i18n'
 
+const router = useRouter()
 const board = arrivalsBoardResource()
 
 const filter = ref('all')
+const search = ref('')
+
+const drawerOpen = ref(false)
+const selected = ref(null)
+
+const assignOpen = ref(false)
+const assignTarget = ref(null)
 
 /** Each filter is a predicate over a row; the board itself is never re-fetched. */
 const FILTERS = {
@@ -194,9 +243,78 @@ const filterOptions = computed(() =>
   Object.keys(FILTERS).map((value) => ({ label: t(`page.arrivals.filter.${value}`), value })),
 )
 
+/**
+ * Column descriptions, already translated.
+ *
+ * `guarantee_type` and `departure_date` are kept: both are on screen today and
+ * both are decision inputs at the desk — the guarantee is how an agent knows
+ * whether a card is on file.
+ */
+const columns = computed(() => [
+  { key: 'reservation', label: t('page.arrivals.reservation'), primary: true, nowrap: true },
+  { key: 'guest_name', label: t('page.arrivals.guest'), secondary: true },
+  { key: 'eta', label: t('page.arrivals.eta'), field: 'arrival_date', nowrap: true },
+  { key: 'departure_date', label: t('page.reservations.departure'), type: 'date', nowrap: true, hideBelow: 'xl' },
+  { key: 'room_type', label: t('page.arrivals.room_type') },
+  { key: 'room_number', label: t('page.arrivals.room'), nowrap: true },
+  { key: 'readiness', label: t('page.arrivals.readiness'), field: 'housekeeping_status' },
+  {
+    key: 'reservation_status',
+    label: t('page.reservations.status'),
+    type: 'badge',
+    theme: (row) => reservationStatusTheme(row.reservation_status),
+  },
+  { key: 'guarantee_type', label: t('page.arrivals.guarantee'), nowrap: true, hideBelow: 'xl' },
+  { key: 'nights', label: t('page.arrivals.nights'), type: 'number', hideBelow: 'lg' },
+  { key: 'pax', label: t('page.arrivals.pax'), field: 'adults', nowrap: true },
+  { key: 'deposit_outstanding', label: t('page.arrivals.deposit'), nowrap: true },
+  { key: 'alerts', label: t('page.arrivals.alerts'), field: 'is_blacklisted' },
+])
+
+/**
+ * Row actions.
+ *
+ * Navigation carries no role check: the destination screen authorises its own
+ * request and mirrors the role at the point where it mutates. Only the one
+ * action that opens a mutating dialog from this board mirrors a role, and it
+ * imports the existing constant rather than declaring a list here.
+ */
+const actions = computed(() => [
+  { key: 'details', label: t('page.arrivals.action.details'), icon: 'info' },
+  {
+    key: 'assign_room',
+    label: t('page.arrivals.action.assign_room'),
+    available: canAssign,
+  },
+  {
+    key: 'check_in',
+    label: t('page.arrivals.action.check_in'),
+    theme: 'blue',
+    available: (row) => !row.is_checked_in,
+  },
+])
+
 const rows = computed(() => board.data?.rows || [])
 
-const visibleRows = computed(() => rows.value.filter(FILTERS[filter.value] || FILTERS.all))
+/** Filter first, then the search term, both over rows already in memory. */
+const visibleRows = computed(() => {
+  const predicate = FILTERS[filter.value] || FILTERS.all
+  const term = search.value.trim().toLowerCase()
+
+  return rows.value.filter((row) => {
+    if (!predicate(row)) return false
+    if (!term) return true
+
+    return [row.reservation, row.guest_name, row.room_number, row.room_type_name]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(term))
+  })
+})
+
+/** Which "nothing here" the operator is looking at: no arrivals, or none matching. */
+const emptyMessage = computed(() =>
+  rows.value.length ? t('page.arrivals.filter_empty') : t('page.arrivals.empty'),
+)
 
 const tiles = computed(() => {
   const s = board.data?.summary || {}
@@ -212,6 +330,105 @@ const tiles = computed(() => {
     { key: 'vip', label: t('page.arrivals.vip'), value: s.vip ?? 0 },
   ]
 })
+
+const detailItems = computed(() => {
+  const row = selected.value
+  if (!row) return []
+
+  return [
+    { label: t('page.reservations.status'), value: row.reservation_status },
+    {
+      label: t('page.reservations.arrival'),
+      value: [formatDate(row.arrival_date), shortTime(row.arrival_time)].filter(Boolean).join(' '),
+    },
+    { label: t('page.reservations.departure'), value: formatDate(row.departure_date) },
+    { label: t('page.arrivals.nights'), value: String(row.nights ?? '') },
+    { label: t('page.arrivals.room'), value: row.room_number || t('page.arrivals.no_room_yet') },
+    { label: t('page.arrivals.pax'), value: `${row.adults}A ${row.children}C` },
+    { label: t('page.arrivals.guarantee'), value: row.guarantee_type || t('common.none') },
+  ]
+})
+
+/** `18:00:00` reads as `18:00`; the seconds are noise on a board. */
+function shortTime(value) {
+  return value ? String(value).slice(0, 5) : ''
+}
+
+/**
+ * Assignment is offered while the room line has no room and has not become a
+ * stay. Once a stay exists the verb is a room move, which belongs to the stay,
+ * not to `reservations.assign_room`. The role is mirrored only to decide whether
+ * offering the control is worth it; the server re-checks it either way.
+ */
+function canAssign(row) {
+  if (!row) return false
+
+  return !row.assigned_room && !row.is_checked_in && session.hasRole(FRONT_DESK_ROLES)
+}
+
+/** The room line, in the shape AssignRoomDialog reads it. */
+const assignLine = computed(() => {
+  const row = assignTarget.value
+  if (!row) return null
+
+  return {
+    name: row.room_line,
+    room_type: row.room_type,
+    arrival_date: row.arrival_date,
+    departure_date: row.departure_date,
+  }
+})
+
+function onRowAction({ action, row }) {
+  if (action === 'details') {
+    selected.value = row
+    drawerOpen.value = true
+    return
+  }
+
+  if (action === 'assign_room') {
+    openAssign(row)
+    return
+  }
+
+  if (action === 'check_in') {
+    router.push({ name: 'CheckIn', params: { reservation: row.reservation } })
+  }
+}
+
+function openAssign(row) {
+  assignTarget.value = row
+  assignOpen.value = true
+}
+
+/**
+ * A dialog is never stacked inside the panel: the drawer closes first, which
+ * also returns focus to the row action that opened it before the dialog takes
+ * focus of its own.
+ */
+function assignFromDrawer() {
+  const row = selected.value
+  drawerOpen.value = false
+  openAssign(row)
+}
+
+function openReservation() {
+  const row = selected.value
+  drawerOpen.value = false
+  router.push({ name: 'Reservation', params: { id: row.reservation } })
+}
+
+function openGuest() {
+  const row = selected.value
+  drawerOpen.value = false
+  router.push({ name: 'GuestProfile', params: { id: row.guest } })
+}
+
+function openCheckIn() {
+  const row = selected.value
+  drawerOpen.value = false
+  router.push({ name: 'CheckIn', params: { reservation: row.reservation } })
+}
 
 function reload() {
   board.fetch({ property: property.activeName.value })
