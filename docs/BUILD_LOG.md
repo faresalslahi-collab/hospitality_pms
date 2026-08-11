@@ -2450,3 +2450,108 @@ tests/test_business_date.py           16 tests   OK
   documented for Wave 6. None is reachable from the audit path.
 
 Result: PASS
+
+## 16.6.4 — Onboarding Integrity Hardening, Wave 5: inventory, stay dates, multi-room and deposits
+
+Findings closed: **P1-5**, **P1-6**, **P2-5**, **N8**, **N3**.
+
+### One interval, and it is the one availability counts
+
+`Reservation Room` is the authoritative sellable interval; `Stay` is
+operational and is never counted (HPMS-DEC-150). Both records held the dates
+and only one was counted, so `extend_stay` moved the one nobody asked: the Stay
+said the 15th, the room line still said the 12th, and availability offered the
+only room in the property to a second booking that then confirmed against an
+in-house guest (P1-5). Shortening was the mirror image — four released nights
+stayed unsellable (P2-5).
+
+Making `Stay` a second inventory holder would have double-counted every
+checked-in guest. Both operations now move the room line under a documented
+lock order (reservation → room line → room type → room), re-check availability
+before extending, and re-derive the header from its children. The Stay Note
+each one writes is appended *before* the save, not after it, so the change
+finally leaves a trace (N3).
+
+### Three rooms are three rows
+
+A booked quantity is normalised at confirmation into one row per physical room
+(HPMS-DEC-151). A row is the unit everything operational hangs off — one
+assigned room, one Stay, one folio, one share of the deposit — and a row saying
+three could do exactly one of each, so rooms two and three could never be
+checked in and the booking read fully Checked In as soon as the first guest
+arrived (P1-6). Drafts may still ask for a quantity; that is a way to book three
+rooms, not to run them.
+
+Capacity is now checked in aggregate per room type per night (HPMS-DEC-152):
+splitting the request into rows must not split the capacity question with it.
+
+### One deposit, credited once
+
+The whole deposit was posted to every folio the booking opened — 300 became 900
+— because the idempotency key named only the reservation and uniqueness is
+scoped per folio. The deposit is now split in proportion to room value, keyed
+per room line, and capped by what remains uncredited (HPMS-DEC-153). Shares
+round with the last row taking the remainder, so 100 across three rooms is
+33.33 / 33.33 / 33.34 and not 99.99.
+
+### The room picker stops offering rooms it has already promised
+
+`get_assignable_rooms` filtered on the room's own state and never asked whether
+it was already promised, so it offered the room an in-house guest was sleeping
+in (N8). It now excludes overlapping holding assignments, and `assign_room`
+re-checks the same rule under lock with a **current** read — `lock_document` on
+the room serialises two agents without refreshing either snapshot, so a plain
+read let both take it. That is the Wave-1 N1 pattern, and a two-process test
+proves it.
+
+Occupancy blocks an assignment only when it starts on or before the business
+date (HPMS-DEC-156), so a full house can still pre-assign next week's arrivals.
+
+### Direct document mutation
+
+Stay dates and the locked `Reservation Room` fields — dates, `assigned_room`,
+`rooms`, `room_type` — are refused by a document save (HPMS-DEC-157). Every
+guard in this wave lives in a service, and all of it was bypassable by
+`frappe.get_doc(...).save()`. The services write with `frappe.db.set_value`, so
+they are unaffected by design rather than by exemption. Drafts stay freely
+editable and `special_requests` and stay notes stay editable throughout.
+
+`block_assignment_for_out_of_order` was inspected and is descriptive, not dead:
+the field is `read_only` with a default of 1 and Out of Order is unconditionally
+blocking in `assert_assignable`. A test now proves the setting cannot permit an
+Out of Order assignment even when turned off.
+
+### Validation
+
+285 tests, all passing. 222 from Waves 1–4, unchanged and still green; 63 new.
+
+```
+tests/test_stay_dates.py         23 tests   OK
+tests/test_multi_room.py         13 tests   OK
+tests/test_room_assignment.py    17 tests   OK
+tests/test_deposit_allocation.py 10 tests   OK
+```
+
+- Concurrency with two OS processes: two agents clicking the same room (one
+  wins), two rooms of one booking checking in at once (the deposit is not
+  over-credited).
+- Migration audit run against the site: zero `Reservation Room` rows carry a
+  quantity greater than one on a holding status, so nothing needed a decision.
+  The audit reports and never normalises (HPMS-DEC-158).
+- No test residue: no leftover properties, reservations or multi-room lines,
+  and `PMS Settings` sits at its DocType defaults.
+
+### Intentionally still open
+
+- **P2-2** (payment callback precedence) and **P2-7** (performance) remain for
+  Wave 6/7; neither is touched here.
+- **Remaining business-date defaults** in `api.reservations.arrivals` /
+  `departures` / `calendar` and the two Vue screens are unchanged.
+- **`reservation_hold_minutes`** is confirmed unread: nothing expires a hold, so
+  it affects neither availability nor assignability today. Documented for Wave 6
+  rather than wired here, because implementing hold expiry is a new behaviour,
+  not a fix.
+- **Pre-assignment and occupancy.** A room in House Use may be promised to a
+  future arrival. The interval check still applies; the status check does not.
+
+Result: PASS

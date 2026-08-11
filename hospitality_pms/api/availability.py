@@ -133,8 +133,13 @@ def assignable_rooms(
 	room_type: str | None = None,
 	property: str | None = None,
 	include_unready: int = 0,
+	exclude_line: str | None = None,
 ) -> list[dict]:
-	"""Specific rooms that can be assigned for the whole stay."""
+	"""Specific rooms that can be assigned for the whole stay.
+
+	`exclude_line` is the reservation room line being assigned, so a line
+	re-picking a room is not shown a list that omits the room it already has.
+	"""
 	require_permission(ROOM_DOCTYPE, "read")
 	property_name = resolve_property(property)
 
@@ -144,4 +149,5 @@ def assignable_rooms(
 		arrival,
 		departure,
 		allow_unready_housekeeping=bool(int(include_unready or 0)),
+		exclude_line=exclude_line,
 	)

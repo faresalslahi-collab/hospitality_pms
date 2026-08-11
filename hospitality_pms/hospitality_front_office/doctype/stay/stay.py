@@ -7,7 +7,11 @@ from frappe.model.document import Document
 from frappe.utils import getdate, now_datetime
 
 from hospitality_pms.services.availability import nights_between
-from hospitality_pms.services.base import STAY_ORCHESTRATION, assert_service_context
+from hospitality_pms.services.base import (
+	STAY_ORCHESTRATION,
+	assert_service_context,
+	in_service_context,
+)
 from hospitality_pms.services.exceptions import HospitalityPMSError, InvalidStateTransitionError
 from hospitality_pms.services.stays import EXPECTED
 
@@ -218,7 +222,25 @@ class Stay(Document):
 		guest mid-stay and legitimately rewrites `room`/`room_type` on this
 		same document while it is In House or Due Out.
 		"""
-		if self.is_new() or self.stay_status == EXPECTED:
+		if self.is_new():
+			return
+
+		# The dates are inventory, not description. `StayService.extend_stay`
+		# re-checks availability and moves the Reservation Room interval with
+		# them; `shorten_stay` releases the nights. A save that moved these on
+		# its own would leave the Stay and the interval availability counts
+		# telling different stories - which is exactly P1-5 and P2-5.
+		if not in_service_context(STAY_ORCHESTRATION):
+			for fieldname in ("arrival_date", "departure_date"):
+				if self.has_value_changed(fieldname):
+					frappe.throw(
+						_(
+							"{0} cannot be changed by editing the stay; use extend or shorten instead."
+						).format(_(self.meta.get_label(fieldname))),
+						exc=InvalidStateTransitionError,
+					)
+
+		if self.stay_status == EXPECTED:
 			return
 
 		for fieldname in ("property", "guest", "reservation"):

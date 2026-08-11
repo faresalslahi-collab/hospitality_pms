@@ -19,6 +19,7 @@ from hospitality_pms.services import rooms as room_service
 from hospitality_pms.services.availability import (
 	authorise_overbooking,
 	check_availability,
+	lock_room_type,
 	nights_between,
 	overbooking_evidence,
 )
@@ -231,16 +232,19 @@ def check_in(
 			update_modified=False,
 		)
 
-	# Any deposit already taken on the reservation moves onto the folio, so
-	# the guest is not asked to pay it twice.
-	deposit = flt(reservation_doc.deposit_received)
+	# Any deposit already taken on the reservation moves onto the folio, so the
+	# guest is not asked to pay it twice - but only this room's share of it.
+	# The key carries the room line for the same reason: idempotency is scoped
+	# per folio, so one key for the whole booking was unique on three different
+	# folios and let the deposit through three times (P1-6).
+	deposit = reservation_service.deposit_share(reservation_doc, room_line)
 	if deposit > 0:
 		folio_service.post_payment(
 			folio,
 			deposit,
 			"Bank Transfer",
 			payment_type="Deposit",
-			idempotency_key=f"reservation-deposit:{reservation}",
+			idempotency_key=f"reservation-deposit:{reservation}:{room_line}",
 			reference=reservation,
 		)
 
@@ -404,20 +408,36 @@ def change_room(stay: str, new_room: str, reason: str, *, allow_unready: bool = 
 def extend_stay(
 	stay: str, new_departure, *, allow_overbooking: bool = False, reason: str | None = None
 ) -> dict:
-	"""Extend a stay, but only if the room type is free for the extra nights.
+	"""Extend a stay, and extend the inventory it holds with it.
 
-	`allow_overbooking` carries the same authority here as it does on
-	confirmation - an elevated role, a reason and an audit record - because it
-	oversells the house in exactly the same way (P1-3).
+	The two used to come apart. Only the Stay's own departure date moved, and
+	`Reservation Room` - which is what availability counts, what confirmation
+	reduces and what the room-clash check reads - kept the original date. So a
+	guest extended to the 15th and the property cheerfully reported its only
+	room free from the 12th, sold it to somebody else, and had two guests for
+	one room (P1-5).
 
-	Whether an extension is reflected in sellable inventory at all is a separate
-	defect (P1-5) and is untouched here.
+	Both dates move here, in one transaction, behind the inventory lock chain
+	documented in `services.reservations`.
 	"""
-	# Authorised before the stay is loaded, so an override nobody may make is
-	# refused before anything is read or locked.
+	# Authorised before anything is read or locked, so an override nobody may
+	# make costs nothing (Wave 1, P1-3).
 	overbooking_reason = authorise_overbooking(reason) if allow_overbooking else None
 
-	doc = lock_and_get_doc(STAY_DOCTYPE, stay)
+	new_departure = getdate(new_departure)
+
+	# Plain reads, used only to decide what to lock.
+	target = frappe.db.get_value(
+		STAY_DOCTYPE,
+		stay,
+		["property", "reservation", "reservation_room_line", "room_type", "room"],
+		as_dict=True,
+	)
+
+	if not target:
+		throw(_("Stay {0} not found.").format(stay), exc=HospitalityPMSError)
+
+	doc, line = _lock_stay_chain(stay, target)
 	doc.check_permission("write")
 
 	if doc.stay_status not in (IN_HOUSE, DUE_OUT):
@@ -426,8 +446,7 @@ def extend_stay(
 			exc=InvalidStateTransitionError,
 		)
 
-	new_departure = getdate(new_departure)
-	current_departure = getdate(doc.departure_date)
+	current_departure = getdate(line["departure_date"] if line else doc.departure_date)
 
 	if new_departure <= current_departure:
 		throw(_("The new departure must be after the current departure of {0}.").format(current_departure))
@@ -443,18 +462,42 @@ def extend_stay(
 		allow_overbooking=allow_overbooking,
 	)
 
-	# The specific room must also be free for the extra nights.
-	reservation_service._assert_room_free(doc.room, current_departure, new_departure, doc.reservation)
+	# Room-type capacity and this particular room are different questions, and
+	# an overbooking override answers only the first. Selling one more room of a
+	# type the house does not have is a management decision; putting two guests
+	# in room 101 is not something any override makes true.
+	reservation_service._assert_room_free(
+		doc.room, current_departure, new_departure, exclude_line=target["reservation_room_line"]
+	)
+
+	if line:
+		reservation_service.set_line_interval(line["name"], departure=new_departure)
 
 	doc.departure_date = new_departure
 	doc.nights = len(nights_between(doc.arrival_date, new_departure))
 
+	# Appended *before* the save. It used to be appended after, so every
+	# extension the hotel ever made left no record of itself at all (N3).
+	_log_note(
+		doc,
+		_("Stay extended from {0} to {1}{2}").format(
+			current_departure,
+			new_departure,
+			_(" (overbooking override: {0})").format(overbooking_reason) if overbooking_reason else "",
+		),
+	)
+
+	# The save runs inside the orchestration context because the Stay
+	# controller refuses a date moved by a bare document edit; this function
+	# is the supported route, and the context is what says so.
+	with service_context(STAY_ORCHESTRATION):
+		doc.save(ignore_permissions=True)
+
+	# Due Out means "leaving today"; a guest who has just extended is not.
+	# Written through the transition service because the Stay controller
+	# refuses a status edited on the document itself.
 	if doc.stay_status == DUE_OUT:
-		doc.stay_status = IN_HOUSE
-
-	doc.save(ignore_permissions=True)
-
-	_log_note(doc, _("Stay extended to {0}").format(new_departure))
+		transition(stay, IN_HOUSE, reason=_("Stay extended"))
 
 	if overbooking_reason:
 		_log_overbooking_override(doc, [check], overbooking_reason, new_departure)
@@ -462,31 +505,84 @@ def extend_stay(
 	return {"stay": stay, "departure_date": str(new_departure), "nights": doc.nights}
 
 
+def _lock_stay_chain(stay: str, target: dict):
+	"""Take the inventory locks in the one documented order, then load the Stay.
+
+	Reservation, its room line, the room type, the physical room, and finally
+	the Stay itself. One order for every caller, so two operations touching the
+	same booking queue behind each other instead of deadlocking.
+	"""
+	if target.get("reservation"):
+		lock_document(reservation_service.RESERVATION_DOCTYPE, target["reservation"])
+
+	line = None
+	if target.get("reservation_room_line"):
+		line = reservation_service.lock_inventory_line(target["reservation_room_line"])
+
+	if target.get("room_type"):
+		lock_room_type(target["property"], target["room_type"])
+
+	if target.get("room"):
+		lock_document("Hotel Room", target["room"])
+
+	return lock_and_get_doc(STAY_DOCTYPE, stay), line
+
+
 def shorten_stay(stay: str, new_departure, reason: str) -> dict:
-	"""Shorten a stay. Releases the nights the guest is no longer taking."""
+	"""Shorten a stay, and release the nights the guest is no longer taking.
+
+	The mirror of the extension defect: only the Stay moved, so a guest who
+	left four days early left four nights unsellable behind them (P2-5).
+
+	Money already posted is left exactly as it is. A night the guest slept and
+	was charged for is history; reversing it because the booking got shorter
+	would be the system deciding a refund on its own.
+	"""
 	if not reason or not reason.strip():
 		throw(_("A reason is required to shorten a stay."))
 
-	doc = lock_and_get_doc(STAY_DOCTYPE, stay)
+	new_departure = getdate(new_departure)
+
+	target = frappe.db.get_value(
+		STAY_DOCTYPE,
+		stay,
+		["property", "reservation", "reservation_room_line", "room_type", "room"],
+		as_dict=True,
+	)
+
+	if not target:
+		throw(_("Stay {0} not found.").format(stay), exc=HospitalityPMSError)
+
+	doc, line = _lock_stay_chain(stay, target)
 	doc.check_permission("write")
 
-	new_departure = getdate(new_departure)
+	current_departure = getdate(line["departure_date"] if line else doc.departure_date)
 
 	if new_departure <= getdate(doc.arrival_date):
 		throw(_("The departure must be after the arrival date."))
 
-	if new_departure >= getdate(doc.departure_date):
+	if new_departure >= current_departure:
 		throw(_("The new departure must be before the current departure."))
 
 	business_date = get_business_date(doc.property)
 	if new_departure < getdate(business_date):
 		throw(_("A stay cannot be shortened to a date before the business date."))
 
+	if line:
+		reservation_service.set_line_interval(line["name"], departure=new_departure)
+
 	doc.departure_date = new_departure
 	doc.nights = len(nights_between(doc.arrival_date, new_departure))
-	doc.save(ignore_permissions=True)
 
-	_log_note(doc, _("Stay shortened to {0}: {1}").format(new_departure, reason.strip()))
+	_log_note(
+		doc,
+		_("Stay shortened from {0} to {1}: {2}").format(
+			current_departure, new_departure, reason.strip()
+		),
+	)
+
+	with service_context(STAY_ORCHESTRATION):
+		doc.save(ignore_permissions=True)
 
 	return {"stay": stay, "departure_date": str(new_departure), "nights": doc.nights}
 

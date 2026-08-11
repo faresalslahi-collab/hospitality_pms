@@ -418,6 +418,76 @@ def overbooking_evidence(checks: list[dict], reason: str) -> dict:
 	}
 
 
+def check_demand(
+	property_name: str,
+	lines,
+	*,
+	allow_overbooking: bool = False,
+	exclude_reservation: str | None = None,
+) -> list[dict]:
+	"""Check what a whole booking needs, night by night, not line by line.
+
+	Once a three-room booking is three rows of one room each, asking
+	`check_availability` once per row asks "is there a room free?" three times -
+	and a house with one room left answers yes to all three. The demand has to
+	be summed per room type per night before it is compared with anything.
+
+	Returns one result per room type, in the shape `overbooking_evidence`
+	expects, so the Wave-1 override audit keeps working unchanged.
+	"""
+	demand: dict[str, dict] = defaultdict(lambda: defaultdict(int))
+
+	for line in lines:
+		for night in nights_between(line.arrival_date, line.departure_date):
+			demand[line.room_type][night] += max(int(line.rooms or 1), 1)
+
+	limit_key = "available_with_overbooking" if allow_overbooking else "available"
+	checks = []
+
+	for room_type, per_night in demand.items():
+		nights = sorted(per_night)
+
+		availability = get_availability(
+			property_name,
+			nights[0],
+			add_days(nights[-1], 1),
+			room_type,
+			exclude_reservation=exclude_reservation,
+		)
+		bucket = availability["room_types"].get(room_type)
+
+		if not bucket:
+			throw(
+				_("Room type {0} has no active rooms in property {1}.").format(room_type, property_name),
+				exc=AvailabilityError,
+			)
+
+		for night, needed in per_night.items():
+			# `by_night` is keyed by the string form of the date, not the date.
+			figures = bucket["by_night"].get(str(night))
+
+			if not figures or figures[limit_key] < needed:
+				available = figures[limit_key] if figures else 0
+
+				throw(
+					_("Only {0} room(s) of type {1} are available on {2}; {3} requested.").format(
+						available, room_type, night, needed
+					),
+					exc=AvailabilityError,
+				)
+
+		checks.append(
+			{
+				"room_type": room_type,
+				"rooms": max(per_night.values()),
+				"min_available": bucket["min_available"],
+				"overbooking_limit": bucket.get("overbooking_limit", 0),
+			}
+		)
+
+	return checks
+
+
 def lock_room_type(property_name: str, room_types) -> list[str]:
 	"""Serialise inventory decisions for one or more room types.
 
@@ -432,6 +502,27 @@ def lock_room_type(property_name: str, room_types) -> list[str]:
 	return lock_documents(ROOM_TYPE_DOCTYPE, room_types)
 
 
+def _promised_rooms(property_name: str, arrival, departure, *, exclude_line: str | None = None) -> set[str]:
+	"""Rooms already given to a holding reservation line overlapping this interval.
+
+	Overlap is `arrival < other.departure AND departure > other.arrival`, the
+	same test `reservations._assert_room_free` applies under lock, so the list
+	and the authority answer the same question.
+	"""
+	filters = {
+		"property": property_name,
+		"assigned_room": ("is", "set"),
+		"reservation_status": ("in", HOLDING_RESERVATION_STATES),
+		"arrival_date": ("<", getdate(departure)),
+		"departure_date": (">", getdate(arrival)),
+	}
+
+	if exclude_line:
+		filters["name"] = ("!=", exclude_line)
+
+	return set(frappe.get_all("Reservation Room", filters=filters, pluck="assigned_room"))
+
+
 def get_assignable_rooms(
 	property_name: str,
 	room_type: str | None,
@@ -439,17 +530,38 @@ def get_assignable_rooms(
 	departure,
 	*,
 	allow_unready_housekeeping: bool = False,
+	exclude_line: str | None = None,
 ) -> list[dict]:
 	"""Specific rooms that can be assigned for the whole stay.
 
 	Used by room assignment at confirmation and check-in. A room is offered
-	only if it is sellable, unblocked for every night, and - unless overridden
-	- physically ready.
+	only if it is sellable, unblocked for every night, physically ready unless
+	overridden, **and not already promised to somebody else for these dates**.
+
+	That last clause is the one this list was missing (N8). It filtered on the
+	room's own state and never asked the question room assignment exists to
+	answer, so it offered the room a guest was sleeping in and the room the
+	afternoon arrival had been given that morning.
+
+	The list is advisory - `reservations.assign_room` is the authority and
+	re-checks all of this under a lock, because a room can be taken between
+	rendering a list and clicking it. But the two must agree on the rules, or
+	the agent is being offered a choice the system will then refuse.
+
+	`exclude_line` is the line being assigned: a line must not be treated as
+	its own rival when it is re-picking a room it already holds.
 	"""
-	from hospitality_pms.services.rooms import READY_HOUSEKEEPING
+	from hospitality_pms.services.rooms import OCCUPIED_STATES, READY_HOUSEKEEPING
 
 	nights = nights_between(arrival, departure)
 	rooms = _physical_rooms(property_name, room_type)
+	promised = _promised_rooms(property_name, arrival, departure, exclude_line=exclude_line)
+
+	# A guest in the room right now blocks an assignment starting today; it
+	# says nothing about a stay beginning after they are due to leave, which
+	# their own inventory interval already covers.
+	business_date = getdate(get_property(property_name).business_date)
+	occupancy_matters = getdate(arrival) <= business_date
 
 	blocks = _blocks(property_name, arrival, departure, room_type)
 	rooms_blocked, _quantity = _blocked_by_night(blocks, nights, {r["name"]: r for r in rooms})
@@ -464,12 +576,27 @@ def get_assignable_rooms(
 		if not _is_sellable(room) or room["name"] in blocked_any_night:
 			continue
 
+		if room["name"] in promised:
+			continue
+
 		details = frappe.db.get_value(
 			ROOM_DOCTYPE,
 			room["name"],
-			["name", "room_number", "room_type", "floor", "housekeeping_status", "is_accessible", "is_smoking"],
+			[
+				"name",
+				"room_number",
+				"room_type",
+				"floor",
+				"housekeeping_status",
+				"occupancy_status",
+				"is_accessible",
+				"is_smoking",
+			],
 			as_dict=True,
 		)
+
+		if occupancy_matters and details["occupancy_status"] in OCCUPIED_STATES:
+			continue
 
 		details["ready"] = details["housekeeping_status"] in READY_HOUSEKEEPING
 

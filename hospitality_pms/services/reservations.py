@@ -26,12 +26,14 @@ from frappe.utils import flt, getdate, now_datetime, nowdate
 from hospitality_pms.services.availability import (
 	authorise_overbooking,
 	check_availability,
+	check_demand,
 	lock_room_type,
 	nights_between,
 	overbooking_evidence,
 )
 from hospitality_pms.services.base import (
 	assert_transition,
+	lock_and_find,
 	lock_and_get_doc,
 	lock_and_read,
 	lock_document,
@@ -280,21 +282,25 @@ def confirm(reservation: str, *, allow_overbooking: bool = False, reason: str | 
 	# override nobody may make costs nothing and blocks nobody (P1-3).
 	overbooking_reason = authorise_overbooking(reason) if allow_overbooking else None
 
+	# A quantity is how a booking is asked for; it is not how three rooms are
+	# run. Normalised here, while the reservation is still editable and before
+	# any inventory is committed, so everything downstream - assignment,
+	# check-in, the Stay, the folio, the deposit - has one row per real room
+	# (P1-6).
+	if normalise_room_lines(doc):
+		doc.save(ignore_permissions=True)
+
 	# Lock every room type this reservation touches before reading availability.
 	lock_room_type(doc.property, [line.room_type for line in doc.rooms])
 
-	checks = [
-		check_availability(
-			doc.property,
-			line.room_type,
-			line.arrival_date,
-			line.departure_date,
-			rooms=line.rooms,
-			allow_overbooking=allow_overbooking,
-			exclude_reservation=reservation,
-		)
-		for line in doc.rooms
-	]
+	# Summed per night across the whole booking. Asking once per row would ask
+	# for one room three times, which a house with one room left would grant.
+	checks = check_demand(
+		doc.property,
+		doc.rooms,
+		allow_overbooking=allow_overbooking,
+		exclude_reservation=reservation,
+	)
 
 	# A corporate booking draws on the account's credit. This runs inside the
 	# same locked transaction as the availability check, so the credit movement
@@ -460,6 +466,150 @@ def mark_no_show(reservation: str, *, reason: str | None = None) -> dict:
 
 
 
+def deposit_allocation(doc) -> dict[str, float]:
+	"""Split one deposit across the rooms that will carry it.
+
+	A deposit belongs to a booking, and a booking is now one row per physical
+	room, each of which opens its own folio at check-in. Crediting the whole
+	deposit to each of those folios credited a 300 deposit three times (P1-6).
+
+	The split is proportional to what each room is worth, so the guest who
+	booked a suite and a single does not see the deposit halved between them,
+	and it is computed the same way every time it is asked for: the shares are
+	rounded down to currency precision and the last row takes the remainder, so
+	the parts add back up to the deposit exactly rather than to 99.99.
+
+	A pure function of what is stored. Nothing here decides *when* a share is
+	posted; that is check-in's business, one room at a time.
+	"""
+	deposit = flt(doc.deposit_received)
+	lines = list(doc.rooms)
+
+	if deposit <= 0 or not lines:
+		return {line.name: 0.0 for line in lines}
+
+	precision = frappe.get_precision("Folio Payment", "amount") or 2
+	weights = [flt(line.total_amount) for line in lines]
+	basis = sum(weights)
+
+	if basis <= 0:
+		# Nothing priced yet - an equal split is the only defensible answer.
+		weights = [1.0] * len(lines)
+		basis = float(len(lines))
+
+	allocation: dict[str, float] = {}
+	running = 0.0
+
+	for line, weight in zip(lines[:-1], weights[:-1], strict=True):
+		share = flt(deposit * weight / basis, precision)
+		allocation[line.name] = share
+		running += share
+
+	# The last row absorbs the rounding remainder, which is what makes the
+	# aggregate exact rather than approximately right.
+	allocation[lines[-1].name] = flt(deposit - running, precision)
+
+	return allocation
+
+
+def deposit_credited(reservation: str) -> float:
+	"""What the folios of this booking have already been credited."""
+	return flt(
+		frappe.db.sql(
+			"""
+			select coalesce(sum(payment.amount), 0)
+			from `tabFolio Payment` payment
+			inner join `tabGuest Folio` folio on folio.name = payment.parent
+			where folio.reservation = %s and payment.payment_type = %s
+			""",
+			(reservation, DEPOSIT_PAYMENT_TYPE),
+		)[0][0]
+	)
+
+
+def deposit_share(doc, room_line: str) -> float:
+	"""One room's share of the deposit, capped by what is left to credit.
+
+	The allocation alone would already sum to the deposit, but it is derived
+	from line values that can move after a room has been checked in - a stay
+	shortened on Tuesday re-prices its row. The cap makes the invariant hold
+	regardless: the folios of one booking can never be credited more than the
+	deposit that was actually received.
+
+	Read under the reservation lock the caller already holds, so two rooms
+	arriving at once cannot both see the same room left in the budget.
+	"""
+	share = flt(deposit_allocation(doc).get(room_line, 0))
+
+	if share <= 0:
+		return 0.0
+
+	remaining = flt(doc.deposit_received) - deposit_credited(doc.name)
+
+	return max(min(share, remaining), 0.0)
+
+
+def normalise_room_lines(doc) -> bool:
+	"""Turn a booked quantity into one operational row per physical room.
+
+	A `Reservation Room` row is the unit everything operational hangs off: it
+	holds one assigned room, produces one Stay, opens one Folio and takes one
+	share of the deposit. A row saying `rooms = 3` can do exactly one of each,
+	which is why the second and third rooms of a three-room booking could never
+	be checked in, and why the whole booking was marked Checked In as soon as
+	the first guest arrived (P1-6).
+
+	Splitting rather than teaching check-in to consume a row three times: the
+	quantity was the wrong representation to run a hotel from, and every
+	downstream fix would have had to know about it.
+
+	Returns whether anything changed, so the caller only saves when it must.
+	Idempotent - a booking already at one room per row is left alone.
+
+	Pricing is untouched by design. `price_reservation` computes a line's total
+	as the per-room total multiplied by its quantity, so three rows of one come
+	to exactly what one row of three did; the re-price on save proves it rather
+	than assuming it.
+	"""
+	extra = []
+	changed = False
+
+	for line in doc.rooms:
+		quantity = max(int(line.rooms or 1), 1)
+
+		if quantity == 1:
+			continue
+
+		changed = True
+		line.rooms = 1
+
+		for _copy in range(quantity - 1):
+			values = {
+				field: line.get(field)
+				for field in (
+					"room_type",
+					"arrival_date",
+					"departure_date",
+					"property",
+					"reservation_status",
+					"rate_plan",
+					"adults",
+					"children",
+					"extra_beds",
+					"room_rate",
+					"special_requests",
+				)
+			}
+			# Deliberately not copied: a physical room belongs to one row, and
+			# duplicating an assignment would promise one room to two guests.
+			extra.append({**values, "rooms": 1, "assigned_room": None})
+
+	for values in extra:
+		doc.append("rooms", values)
+
+	return changed
+
+
 def _corporate_account(doc) -> str | None:
 	"""The corporate account a reservation bills to, if it resolves to a real one.
 
@@ -548,8 +698,8 @@ def assign_room(reservation: str, room_line: str, room: str, *, allow_unready: b
 			_("Room {0} is a {1}, but this line is for {2}.").format(room, room_type, line.room_type),
 		)
 
-	_assert_room_free(room, line.arrival_date, line.departure_date, reservation)
-	assert_assignable(room, allow_unready_housekeeping=allow_unready)
+	_assert_room_free(room, line.arrival_date, line.departure_date, exclude_line=room_line)
+	assert_assignable(room, allow_unready_housekeeping=allow_unready, arrival=line.arrival_date)
 
 	frappe.db.set_value("Reservation Room", room_line, "assigned_room", room, update_modified=False)
 
@@ -570,12 +720,21 @@ def assign_room(reservation: str, room_line: str, room: str, *, allow_unready: b
 	return room
 
 
-def _assert_room_free(room: str, arrival, departure, exclude_reservation: str | None = None):
+def _assert_room_free(room: str, arrival, departure, exclude_line: str | None = None):
 	"""Refuse a room already promised to an overlapping stay.
 
 	Overlap is `arrival < other.departure AND departure > other.arrival`,
 	which correctly allows a same-day turnover: one guest departs on the 12th
 	and another arrives on the 12th.
+
+	Scoped to the *line*, not the reservation. Excluding the whole reservation
+	was safe only while a booking held one row; once a three-room booking is
+	three rows, excluding the parent would let two of its own rooms be given
+	the same physical room and nobody would notice until both guests arrived.
+
+	`Reservation Room` is the authoritative interval - a checked-in guest is
+	still counted here, because check-in does not move a booking out of the
+	holding states.
 	"""
 	filters = {
 		"assigned_room": room,
@@ -584,21 +743,129 @@ def _assert_room_free(room: str, arrival, departure, exclude_reservation: str | 
 		"departure_date": (">", getdate(arrival)),
 	}
 
-	if exclude_reservation:
-		filters["parent"] = ("!=", exclude_reservation)
+	if exclude_line:
+		filters["name"] = ("!=", exclude_line)
 
-	clash = frappe.get_all("Reservation Room", filters=filters, fields=["parent"], limit=1)
+	# A **current** read, not a snapshot read. `lock_document` on the room
+	# serialises two agents clicking the same room, but locking does not
+	# refresh what this transaction can see: a plain `get_all` is answered
+	# from the snapshot opened before the rival committed its assignment, so
+	# both agents find the room free and both take it. This is the N1 pattern
+	# Wave 1 established, applied to the assignment interval.
+	clash = lock_and_find("Reservation Room", filters, ["parent", "name"])
 
 	if clash:
 		throw(
 			_("Room {0} is already assigned to reservation {1} for these dates.").format(
-				room, clash[0]["parent"]
+				room, clash["parent"]
 			),
 			exc=HospitalityPMSError,
 		)
 
 
 # ---------------------------------------------------------------------------
+# The inventory chain
+# ---------------------------------------------------------------------------
+#
+# `Reservation Room` is the single authoritative record of what is sold. It is
+# what `availability._sold_by_night` counts, what `_assert_room_free` checks and
+# what confirmation reduces. A Stay is the operational face of one of those
+# rows, never a second inventory holder - counting both would count a
+# checked-in guest twice.
+#
+# Everything that changes an interval therefore locks the same chain in the same
+# order. One order, so two operations touching overlapping rows queue rather
+# than deadlock:
+#
+#     1. Reservation        the aggregate whose dates are recalculated
+#     2. Reservation Room   the interval itself
+#     3. Room Type          the type-level capacity check
+#     4. Hotel Room         the physical room
+#     5. Stay               the operational record
+#
+# Reading a row to decide *what* to lock is fine; every value a decision is made
+# from is read back from the locking read (Wave 1, N1).
+
+RESERVATION_ROOM_DOCTYPE = "Reservation Room"
+DEPOSIT_PAYMENT_TYPE = "Deposit"
+
+
+def lock_inventory_line(room_line: str) -> dict:
+	"""Lock one Reservation Room row and return its current interval."""
+	return lock_and_read(
+		RESERVATION_ROOM_DOCTYPE,
+		room_line,
+		["name", "parent", "room_type", "rooms", "arrival_date", "departure_date", "assigned_room"],
+	)
+
+
+def set_line_interval(room_line: str, *, arrival=None, departure=None):
+	"""Move an inventory interval, and keep the reservation's own dates true.
+
+	The only supported way to change what a booking holds. A Stay's departure
+	date on its own is a display value; this is the row availability counts.
+	"""
+	values = {}
+
+	if arrival:
+		values["arrival_date"] = getdate(arrival)
+
+	if departure:
+		values["departure_date"] = getdate(departure)
+
+	if not values:
+		return
+
+	current = frappe.db.get_value(
+		RESERVATION_ROOM_DOCTYPE, room_line, ["parent", "arrival_date", "departure_date"], as_dict=True
+	)
+
+	values["nights"] = len(
+		nights_between(
+			values.get("arrival_date", current["arrival_date"]),
+			values.get("departure_date", current["departure_date"]),
+		)
+	)
+
+	frappe.db.set_value(RESERVATION_ROOM_DOCTYPE, room_line, values, update_modified=False)
+
+	refresh_header_dates(current["parent"])
+
+
+def refresh_header_dates(reservation: str):
+	"""Recompute the reservation's own dates from the rooms it holds.
+
+	The header is a summary of its children, not a copy of one of them. Setting
+	it from whichever room was just changed would shorten a whole booking
+	because one guest of three left early.
+	"""
+	span = frappe.db.sql(
+		"""
+		select min(arrival_date) as arrival, max(departure_date) as departure
+		from `tabReservation Room`
+		where parent = %s
+		""",
+		reservation,
+		as_dict=True,
+	)[0]
+
+	if not span["arrival"] or not span["departure"]:
+		return
+
+	frappe.db.set_value(
+		RESERVATION_DOCTYPE,
+		reservation,
+		{
+			"arrival_date": getdate(span["arrival"]),
+			"departure_date": getdate(span["departure"]),
+			"nights": len(nights_between(span["arrival"], span["departure"])),
+		},
+		update_modified=False,
+	)
+
+
+# ---------------------------------------------------------------------------
+# Queries# ---------------------------------------------------------------------------
 # Queries
 # ---------------------------------------------------------------------------
 
