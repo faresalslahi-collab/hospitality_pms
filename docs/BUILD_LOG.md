@@ -1,6 +1,6 @@
 # Hospitality PMS — Build Acceptance Log
 
-**Current application version:** 16.5.3 (branch `version-16`)
+**Current application version:** 16.6.0 (branch `version-16`)
 
 One record per completed build, in the format required by
 `09_Hospitality_PMS_Build_Test_and_Acceptance_Standard_v1.2_APPROVED.md` section 4.
@@ -1815,4 +1815,144 @@ Validation: PASS - targeted.
 Note: `nav.desk` existed but was referenced nowhere and read "Open Frappe Desk";
 it was retitled to "Desk" so it sits correctly beside app names, rather than
 adding a second near-identical key.
+Result: PASS
+
+---
+
+## 16.6.0 — Onboarding Integrity Hardening, Wave 1: locking, financial boundary, authorization
+
+Remediates thirteen findings reproduced against this site in the 16.6.0 Phase-1
+verification sweep. Each was promoted from its reproduction into a regression
+test before anything was changed, and each test was watched failing first.
+
+### N1 — a lock protected the snapshot, not the state
+
+The root cause behind both confirmed concurrency P1s. `lock_document()` issues
+`SELECT name … FOR UPDATE`, which serialises correctly but selects only a
+column that never changes; the `frappe.get_doc()` that followed was a plain
+read, answered under REPEATABLE READ from the snapshot this transaction opened
+*before* it began waiting for the lock. Every guard downstream therefore
+evaluated pre-lock state. This is not fixable by re-reading harder: within one
+REPEATABLE READ transaction no plain read will ever see the winner's commit.
+
+`services.base` gained `lock_and_read()`, `lock_and_get_doc()` and
+`lock_and_find()`. All three take the lock and return the values from that same
+locking statement, because InnoDB answers a locking read from the current row
+version. `lock_document()` remains for the case it is actually correct —
+serialising a row whose values the operation does not read — and now says so.
+
+The hazard itself is pinned by a test, not assumed:
+`test_harness_reproduces_stale_snapshot_hazard` proves that lock-then-plain-read
+still returns the stale value on this database. Without it, a green
+`test_lock_waiter_reads_committed_state` would prove nothing.
+
+### Lock call-site audit
+
+Every `lock_document` / `lock_documents` / `lock_room_type` call in
+`services/` was classified. "Unsafe" means a guard, a total or a state
+transition was decided from a value read after the lock but not by it.
+
+| Service / function | Protects | Decided from | Was | Changed |
+|---|---|---|---|---|
+| `corporate.consume_credit` | Corporate Account credit | `credit_used`, `credit_limit` | UNSAFE | Yes — `lock_and_read` |
+| `corporate.release_credit` | Corporate Account credit | `credit_used` | UNSAFE | Yes — `lock_and_read` |
+| `corporate.set_credit_status` | Credit status + audit | `credit_status` (logged as `from_status`) | UNSAFE | Yes — `lock_and_read` |
+| `reservations.confirm` | Reservation state, inventory, credit | `reservation_status`, room lines | UNSAFE | Yes — `lock_and_get_doc` + early transition assert |
+| `reservations.cancel` | Reservation state, credit release | `reservation_status`, totals | UNSAFE | Yes — `lock_and_get_doc` + early transition assert |
+| `reservations.guarantee` | Reservation state | `reservation_status` | UNSAFE | Yes — `lock_and_get_doc` |
+| `reservations.mark_no_show` | Reservation state | `reservation_status`, arrival | UNSAFE | Yes — `lock_and_get_doc` |
+| `reservations._transition` | Every reservation state change | `reservation_status` | UNSAFE | Yes — re-reads under lock; single choke point |
+| `folio.post_charge` | Duplicate key, postable state | child rows, `folio_status` | UNSAFE | Yes — `lock_and_get_doc`; key checked against locked rows |
+| `folio.post_payment` | Duplicate key, closed state | child rows, `folio_status` | UNSAFE | Yes — `lock_and_get_doc` |
+| `folio.reverse_charge` | Double reversal | `is_reversed` | UNSAFE | Yes — `lock_and_get_doc` |
+| `folio.transition` | State machine, balance, unposted charges | `folio_status`, `balance`, rows | UNSAFE | Yes — `lock_and_get_doc` |
+| `folio.split_folio` | Which rows move | child rows | UNSAFE | Yes — `lock_and_get_doc` |
+| `folio.merge_folio` | Which rows move, both states | both documents | UNSAFE | Yes — `lock_and_get_doc`, name-ordered |
+| `payments.refund_payment` | Refundable balance | `refunded_amount`, status | UNSAFE | Yes — `lock_and_read` + claim before provider call |
+| `payments.handle_callback` | Replay guard | `transaction_status` | UNSAFE | Yes — status re-read under lock |
+| `payments.sync_status` | — | provider is authoritative; no stale-dependent guard | SAFE | No |
+| `stays.check_in` | Reservation readiness | `reservation_status`, room lines | UNSAFE | Yes — `lock_and_get_doc` |
+| `stays.change_room` | In-house guard | `stay_status` | UNSAFE | Yes — `lock_and_get_doc` |
+| `stays.extend_stay` | In-house guard, dates | `stay_status`, `departure_date` | UNSAFE | Yes — `lock_and_get_doc` |
+| `stays.shorten_stay` | Date guards | `departure_date` | UNSAFE | Yes — `lock_and_get_doc` |
+| `stays.transition` | State machine | `stay_status` | UNSAFE | Yes — `lock_and_get_doc` |
+| `checkout.check_out` | Checked-out guard | `stay_status` | UNSAFE | Yes — `lock_and_get_doc` |
+| `checkout.reverse_checkout` | Checked-out guard | `stay_status` | UNSAFE | Yes — `lock_and_get_doc` |
+| `availability.lock_room_type` | Room Type rows | nothing read from the locked row | SAFE | No |
+| `reservations.assign_room`, `stays.change_room` (room lock) | Hotel Room | clash read from **Reservation Room / Stay**, which the Hotel Room lock does not cover | NEEDS INVESTIGATION | No — the lock *scope* is wrong, not just the read; belongs with P1-5 / N8 |
+| `posting.post_folio_invoice`, `posting.post_folio_payment` | Which rows are unposted | child rows | UNSAFE | No — deferred to the ERP-agreement wave (P1-10, P1-11, P1-14) |
+| `night_audit.review / post_room_charges / reconcile / close / reopen` | `audit_status` | audit document | UNSAFE | No — deferred to the business-date wave (P1-7, P1-8, P1-9, P2-1) |
+| `housekeeping.*` (5), `maintenance.*` (4), `kitchen.*` (2), `guest_services.*` (7), `guests.ensure_customer`, `guests.merge_guests`, `regulatory.register_guest`, `rooms.set_status` | task / ticket / request status | own document | UNSAFE | No — later waves; no Wave-1 finding, and changing lock semantics without that wave's tests would be an unverified change |
+
+Deferred sites are latent, not benign: each carries the same N1 hazard and
+should be corrected by the wave that owns its domain, which will have the tests
+to prove the correction.
+
+### Dead PMS Settings inventory
+
+`enable_overbooking` is wired by this wave. The other four are documented and
+deliberately left alone, because making a setting "used" by inventing partial
+behaviour is worse than a setting that plainly does nothing.
+
+| Setting | Intended control | Currently | Recommended wave |
+|---|---|---|---|
+| `enable_overbooking` | Master switch for selling beyond capacity | **Wired.** Read by `availability.authorise_overbooking`; when off, an override is refused for everyone including an administrator | Done (16.6.0) |
+| `block_posting_after_close` | Refuse folio postings dated into a closed business date | Read nowhere. `folio.post_charge` accepts any `business_date` a service passes | Business-date wave, with P1-7 / P1-8. Needs the closed-date rule defined first, so this is a consequence of that work rather than a switch to bolt on |
+| `reservation_hold_minutes` | Expiry for a tentative hold | Read nowhere; a Tentative reservation never expires | Reservation-lifecycle work. Needs a scheduled release job and a decision on what an expired hold becomes (Cancelled, or a new Expired state) |
+| `block_assignment_for_out_of_order` | Refuse assigning a room that is out of order | Read nowhere. `rooms.assert_assignable` already refuses on `BLOCKING_MAINTENANCE` unconditionally, so the setting would *relax* the rule, not tighten it | Inventory wave, with N8. Decide whether relaxation is wanted at all before wiring it |
+| `cancellation_grace_hours` | Free-cancellation window independent of the rate policy | Read nowhere. `rates.get_cancellation_charge` uses the Rate Policy's own `free_cancellation_hours` | Later. Two sources for one rule is the real question; the setting may be the one to delete |
+
+### Validation
+
+Targeted throughout, one consolidated run at completion. 88 tests, all passing.
+No full UAT, RC regression, performance or security suite was run.
+
+```
+tests/test_locking.py              5 tests   OK
+tests/test_reservation.py         15 tests   OK
+tests/test_guest_folio.py         23 tests   OK
+tests/test_stay.py                11 tests   OK
+tests/test_authorization.py       20 tests   OK
+tests/test_payment_transaction.py  9 tests   OK
+tests/test_schema_migration.py     5 tests   OK
+```
+
+Concurrency tests use two OS processes with independent connections and
+transactions, choreographed through a file barrier. Threads would share
+`frappe.local.db` and therefore share the snapshot under test; a sequential
+simulation passes against the broken code.
+
+The suites live in `hospitality_pms/tests/` rather than in the DocType folders.
+`IntegrationTestCase` infers `cls.doctype` from the folder and then generates
+test records for every link field it reaches; every operational DocType here
+reaches `Property` → `Company`, and importing ERPNext's `Company` test module
+builds its master data at import time, raising `DuplicateEntryError` on a site
+that already has a company. The DocType scaffolding is untouched.
+
+- Migration: patch applied on the upgraded site, index present on both money
+  tables, repeat `bench migrate` a clean no-op. Fresh install is covered by the
+  same idempotent function through `after_install`, because Frappe marks
+  patches executed rather than running them on a new site.
+- Duplicate-key safety proven by test: with duplicates planted and the index
+  dropped, the migration refuses, names the folio and the key, and both rows
+  are still there afterwards.
+- Frontend: `npm run build` clean on Node 24.
+- Python syntax clean across the app; every `services/*` and `api/*` module
+  imports.
+
+### Intentionally still open
+
+- **P1-12 is partially closed.** Concurrent over-refund is fixed: the funds are
+  claimed under the row lock before the provider is called, so a second caller
+  reads the claimed balance and is refused. The claim is not durable against
+  failure — a provider call that succeeds followed by a rollback still leaves
+  money moved with no local record. That is the same external-side-effect
+  problem as P1-13 and P1-14 and needs one mechanism chosen for all three.
+- A legitimate *second* partial refund is still refused, because the first
+  moves the transaction to `Partially Refunded` and only `Captured` is
+  refundable. Pre-existing, and part of P2-2.
+- `stays._log_note` still appends after `doc.save()` and is never persisted
+  (N3). The overbooking override on a stay extension is therefore written to
+  the Reservation Log instead of relying on it.
+
 Result: PASS

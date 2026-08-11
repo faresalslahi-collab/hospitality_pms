@@ -7,18 +7,28 @@ from frappe.model.document import Document
 from frappe.utils import getdate, now_datetime
 
 from hospitality_pms.services.availability import nights_between
+from hospitality_pms.services.base import STAY_ORCHESTRATION, assert_service_context
 from hospitality_pms.services.exceptions import HospitalityPMSError, InvalidStateTransitionError
-from hospitality_pms.services.stays import EXPECTED, IN_HOUSE
+from hospitality_pms.services.stays import EXPECTED
 
-#: Statuses a brand-new stay may be saved as directly. StayService.check_in
-#: inserts the stay as Expected and then promotes it to In House with
-#: `frappe.db.set_value()` within the same call - that write does not run
-#: `validate()`, so both values have to be accepted here, not only the value
-#: used at insert.
-CREATABLE_STATUSES = (EXPECTED, IN_HOUSE)
+#: The only status a brand-new stay may be created with.
+#:
+#: `StayService.check_in` inserts at Expected and promotes to In House with
+#: `frappe.db.set_value()`, which does not run `validate()` - so In House never
+#: needed to be creatable, and allowing it meant a document save could put a
+#: guest straight into a room with no reservation, no folio and no room status
+#: behind it.
+#:
+#: This is a narrowing, not the fix. The fix is `_guard_created_by_service`
+#: below: a status list cannot tell an orchestrated check-in from a hand-built
+#: document, because both would name a legal status.
+CREATABLE_STATUSES = (EXPECTED,)
 
 
 class Stay(Document):
+	def before_insert(self):
+		self._guard_created_by_service()
+
 	def validate(self):
 		# The two guards run first so an edit that is simply not allowed is
 		# reported as such, rather than as some other field's derived rule
@@ -43,6 +53,42 @@ class Stay(Document):
 				_("Stay {0} has left Expected and must be retained; it cannot be deleted.").format(self.name),
 				exc=HospitalityPMSError,
 			)
+
+	# ------------------------------------------------------------------
+	# A stay is created by orchestration, never by a document save
+	# ------------------------------------------------------------------
+
+	def _guard_created_by_service(self):
+		"""Refuse a Stay that no check-in orchestration created.
+
+		A Stay is the record that a real person is in a real room. Creating one
+		is not a data-entry act; it is the outcome of a sequence that has to
+		happen first, all of which lives in `StayService.check_in`: the
+		reservation is confirmed and due, the room line is not already checked
+		in, the guest is not blacklisted, identification is captured, the
+		deposit is satisfied, the room is assignable, a Folio is opened, the
+		room is marked Occupied and the reservation follows.
+
+		A `frappe.get_doc({...}).insert()` performs none of that, and the sweep
+		showed the result: a guest In House with no folio to charge, a room
+		still reading Vacant, no Room Status Log entry, availability unaware -
+		and the same thing succeeding for a blacklisted guest.
+
+		No arrangement of field values can distinguish that from a real
+		check-in, because the difference is not in the values. It is in which
+		code produced them, which is what the orchestration context records.
+
+		Deliberately `before_insert`: an existing Stay is still editable
+		through the paths that own it (`change_room`, `extend_stay`, notes and
+		companions), each of which has its own guards.
+		"""
+		assert_service_context(
+			STAY_ORCHESTRATION,
+			_(
+				"A stay is created by checking a guest in, which reserves the room, opens the "
+				"folio and records the arrival. It cannot be created by saving a Stay directly."
+			),
+		)
 
 	# ------------------------------------------------------------------
 	# Dates

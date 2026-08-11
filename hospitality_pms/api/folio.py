@@ -1,14 +1,20 @@
 """Guest folio endpoints.
 
-Every mutating endpoint takes an idempotency key from the caller, or derives a
-deterministic one, so a retried request cannot post twice (HPMS-DEC-031).
+Every mutating endpoint takes an operation key from the caller and refuses the
+request without one (HPMS-DEC-031, P2-3).
+
+The key identifies the *user action*, not the HTTP attempt. The client mints it
+once when the operator submits, resends it unchanged on every retry of that
+submission, and mints a new one only when the operator starts something else.
+The server never invents one: a key generated per request is regenerated on
+retry, which is precisely how a lost response became a second charge.
 """
 
 import frappe
 from frappe import _
 
 from hospitality_pms.services import folio as service
-from hospitality_pms.services.base import require_permission
+from hospitality_pms.services.base import authorise_document, require_operation_key
 
 FOLIO_DOCTYPE = "Guest Folio"
 
@@ -16,10 +22,7 @@ FOLIO_DOCTYPE = "Guest Folio"
 @frappe.whitelist(methods=["GET"])
 def get_folio(folio: str) -> dict:
 	"""One folio with its charges, payments and balance."""
-	require_permission(FOLIO_DOCTYPE, "read")
-
-	doc = frappe.get_doc(FOLIO_DOCTYPE, folio)
-	doc.check_permission("read")
+	doc = authorise_document(FOLIO_DOCTYPE, folio, "read")
 
 	return {
 		"folio": {
@@ -78,18 +81,13 @@ def post_charge(
 	charge_type: str,
 	description: str,
 	amount: float,
+	idempotency_key: str,
 	quantity: float = 1,
 	tax_amount: float = 0,
 	payer: str = "Guest",
-	idempotency_key: str | None = None,
 ) -> dict:
-	"""Post a charge.
-
-	When the caller supplies no key one is generated, which makes a retry of
-	this exact HTTP request post twice. Clients that can retry must send their
-	own stable key.
-	"""
-	require_permission(FOLIO_DOCTYPE, "write")
+	"""Post a charge, once per operation key however many times it is sent."""
+	authorise_document(FOLIO_DOCTYPE, folio, "write")
 
 	return service.post_charge(
 		folio,
@@ -99,7 +97,7 @@ def post_charge(
 		quantity=float(quantity or 1),
 		tax_amount=float(tax_amount or 0),
 		payer=payer,
-		idempotency_key=idempotency_key or f"manual:{folio}:{frappe.generate_hash(length=12)}",
+		idempotency_key=require_operation_key(idempotency_key, "Posting a charge"),
 	)
 
 
@@ -108,12 +106,12 @@ def post_payment(
 	folio: str,
 	amount: float,
 	payment_method: str,
+	idempotency_key: str,
 	payment_type: str = "Payment",
 	reference: str | None = None,
 	payer: str = "Guest",
-	idempotency_key: str | None = None,
 ) -> dict:
-	require_permission(FOLIO_DOCTYPE, "write")
+	authorise_document(FOLIO_DOCTYPE, folio, "write")
 
 	return service.post_payment(
 		folio,
@@ -122,14 +120,14 @@ def post_payment(
 		payment_type=payment_type,
 		reference=reference,
 		payer=payer,
-		idempotency_key=idempotency_key or f"manual:{folio}:{frappe.generate_hash(length=12)}",
+		idempotency_key=require_operation_key(idempotency_key, "Recording a payment"),
 	)
 
 
 @frappe.whitelist(methods=["POST"])
 def reverse_charge(folio: str, charge_row: str, reason: str) -> dict:
 	"""Reverse a charge. Finance authority and a reason are enforced by the service."""
-	require_permission(FOLIO_DOCTYPE, "write")
+	authorise_document(FOLIO_DOCTYPE, folio, "write")
 
 	service.reverse_charge(folio, charge_row, reason)
 
@@ -137,10 +135,19 @@ def reverse_charge(folio: str, charge_row: str, reason: str) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def post_adjustment(folio: str, amount: float, description: str, reason: str, payer: str = "Guest") -> dict:
-	require_permission(FOLIO_DOCTYPE, "write")
+def post_adjustment(
+	folio: str, amount: float, description: str, reason: str, idempotency_key: str, payer: str = "Guest"
+) -> dict:
+	authorise_document(FOLIO_DOCTYPE, folio, "write")
 
-	service.post_adjustment(folio, float(amount), description, reason, payer=payer)
+	service.post_adjustment(
+		folio,
+		float(amount),
+		description,
+		reason,
+		payer=payer,
+		idempotency_key=require_operation_key(idempotency_key, "Posting an adjustment"),
+	)
 
 	return get_folio(folio)
 
@@ -148,7 +155,7 @@ def post_adjustment(folio: str, amount: float, description: str, reason: str, pa
 @frappe.whitelist(methods=["POST"])
 def split_folio(folio: str, charge_rows: list | str, payer: str = "Company") -> dict:
 	"""Move selected charges onto a new folio for company-pay separation."""
-	require_permission(FOLIO_DOCTYPE, "write")
+	authorise_document(FOLIO_DOCTYPE, folio, "write")
 
 	rows = frappe.parse_json(charge_rows) if isinstance(charge_rows, str) else list(charge_rows)
 
@@ -162,7 +169,7 @@ def split_folio(folio: str, charge_rows: list | str, payer: str = "Company") -> 
 
 @frappe.whitelist(methods=["POST"])
 def transition(folio: str, target: str, reason: str | None = None) -> dict:
-	require_permission(FOLIO_DOCTYPE, "write")
+	authorise_document(FOLIO_DOCTYPE, folio, "write")
 
 	service.transition(folio, target, reason=reason)
 

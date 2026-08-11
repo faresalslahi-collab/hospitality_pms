@@ -22,7 +22,7 @@ from frappe.utils import flt, now_datetime
 
 from hospitality_pms.integrations.payments import get_provider, get_provider_config
 from hospitality_pms.services import folio as folio_service
-from hospitality_pms.services.base import lock_document
+from hospitality_pms.services.base import lock_and_find, lock_and_read, lock_document
 from hospitality_pms.services.exceptions import IntegrationError, throw
 
 TRANSACTION_DOCTYPE = "Payment Transaction"
@@ -173,7 +173,13 @@ def handle_callback(
 		)
 		return {"matched": False, "provider_reference": reference}
 
-	lock_document(TRANSACTION_DOCTYPE, transaction["name"])
+	# The status was read by the lookup above, before the lock. A replayed
+	# callback that waited behind the original would otherwise still see the
+	# pre-lock status and apply the payment a second time, so the duplicate
+	# guard is re-evaluated against the locked, current row (N1).
+	transaction["transaction_status"] = lock_and_read(
+		TRANSACTION_DOCTYPE, transaction["name"], "transaction_status"
+	)["transaction_status"]
 
 	if transaction["transaction_status"] in TERMINAL_STATES:
 		# A replayed callback for a transaction already in its final state.
@@ -279,50 +285,126 @@ def sync_status(transaction: str) -> dict:
 
 
 def refund_payment(transaction: str, amount: float, reason: str, *, idempotency_key: str | None = None) -> dict:
-	"""Refund all or part of a captured transaction."""
+	"""Refund all or part of a captured transaction.
+
+	The order of operations here is the whole of the fix for P1-12, and it is
+	the reverse of what it was:
+
+	    read current state under the lock
+	    -> claim the funds, durably, in this transaction
+	    -> only then call the provider
+
+	It used to read the transaction *before* locking it, validate the
+	refundable balance against that pre-lock snapshot, and call the provider
+	before changing anything. Two concurrent refunds therefore both saw
+	`refunded_amount = 0`, both believed the whole capture was available, and
+	the provider refunded 200 against a 100 capture - with the loser's
+	transaction then failing on an unrelated conflict, so the second 100 left
+	the merchant account with no record here at all.
+
+	Because the claim is written while the row lock is held, a second caller
+	blocks at `lock_and_read` below, and by the time it is let through it reads
+	the *claimed* balance and is refused before it can reach the provider.
+
+	**Residual risk, deliberately not closed here.** The claim is durable
+	against concurrency but not against failure: it lives in this transaction,
+	so a provider call that succeeds and is followed by a rollback still leaves
+	money moved with no local record. That is the same external-side-effect
+	durability problem as P1-13 and P1-14, it needs one mechanism chosen for
+	all three, and it belongs to that wave. P1-12 is therefore only partially
+	closed.
+	"""
 	if not reason or not reason.strip():
 		throw(_("A reason is required to refund a payment."), exc=IntegrationError)
 
-	doc = frappe.get_doc(TRANSACTION_DOCTYPE, transaction)
+	amount = flt(amount)
 
-	if doc.transaction_status not in SETTLED_STATES:
+	if amount <= 0:
+		throw(_("A refund amount must be greater than zero."), exc=IntegrationError)
+
+	key = idempotency_key or f"refund:{transaction}:{flt(amount, 2)}"
+
+	# --- current state, under the lock ----------------------------------
+	current = lock_and_read(
+		TRANSACTION_DOCTYPE,
+		transaction,
+		["transaction_status", "amount", "refunded_amount", "property", "provider", "provider_reference", "folio"],
+	)
+
+	# --- has this operation already been performed? ---------------------
+	# A locking read, so a claim another transaction committed while this one
+	# waited is visible. A plain read here would answer from the pre-lock
+	# snapshot and let the same key reach the provider twice.
+	claimed = lock_and_find(
+		TRANSACTION_DOCTYPE, {"idempotency_key": key}, ["name", "amount", "transaction_status"]
+	)
+
+	if claimed:
+		return {
+			"transaction": transaction,
+			"refund_transaction": claimed["name"],
+			"refunded_amount": flt(current["refunded_amount"]),
+			"reason": reason.strip(),
+			"duplicate": True,
+		}
+
+	if current["transaction_status"] not in SETTLED_STATES:
 		throw(
-			_("Transaction {0} is {1} and cannot be refunded.").format(transaction, _(doc.transaction_status)),
+			_("Transaction {0} is {1} and cannot be refunded.").format(
+				transaction, _(current["transaction_status"])
+			),
 			exc=IntegrationError,
 		)
 
-	amount = flt(amount)
-	refundable = flt(doc.amount) - flt(doc.refunded_amount)
+	refundable = flt(current["amount"]) - flt(current["refunded_amount"])
 
-	if amount <= 0 or amount > refundable + 0.005:
+	if amount > refundable + 0.005:
 		throw(
 			_("Refund amount must be between 0 and {0}.").format(flt(refundable, 2)),
 			exc=IntegrationError,
 		)
 
-	key = idempotency_key or f"refund:{transaction}:{flt(amount, 2)}"
+	# --- claim the funds before spending them ---------------------------
+	refunded = flt(current["refunded_amount"]) + amount
 
-	lock_document(TRANSACTION_DOCTYPE, transaction)
-
-	adapter = get_provider(doc.property, doc.provider)
-	result = adapter.refund(doc.provider_reference, amount, key, reason=reason.strip())
-
-	refunded = flt(doc.refunded_amount) + amount
+	refund_transaction = _claim_refund(transaction, current, amount, key)
 
 	frappe.db.set_value(
 		TRANSACTION_DOCTYPE,
 		transaction,
 		{
 			"refunded_amount": refunded,
-			"transaction_status": "Refunded" if refunded >= flt(doc.amount) - 0.005 else "Partially Refunded",
-			"provider_status": result.provider_status,
+			"transaction_status": "Refunded"
+			if refunded >= flt(current["amount"]) - 0.005
+			else "Partially Refunded",
 		},
 		update_modified=True,
 	)
 
-	if doc.folio:
+	# --- and only now, the provider -------------------------------------
+	adapter = get_provider(current["property"], current["provider"])
+	result = adapter.refund(current["provider_reference"], amount, key, reason=reason.strip())
+
+	frappe.db.set_value(
+		TRANSACTION_DOCTYPE,
+		refund_transaction,
+		{
+			"transaction_status": result.status,
+			"provider_reference": result.provider_reference,
+			"provider_status": result.provider_status,
+			"completed_on": now_datetime(),
+			"response_payload": json.dumps(result.raw, default=str),
+		},
+		update_modified=True,
+	)
+
+	frappe.db.set_value(
+		TRANSACTION_DOCTYPE, transaction, "provider_status", result.provider_status, update_modified=False
+	)
+
+	if current["folio"]:
 		folio_service.post_payment(
-			doc.folio,
+			current["folio"],
 			amount,
 			"Online Gateway",
 			payment_type="Refund",
@@ -331,7 +413,43 @@ def refund_payment(transaction: str, amount: float, reason: str, *, idempotency_
 			provider_reference=result.provider_reference,
 		)
 
-	return {"transaction": transaction, "refunded_amount": refunded, "reason": reason.strip()}
+	return {
+		"transaction": transaction,
+		"refund_transaction": refund_transaction,
+		"refunded_amount": refunded,
+		"reason": reason.strip(),
+		"duplicate": False,
+	}
+
+
+def _claim_refund(transaction: str, current: dict, amount: float, key: str) -> str:
+	"""Record the intent to refund, before the provider is asked to do it.
+
+	A Payment Transaction of type Refund, which the model already provides for.
+	Its `idempotency_key` column is unique, so the claim is enforced by the
+	database and not only by the check above - two callers that somehow got
+	past the lock could still not both create it.
+
+	It is written before the provider call so that the row exists, and the
+	funds are visibly spoken for, at the moment the external side effect
+	happens rather than after it.
+	"""
+	doc = frappe.get_doc(
+		{
+			"doctype": TRANSACTION_DOCTYPE,
+			"property": current["property"],
+			"provider": current["provider"],
+			"transaction_status": "Initiated",
+			"transaction_type": "Refund",
+			"idempotency_key": key,
+			"folio": current["folio"],
+			"amount": amount,
+			"initiated_on": now_datetime(),
+			"request_payload": json.dumps({"refund_of": transaction, "amount": amount}, default=str),
+		}
+	).insert(ignore_permissions=True)
+
+	return doc.name
 
 
 # ---------------------------------------------------------------------------

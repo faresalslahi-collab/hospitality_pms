@@ -10,7 +10,7 @@ from frappe import _
 from frappe.utils import getdate
 
 from hospitality_pms.services import reservations as service
-from hospitality_pms.services.base import require_permission
+from hospitality_pms.services.base import authorise_document, require_permission
 from hospitality_pms.services.property import resolve_property
 from hospitality_pms.services.rates import get_rate_breakdown
 
@@ -94,10 +94,7 @@ def list_reservations(
 @frappe.whitelist(methods=["GET"])
 def get_reservation(reservation: str) -> dict:
 	"""One reservation with its room lines and rate snapshot."""
-	require_permission(RESERVATION_DOCTYPE, "read")
-
-	doc = frappe.get_doc(RESERVATION_DOCTYPE, reservation)
-	doc.check_permission("read")
+	doc = authorise_document(RESERVATION_DOCTYPE, reservation, "read")
 
 	# The snapshot is stored flat on the reservation (Frappe has no grandchild
 	# tables), so it is regrouped per room line for the screen.
@@ -205,7 +202,7 @@ def create_reservation(reservation: dict | str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def confirm(reservation: str, allow_overbooking: int = 0, reason: str | None = None) -> dict:
 	"""Confirm a reservation, holding inventory under a lock."""
-	require_permission(RESERVATION_DOCTYPE, "write")
+	authorise_document(RESERVATION_DOCTYPE, reservation, "write")
 
 	service.confirm(reservation, allow_overbooking=bool(int(allow_overbooking or 0)), reason=reason)
 
@@ -214,7 +211,7 @@ def confirm(reservation: str, allow_overbooking: int = 0, reason: str | None = N
 
 @frappe.whitelist(methods=["POST"])
 def guarantee(reservation: str, guarantee_type: str, reason: str | None = None) -> dict:
-	require_permission(RESERVATION_DOCTYPE, "write")
+	authorise_document(RESERVATION_DOCTYPE, reservation, "write")
 
 	service.guarantee(reservation, guarantee_type, reason=reason)
 
@@ -224,7 +221,7 @@ def guarantee(reservation: str, guarantee_type: str, reason: str | None = None) 
 @frappe.whitelist(methods=["POST"])
 def cancel(reservation: str, reason: str, waive_charge: int = 0) -> dict:
 	"""Cancel a reservation and return what the policy charges."""
-	require_permission(RESERVATION_DOCTYPE, "write")
+	authorise_document(RESERVATION_DOCTYPE, reservation, "write")
 
 	result = service.cancel(reservation, reason, waive_charge=bool(int(waive_charge or 0)))
 
@@ -233,7 +230,7 @@ def cancel(reservation: str, reason: str, waive_charge: int = 0) -> dict:
 
 @frappe.whitelist(methods=["POST"])
 def mark_no_show(reservation: str, reason: str | None = None) -> dict:
-	require_permission(RESERVATION_DOCTYPE, "write")
+	authorise_document(RESERVATION_DOCTYPE, reservation, "write")
 
 	result = service.mark_no_show(reservation, reason=reason)
 
@@ -243,7 +240,7 @@ def mark_no_show(reservation: str, reason: str | None = None) -> dict:
 @frappe.whitelist(methods=["POST"])
 def assign_room(reservation: str, room_line: str, room: str, allow_unready: int = 0) -> dict:
 	"""Assign a specific room to a reservation line."""
-	require_permission(RESERVATION_DOCTYPE, "write")
+	authorise_document(RESERVATION_DOCTYPE, reservation, "write")
 
 	service.assign_room(reservation, room_line, room, allow_unready=bool(int(allow_unready or 0)))
 

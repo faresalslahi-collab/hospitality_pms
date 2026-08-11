@@ -30,9 +30,9 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate
 
-from hospitality_pms.services.base import lock_documents
-from hospitality_pms.services.exceptions import AvailabilityError, throw
-from hospitality_pms.services.property import get_property
+from hospitality_pms.services.base import lock_documents, require_role
+from hospitality_pms.services.exceptions import AvailabilityError, OverbookingError, throw
+from hospitality_pms.services.property import get_property, get_settings
 from hospitality_pms.services.rooms import BLOCKING_INVENTORY, BLOCKING_MAINTENANCE
 
 ROOM_DOCTYPE = "Hotel Room"
@@ -335,6 +335,86 @@ def check_availability(
 		"rooms": rooms,
 		"min_available": bucket["min_available"],
 		"overbooking_limit": overbooking,
+	}
+
+
+#: Who may sell a room the house does not have.
+#:
+#: Taken from the approved matrix rather than invented: these are exactly the
+#: roles that may write `Room Inventory Restriction` - revenue, reservations
+#: and front office management, plus hotel management and administration.
+#: Overselling is a decision of the same kind, made by the same people.
+#:
+#: An ordinary Reservation Agent is deliberately absent. Selling past the
+#: house's capacity commits the hotel to walking a guest, which is a
+#: management decision and not a booking one.
+OVERBOOKING_ROLES = (
+	"Revenue Manager",
+	"Reservation Manager",
+	"Front Office Manager",
+	"Hotel Manager",
+	"General Manager",
+	"Hospitality Administrator",
+	"System Manager",
+)
+
+
+def authorise_overbooking(reason: str | None) -> str:
+	"""Refuse an overbooking override that is switched off, unauthorised or unexplained.
+
+	The configured numeric limit is enforced by `check_availability` and is not
+	revisited here - it was already correct. What was missing was everything
+	around it (P1-3):
+
+	* `PMS Settings.enable_overbooking` existed and was read nowhere, so the
+	  operator's switch for the whole feature did nothing.
+	* No role was required, so an ordinary Reservation Agent oversold the house.
+	* `reason` was optional, so `None` was accepted for a decision that commits
+	  the hotel to walking a guest.
+
+	Returns the cleaned reason, so the caller records the same text it was
+	authorised against.
+
+	Called before the target document is loaded: an override nobody is entitled
+	to make should be refused before any inventory is touched or locked.
+	"""
+	if not get_settings().enable_overbooking:
+		throw(
+			_(
+				"Overbooking is not enabled for this system. An administrator must turn it on "
+				"in PMS Settings before a room can be sold beyond the house's capacity."
+			),
+			exc=OverbookingError,
+		)
+
+	require_role(OVERBOOKING_ROLES)
+
+	cleaned = (reason or "").strip()
+
+	if not cleaned:
+		throw(
+			_("A reason is required to sell beyond the available rooms."),
+			exc=OverbookingError,
+		)
+
+	return cleaned
+
+
+def overbooking_evidence(checks: list[dict], reason: str) -> dict:
+	"""The audit record of an override: what was used, how far, and why.
+
+	`checks` are the `check_availability` results for the lines being sold.
+	`min_available` is what the house genuinely had, so anything sold past it
+	is the override's actual impact rather than merely the limit it was allowed
+	to consume.
+	"""
+	return {
+		"overbooking_override": True,
+		"overbooking_reason": reason,
+		"overbooking_limit": max((int(check["overbooking_limit"] or 0) for check in checks), default=0),
+		"overbooking_rooms": sum(
+			max(int(check["rooms"]) - int(check["min_available"]), 0) for check in checks
+		),
 	}
 
 

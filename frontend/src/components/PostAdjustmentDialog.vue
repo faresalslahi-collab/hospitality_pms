@@ -44,6 +44,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { PAYER_OPTIONS, postAdjustmentResource } from '@/resources/folio'
 import { normaliseError } from '@/utils/errors'
 import { t } from '@/utils/i18n'
+import { useOperationKey } from '@/utils/operationKey'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -58,6 +59,8 @@ const open = computed({
 })
 
 const postAdjustment = postAdjustmentResource()
+
+const operation = useOperationKey('adjustment')
 
 const saving = ref(false)
 const errorMessage = ref('')
@@ -80,6 +83,7 @@ watch(
     if (!isOpen) return
     errorMessage.value = ''
     Object.assign(form, blankForm())
+    operation.reset()
   },
 )
 
@@ -94,8 +98,10 @@ async function submit() {
       description: form.description.trim(),
       reason: form.reason.trim(),
       payer: form.payer,
+      idempotency_key: operation.current(),
     })
 
+    operation.done()
     emit('posted')
     open.value = false
   } catch (error) {

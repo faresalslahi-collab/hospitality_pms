@@ -7,6 +7,8 @@ Everything here runs inside the caller's transaction so a failure half way
 cannot leave a guest checked in with no folio to charge.
 """
 
+import json
+
 import frappe
 from frappe import _
 from frappe.utils import add_days, flt, getdate, now_datetime
@@ -14,8 +16,21 @@ from frappe.utils import add_days, flt, getdate, now_datetime
 from hospitality_pms.services import folio as folio_service
 from hospitality_pms.services import reservations as reservation_service
 from hospitality_pms.services import rooms as room_service
-from hospitality_pms.services.availability import check_availability, nights_between
-from hospitality_pms.services.base import assert_transition, lock_document, require_role
+from hospitality_pms.services.availability import (
+	authorise_overbooking,
+	check_availability,
+	nights_between,
+	overbooking_evidence,
+)
+from hospitality_pms.services.base import (
+	STAY_ORCHESTRATION,
+	assert_transition,
+	lock_and_get_doc,
+	lock_document,
+	require_permission,
+	require_role,
+	service_context,
+)
 from hospitality_pms.services.exceptions import (
 	HospitalityPMSError,
 	InvalidStateTransitionError,
@@ -85,10 +100,19 @@ def check_in(
 	finds the line already checked in and refuses rather than creating a second
 	stay for the same guest.
 	"""
-	reservation_doc = frappe.get_doc(reservation_service.RESERVATION_DOCTYPE, reservation)
+	# Editing a booking and physically checking a guest in are different
+	# authorities. A Reservation Agent holds `Reservation.write` and, by the
+	# approved matrix, no `Stay.create` - and used to be able to check a guest
+	# in anyway, because this gate consulted only the first of the two. Both
+	# are required, and both are asserted before any state is touched.
+	require_permission(STAY_DOCTYPE, "create")
+
+	# Locked and read together: `_assert_reservation_ready` below decides on
+	# `reservation_status`, and reading it from a pre-lock snapshot would let a
+	# reservation cancelled a moment ago still be checked in (N1).
+	reservation_doc = lock_and_get_doc(reservation_service.RESERVATION_DOCTYPE, reservation)
 	reservation_doc.check_permission("write")
 
-	lock_document(reservation_service.RESERVATION_DOCTYPE, reservation)
 	lock_document("Hotel Room", room)
 
 	line = next((row for row in reservation_doc.rooms if row.name == room_line), None)
@@ -131,7 +155,11 @@ def check_in(
 	if line.assigned_room != room:
 		reservation_service.assign_room(reservation, room_line, room, allow_unready=allow_unready_room)
 
-	stay = frappe.get_doc(
+	# Every precondition above has now passed, so this is the one moment at
+	# which a Stay may legitimately come into existence. The context is opened
+	# around the insert alone: an unrelated save later in this request must not
+	# inherit the authority (P1-2).
+	stay = _insert_stay(
 		{
 			"doctype": STAY_DOCTYPE,
 			"property": reservation_doc.property,
@@ -153,7 +181,7 @@ def check_in(
 			"readiness_override_reason": readiness_reason,
 			"special_requests": line.special_requests or reservation_doc.special_requests,
 		}
-	).insert(ignore_permissions=True)
+	)
 
 	for companion in companions or []:
 		stay.append("companions", companion)
@@ -217,6 +245,18 @@ def check_in(
 		)
 
 	return {"stay": stay.name, "folio": folio, "room": room}
+
+
+def _insert_stay(values: dict):
+	"""Create the Stay, inside the orchestration context that authorises it.
+
+	The single place in the application where a Stay is created. `Stay`'s
+	controller refuses an insert outside this context, so anything that needs
+	to create a stay in future has to come through here - and therefore through
+	the preconditions that make a stay safe to create.
+	"""
+	with service_context(STAY_ORCHESTRATION):
+		return frappe.get_doc(values).insert(ignore_permissions=True)
 
 
 def _assert_reservation_ready(doc):
@@ -305,7 +345,10 @@ def change_room(stay: str, new_room: str, reason: str, *, allow_unready: bool = 
 	if not reason or not reason.strip():
 		throw(_("A reason is required to change room."))
 
-	doc = frappe.get_doc(STAY_DOCTYPE, stay)
+	# Current under lock: the status guard below decides whether the guest is
+	# still in the room at all, and a pre-lock read of it could move a guest
+	# who checked out while this request waited (N1).
+	doc = lock_and_get_doc(STAY_DOCTYPE, stay)
 	doc.check_permission("write")
 
 	if doc.stay_status not in (IN_HOUSE, DUE_OUT):
@@ -358,9 +401,23 @@ def change_room(stay: str, new_room: str, reason: str, *, allow_unready: bool = 
 	return {"stay": stay, "from_room": previous_room, "to_room": new_room}
 
 
-def extend_stay(stay: str, new_departure, *, allow_overbooking: bool = False) -> dict:
-	"""Extend a stay, but only if the room type is free for the extra nights."""
-	doc = frappe.get_doc(STAY_DOCTYPE, stay)
+def extend_stay(
+	stay: str, new_departure, *, allow_overbooking: bool = False, reason: str | None = None
+) -> dict:
+	"""Extend a stay, but only if the room type is free for the extra nights.
+
+	`allow_overbooking` carries the same authority here as it does on
+	confirmation - an elevated role, a reason and an audit record - because it
+	oversells the house in exactly the same way (P1-3).
+
+	Whether an extension is reflected in sellable inventory at all is a separate
+	defect (P1-5) and is untouched here.
+	"""
+	# Authorised before the stay is loaded, so an override nobody may make is
+	# refused before anything is read or locked.
+	overbooking_reason = authorise_overbooking(reason) if allow_overbooking else None
+
+	doc = lock_and_get_doc(STAY_DOCTYPE, stay)
 	doc.check_permission("write")
 
 	if doc.stay_status not in (IN_HOUSE, DUE_OUT):
@@ -375,11 +432,9 @@ def extend_stay(stay: str, new_departure, *, allow_overbooking: bool = False) ->
 	if new_departure <= current_departure:
 		throw(_("The new departure must be after the current departure of {0}.").format(current_departure))
 
-	lock_document(STAY_DOCTYPE, stay)
-
 	# Only the added nights are checked; the nights already in house are the
 	# guest's by right.
-	check_availability(
+	check = check_availability(
 		doc.property,
 		doc.room_type,
 		current_departure,
@@ -401,6 +456,9 @@ def extend_stay(stay: str, new_departure, *, allow_overbooking: bool = False) ->
 
 	_log_note(doc, _("Stay extended to {0}").format(new_departure))
 
+	if overbooking_reason:
+		_log_overbooking_override(doc, [check], overbooking_reason, new_departure)
+
 	return {"stay": stay, "departure_date": str(new_departure), "nights": doc.nights}
 
 
@@ -409,7 +467,7 @@ def shorten_stay(stay: str, new_departure, reason: str) -> dict:
 	if not reason or not reason.strip():
 		throw(_("A reason is required to shorten a stay."))
 
-	doc = frappe.get_doc(STAY_DOCTYPE, stay)
+	doc = lock_and_get_doc(STAY_DOCTYPE, stay)
 	doc.check_permission("write")
 
 	new_departure = getdate(new_departure)
@@ -423,8 +481,6 @@ def shorten_stay(stay: str, new_departure, reason: str) -> dict:
 	business_date = get_business_date(doc.property)
 	if new_departure < getdate(business_date):
 		throw(_("A stay cannot be shortened to a date before the business date."))
-
-	lock_document(STAY_DOCTYPE, stay)
 
 	doc.departure_date = new_departure
 	doc.nights = len(nights_between(doc.arrival_date, new_departure))
@@ -456,6 +512,49 @@ def add_note(stay: str, note: str, note_type: str = "Operational") -> str:
 	return stay
 
 
+def _log_overbooking_override(doc, checks: list[dict], reason: str, new_departure):
+	"""Record an oversell made through a stay extension.
+
+	Written to the Reservation Log rather than to a new DocType, because that
+	is where the booking's history already lives and where an auditor looking
+	for "was this room oversold" will look. The stay's own note table is not
+	used: notes appended after `doc.save()` are never persisted (N3), which is
+	a separate defect and not one to build an audit trail on top of.
+
+	`from_status` and `to_status` are both the reservation's current status -
+	an override changes no reservation state - which is the same shape
+	`reservations.assign_room` already writes.
+	"""
+	if not doc.reservation:
+		return
+
+	status = frappe.db.get_value(reservation_service.RESERVATION_DOCTYPE, doc.reservation, "reservation_status")
+
+	frappe.get_doc(
+		{
+			"doctype": reservation_service.RESERVATION_LOG_DOCTYPE,
+			"property": doc.property,
+			"reservation": doc.reservation,
+			"from_status": status,
+			"to_status": status,
+			"changed_by": frappe.session.user,
+			"changed_at": now_datetime(),
+			"reason": reason,
+			"details": json.dumps(
+				{
+					**overbooking_evidence(checks, reason),
+					"action": "Stay extended",
+					"stay": doc.name,
+					"room": doc.room,
+					"new_departure": str(new_departure),
+					"business_date": str(get_business_date(doc.property)),
+				},
+				default=str,
+			),
+		}
+	).insert(ignore_permissions=True)
+
+
 def _log_note(doc, note: str, note_type: str = "Operational"):
 	doc.append(
 		"stay_notes",
@@ -475,9 +574,9 @@ def _log_note(doc, note: str, note_type: str = "Operational"):
 
 def transition(stay: str, target: str, *, reason: str | None = None) -> str:
 	"""Move a stay's state against the approved machine."""
-	lock_document(STAY_DOCTYPE, stay)
-
-	doc = frappe.get_doc(STAY_DOCTYPE, stay)
+	# The transition is asserted against the status read by the lock, not one
+	# this transaction saw beforehand (N1).
+	doc = lock_and_get_doc(STAY_DOCTYPE, stay)
 
 	if doc.stay_status == CHECKED_OUT and target == IN_HOUSE:
 		require_role(CHECKOUT_REVERSAL_ROLES)

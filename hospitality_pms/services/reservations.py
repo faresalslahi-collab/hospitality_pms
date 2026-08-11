@@ -23,8 +23,20 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, now_datetime, nowdate
 
-from hospitality_pms.services.availability import check_availability, lock_room_type, nights_between
-from hospitality_pms.services.base import assert_transition, lock_document, require_role
+from hospitality_pms.services.availability import (
+	authorise_overbooking,
+	check_availability,
+	lock_room_type,
+	nights_between,
+	overbooking_evidence,
+)
+from hospitality_pms.services.base import (
+	assert_transition,
+	lock_and_get_doc,
+	lock_and_read,
+	lock_document,
+	require_role,
+)
 from hospitality_pms.services.exceptions import (
 	InvalidStateTransitionError,
 	HospitalityPMSError,
@@ -197,10 +209,26 @@ def _first_night_amount(doc) -> float:
 
 
 def _transition(doc, target: str, *, reason: str | None = None, details: dict | None = None):
-	"""Apply a state change: validate, write, propagate, log."""
-	assert_transition(doc.reservation_status, target, TRANSITIONS, _("Reservation"))
+	"""Apply a state change: validate against **current** state, write, propagate, log.
 
-	previous = doc.reservation_status
+	The status is re-read here under the row lock rather than taken from
+	`doc.reservation_status`, and that is the whole defence against P1-4.
+
+	A caller's document is loaded at the top of its operation. By the time the
+	operation reaches this point it may have waited behind another transaction
+	that changed the very status this transition is legal or illegal against -
+	and under REPEATABLE READ the caller's copy still shows the pre-wait value
+	(N1). Evaluating the state machine against that copy is what let two
+	concurrent confirms both see `Draft`, and what let a confirm overwrite a
+	cancellation that had already committed.
+
+	Reading it with `lock_and_read` makes this function the single point where
+	every reservation state change is decided, for every caller, against the
+	state that is actually in the database.
+	"""
+	previous = lock_and_read(RESERVATION_DOCTYPE, doc.name, "reservation_status")["reservation_status"]
+
+	assert_transition(previous, target, TRANSITIONS, _("Reservation"))
 
 	frappe.db.set_value(RESERVATION_DOCTYPE, doc.name, "reservation_status", target, update_modified=True)
 	doc.reservation_status = target
@@ -230,18 +258,32 @@ def confirm(reservation: str, *, allow_overbooking: bool = False, reason: str | 
 	This is the point where inventory is actually committed, so it is the point
 	that has to be race-safe.
 	"""
-	doc = frappe.get_doc(RESERVATION_DOCTYPE, reservation)
+	# Locked first, then read from that same locking read, so every guard below
+	# - the room lines, the availability check, the credit draw - is evaluated
+	# against the reservation as it stands now rather than as it stood when
+	# this request started (N1). Permission is checked on the locked document:
+	# an unauthorised caller is refused a moment later and its lock goes with
+	# the rolled-back transaction.
+	doc = lock_and_get_doc(RESERVATION_DOCTYPE, reservation)
 	doc.check_permission("write")
 
-	lock_document(RESERVATION_DOCTYPE, reservation)
+	# Refuse an illegal transition before any inventory or credit is touched.
+	# _transition re-asserts this under the lock as well; doing it here too
+	# means the loser of a race never draws corporate credit it will have to
+	# roll back.
+	assert_transition(doc.reservation_status, CONFIRMED, TRANSITIONS, _("Reservation"))
 
 	if not doc.rooms:
 		throw(_("A reservation must have at least one room line before it can be confirmed."))
 
+	# Selling past capacity is authorised before any inventory is locked, so an
+	# override nobody may make costs nothing and blocks nobody (P1-3).
+	overbooking_reason = authorise_overbooking(reason) if allow_overbooking else None
+
 	# Lock every room type this reservation touches before reading availability.
 	lock_room_type(doc.property, [line.room_type for line in doc.rooms])
 
-	for line in doc.rooms:
+	checks = [
 		check_availability(
 			doc.property,
 			line.room_type,
@@ -251,18 +293,24 @@ def confirm(reservation: str, *, allow_overbooking: bool = False, reason: str | 
 			allow_overbooking=allow_overbooking,
 			exclude_reservation=reservation,
 		)
+		for line in doc.rooms
+	]
 
 	# A corporate booking draws on the account's credit. This runs inside the
 	# same locked transaction as the availability check, so the credit movement
 	# and the booking decision commit together or not at all.
 	_consume_corporate_credit(doc)
 
-	_transition(
-		doc,
-		CONFIRMED,
-		reason=reason,
-		details={"rooms": [{"room_type": line.room_type, "rooms": line.rooms} for line in doc.rooms]},
-	)
+	details = {"rooms": [{"room_type": line.room_type, "rooms": line.rooms} for line in doc.rooms]}
+
+	if overbooking_reason:
+		# Recorded on the transition itself rather than in a log of its own, so
+		# an auditor reading the reservation's history sees the oversell in the
+		# same place as the decision it belonged to.
+		details.update(overbooking_evidence(checks, overbooking_reason))
+		details["business_date"] = str(get_business_date(doc.property))
+
+	_transition(doc, CONFIRMED, reason=reason, details=details)
 
 	frappe.db.set_value(
 		RESERVATION_DOCTYPE,
@@ -276,13 +324,11 @@ def confirm(reservation: str, *, allow_overbooking: bool = False, reason: str | 
 
 def guarantee(reservation: str, guarantee_type: str, *, reason: str | None = None) -> str:
 	"""Move a confirmed reservation to guaranteed once its guarantee is in place."""
-	doc = frappe.get_doc(RESERVATION_DOCTYPE, reservation)
-	doc.check_permission("write")
-
 	if not guarantee_type or guarantee_type == "None":
 		throw(_("A guarantee type is required to guarantee a reservation."))
 
-	lock_document(RESERVATION_DOCTYPE, reservation)
+	doc = lock_and_get_doc(RESERVATION_DOCTYPE, reservation)
+	doc.check_permission("write")
 
 	frappe.db.set_value(
 		RESERVATION_DOCTYPE,
@@ -317,10 +363,12 @@ def cancel(reservation: str, reason: str, *, waive_charge: bool = False) -> dict
 	if not reason or not reason.strip():
 		throw(_("A reason is required to cancel a reservation."))
 
-	doc = frappe.get_doc(RESERVATION_DOCTYPE, reservation)
+	doc = lock_and_get_doc(RESERVATION_DOCTYPE, reservation)
 	doc.check_permission("write")
 
-	lock_document(RESERVATION_DOCTYPE, reservation)
+	# Refused here as well as inside _transition, so a cancellation that has
+	# already lost the race never releases credit it never consumed.
+	assert_transition(doc.reservation_status, CANCELLED, TRANSITIONS, _("Reservation"))
 
 	first_night = _first_night_amount(doc)
 
@@ -369,8 +417,7 @@ def mark_no_show(reservation: str, *, reason: str | None = None) -> dict:
 	"""
 	require_role(NO_SHOW_ROLES)
 
-	doc = frappe.get_doc(RESERVATION_DOCTYPE, reservation)
-	lock_document(RESERVATION_DOCTYPE, reservation)
+	doc = lock_and_get_doc(RESERVATION_DOCTYPE, reservation)
 
 	business_date = get_business_date(doc.property)
 
@@ -446,7 +493,16 @@ def _release_corporate_credit(doc, charge: float = 0.0):
 
 	Only the amount that will not now be billed is released: a cancellation
 	charge is still owed by the account, so it stays consumed.
+
+	Nothing is released for a booking that never consumed anything. Credit is
+	drawn at confirmation, so a Draft, Tentative or Waitlisted reservation is
+	not holding any - and releasing against it wrote a `Credit released`
+	movement for money that was never taken, leaving the ledger showing a
+	release with no matching consumption.
 	"""
+	if doc.reservation_status not in HOLDING_STATES:
+		return
+
 	account = _corporate_account(doc)
 
 	if not account:

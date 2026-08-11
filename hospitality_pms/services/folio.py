@@ -20,7 +20,13 @@ import frappe
 from frappe import _
 from frappe.utils import flt, now_datetime, nowdate
 
-from hospitality_pms.services.base import assert_transition, lock_document, require_role
+from hospitality_pms.services.base import (
+	FINANCIAL_POSTING,
+	assert_transition,
+	lock_and_get_doc,
+	require_role,
+	service_context,
+)
 from hospitality_pms.services.exceptions import FolioError, throw
 from hospitality_pms.services.property import get_business_date
 
@@ -79,6 +85,20 @@ REOPEN_ROLES = (
 
 #: Charge types that reduce the balance rather than increase it.
 CREDIT_CHARGE_TYPES = ("Discount",)
+
+#: The only charge types whose amount may be negative.
+#:
+#: Every other type describes something the guest consumed, so a negative one
+#: is not a charge at all - it is a correction wearing a charge's clothes, and
+#: corrections have their own workflows: `post_adjustment` and `reverse_charge`
+#: both demand an elevated role and a recorded reason, and a `Discount` is
+#: entered positive and stored negative by the rule below.
+#:
+#: Without this an ordinary agent could post `Room Charge -100` and move the
+#: balance exactly as far as an adjustment would, with no role check, no
+#: reason and nothing in the audit trail to distinguish it from a real charge
+#: (N4).
+SIGNED_CHARGE_TYPES = ("Adjustment", "Discount")
 
 
 # ---------------------------------------------------------------------------
@@ -161,13 +181,16 @@ def post_charge(
 	if not idempotency_key:
 		throw(_("An idempotency key is required to post a charge."), exc=FolioError)
 
-	lock_document(FOLIO_DOCTYPE, folio)
+	# Locked and read in one operation, so the duplicate-key check below is
+	# made against the folio's *current* rows. Locking and then reading
+	# separately let two concurrent posts of one key both conclude the key was
+	# unused - each answering from the snapshot it opened before it started
+	# waiting - and both post (N1, N5).
+	doc = lock_and_get_doc(FOLIO_DOCTYPE, folio)
 
-	existing = _find_by_key("Folio Charge", folio, idempotency_key)
+	existing = _find_by_key(doc.charges, idempotency_key)
 	if existing:
 		return {**existing, "duplicate": True}
-
-	doc = frappe.get_doc(FOLIO_DOCTYPE, folio)
 
 	if doc.folio_status not in POSTABLE_STATES:
 		throw(
@@ -177,6 +200,8 @@ def post_charge(
 
 	amount = flt(amount)
 	tax_amount = flt(tax_amount)
+
+	_assert_sign_is_valid(charge_type, amount, tax_amount)
 
 	# Discounts are entered as positive numbers by operators and stored
 	# negative, so the balance arithmetic is a plain sum everywhere else.
@@ -206,7 +231,9 @@ def post_charge(
 	)
 
 	_recalculate(doc)
-	doc.save(ignore_permissions=True)
+
+	with service_context(FINANCIAL_POSTING):
+		doc.save(ignore_permissions=True)
 
 	_log(
 		folio,
@@ -240,13 +267,13 @@ def post_payment(
 	if not idempotency_key:
 		throw(_("An idempotency key is required to post a payment."), exc=FolioError)
 
-	lock_document(FOLIO_DOCTYPE, folio)
+	# Same reasoning as post_charge: the duplicate check has to see the rows as
+	# they are now, not as they were before this transaction started waiting.
+	doc = lock_and_get_doc(FOLIO_DOCTYPE, folio)
 
-	existing = _find_by_key("Folio Payment", folio, idempotency_key)
+	existing = _find_by_key(doc.payments, idempotency_key)
 	if existing:
 		return {**existing, "duplicate": True}
-
-	doc = frappe.get_doc(FOLIO_DOCTYPE, folio)
 
 	if doc.folio_status == CLOSED:
 		throw(_("Folio {0} is closed and cannot take payments.").format(folio), exc=FolioError)
@@ -278,7 +305,9 @@ def post_payment(
 	)
 
 	_recalculate(doc)
-	doc.save(ignore_permissions=True)
+
+	with service_context(FINANCIAL_POSTING):
+		doc.save(ignore_permissions=True)
 
 	_log(
 		folio,
@@ -291,16 +320,35 @@ def post_payment(
 	return {"row": row.name, "amount": amount, "balance": doc.balance, "duplicate": False}
 
 
-def _find_by_key(child_doctype: str, folio: str, idempotency_key: str) -> dict | None:
-	"""The row already posted under this key, if any."""
-	row = frappe.db.get_value(
-		child_doctype,
-		{"parent": folio, "idempotency_key": idempotency_key},
-		["name", "amount"],
-		as_dict=True,
-	)
+def _find_by_key(rows, idempotency_key: str) -> dict | None:
+	"""The row already posted under this key, if any.
 
-	return {"row": row["name"], "amount": row["amount"]} if row else None
+	Scans the rows the caller already holds rather than issuing its own query,
+	and that is the point: those rows came from `lock_and_get_doc`, so they are
+	the folio's current children. A fresh `frappe.db.get_value` here would be a
+	plain read answered from the pre-lock snapshot, which is exactly how two
+	concurrent posts of one key both decided the key was free.
+	"""
+	row = next((row for row in rows if row.idempotency_key == idempotency_key), None)
+
+	return {"row": row.name, "amount": row.amount} if row else None
+
+
+def _assert_sign_is_valid(charge_type: str, amount: float, tax_amount: float):
+	"""Refuse a negative amount on a charge type that has no negative meaning (N4)."""
+	if charge_type in SIGNED_CHARGE_TYPES:
+		return
+
+	if amount >= 0 and tax_amount >= 0:
+		return
+
+	throw(
+		_(
+			"A {0} charge cannot be negative. Use an adjustment, a discount or a reversal "
+			"of the original charge, which record who approved the correction and why."
+		).format(_(charge_type)),
+		exc=FolioError,
+	)
 
 
 # ---------------------------------------------------------------------------
@@ -319,9 +367,10 @@ def reverse_charge(folio: str, charge_row: str, reason: str) -> dict:
 	if not reason or not reason.strip():
 		throw(_("A reason is required to reverse a charge."), exc=FolioError)
 
-	lock_document(FOLIO_DOCTYPE, folio)
-
-	doc = frappe.get_doc(FOLIO_DOCTYPE, folio)
+	# Current under lock: `is_reversed` below is the guard against reversing a
+	# charge twice, and reading it from a pre-lock snapshot would let two
+	# concurrent reversals both see it unset.
+	doc = lock_and_get_doc(FOLIO_DOCTYPE, folio)
 	original = next((row for row in doc.charges if row.name == charge_row), None)
 
 	if not original:
@@ -357,7 +406,9 @@ def reverse_charge(folio: str, charge_row: str, reason: str) -> dict:
 	)
 
 	_recalculate(doc)
-	doc.save(ignore_permissions=True)
+
+	with service_context(FINANCIAL_POSTING):
+		doc.save(ignore_permissions=True)
 
 	_log(
 		folio,
@@ -371,8 +422,20 @@ def reverse_charge(folio: str, charge_row: str, reason: str) -> dict:
 	return {"reversed": charge_row, "balance": doc.balance}
 
 
-def post_adjustment(folio: str, amount: float, description: str, reason: str, *, payer: str = "Guest") -> dict:
-	"""Post a manual adjustment. Always audited, always reasoned."""
+def post_adjustment(
+	folio: str,
+	amount: float,
+	description: str,
+	reason: str,
+	*,
+	idempotency_key: str,
+	payer: str = "Guest",
+) -> dict:
+	"""Post a manual adjustment. Always audited, always reasoned.
+
+	The key comes from the caller for the same reason as everywhere else: this
+	used to mint a random one per call, so a retried adjustment adjusted twice.
+	"""
 	require_role(ADJUSTMENT_ROLES)
 
 	if not reason or not reason.strip():
@@ -384,7 +447,7 @@ def post_adjustment(folio: str, amount: float, description: str, reason: str, *,
 		description,
 		amount,
 		payer=payer,
-		idempotency_key=f"adjustment:{folio}:{frappe.generate_hash(length=12)}",
+		idempotency_key=idempotency_key,
 	)
 
 
@@ -432,9 +495,10 @@ def get_balance(folio: str) -> float:
 
 def transition(folio: str, target: str, *, reason: str | None = None) -> str:
 	"""Move the folio state, validating against the approved machine."""
-	lock_document(FOLIO_DOCTYPE, folio)
-
-	doc = frappe.get_doc(FOLIO_DOCTYPE, folio)
+	# Current under lock. Every guard below - the state machine, the unposted
+	# charge check, the outstanding balance check - is decided from this
+	# document, so it has to be the folio as it stands now.
+	doc = lock_and_get_doc(FOLIO_DOCTYPE, folio)
 	previous = doc.folio_status
 
 	assert_transition(previous, target, TRANSITIONS, _("Folio"))
@@ -496,9 +560,7 @@ def split_folio(folio: str, charge_rows: list[str], *, folio_type: str = "Split"
 	"""
 	require_role(ADJUSTMENT_ROLES)
 
-	lock_document(FOLIO_DOCTYPE, folio)
-
-	source = frappe.get_doc(FOLIO_DOCTYPE, folio)
+	source = lock_and_get_doc(FOLIO_DOCTYPE, folio)
 
 	if source.folio_status in (SETTLED, CLOSED):
 		throw(_("A {0} folio cannot be split.").format(_(source.folio_status)), exc=FolioError)
@@ -518,7 +580,9 @@ def split_folio(folio: str, charge_rows: list[str], *, folio_type: str = "Split"
 		parent_folio=folio,
 	)
 
-	target_doc = frappe.get_doc(FOLIO_DOCTYPE, target)
+	# Just created by open_folio above, so there is nothing stale to fear; it is
+	# locked all the same because rows are about to be written onto it.
+	target_doc = lock_and_get_doc(FOLIO_DOCTYPE, target)
 
 	for row in moving:
 		values = row.as_dict()
@@ -537,8 +601,10 @@ def split_folio(folio: str, charge_rows: list[str], *, folio_type: str = "Split"
 	# The rows are moving to another folio, not being destroyed, so the folio's
 	# "corrections are reversals" guard is told this is a move.
 	source.flags.hpms_moving_rows = True
-	source.save(ignore_permissions=True)
-	target_doc.save(ignore_permissions=True)
+
+	with service_context(FINANCIAL_POSTING):
+		source.save(ignore_permissions=True)
+		target_doc.save(ignore_permissions=True)
 
 	_log(folio, source.property, "Charges split out", details={"to_folio": target, "rows": charge_rows})
 	_log(target, source.property, "Charges split in", details={"from_folio": folio, "rows": charge_rows})
@@ -553,11 +619,12 @@ def merge_folio(source_folio: str, target_folio: str) -> str:
 	if source_folio == target_folio:
 		throw(_("A folio cannot be merged into itself."), exc=FolioError)
 
-	for name in sorted([source_folio, target_folio]):
-		lock_document(FOLIO_DOCTYPE, name)
+	# Locked in name order so two merges touching the same pair cannot deadlock
+	# against each other, and read from those same locking reads.
+	locked = {name: lock_and_get_doc(FOLIO_DOCTYPE, name) for name in sorted([source_folio, target_folio])}
 
-	source = frappe.get_doc(FOLIO_DOCTYPE, source_folio)
-	target = frappe.get_doc(FOLIO_DOCTYPE, target_folio)
+	source = locked[source_folio]
+	target = locked[target_folio]
 
 	for state_holder in (source, target):
 		if state_holder.folio_status in (SETTLED, CLOSED):
@@ -582,8 +649,10 @@ def merge_folio(source_folio: str, target_folio: str) -> str:
 	_recalculate(target)
 
 	source.flags.hpms_moving_rows = True
-	source.save(ignore_permissions=True)
-	target.save(ignore_permissions=True)
+
+	with service_context(FINANCIAL_POSTING):
+		source.save(ignore_permissions=True)
+		target.save(ignore_permissions=True)
 
 	transition(source_folio, CLOSED, reason=_("Merged into {0}").format(target_folio))
 

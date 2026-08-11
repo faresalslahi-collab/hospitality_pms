@@ -4,7 +4,7 @@ import frappe
 
 from hospitality_pms.services import checkout as service
 from hospitality_pms.services import posting as posting_service
-from hospitality_pms.services.base import require_permission, require_role
+from hospitality_pms.services.base import authorise_document, require_role
 from hospitality_pms.services.property import resolve_property
 
 STAY_DOCTYPE = "Stay"
@@ -24,7 +24,7 @@ RECONCILIATION_ROLES = (
 @frappe.whitelist(methods=["GET"])
 def summary(stay: str) -> dict:
 	"""What the guest owes and anything blocking departure."""
-	require_permission(STAY_DOCTYPE, "read")
+	authorise_document(STAY_DOCTYPE, stay, "read")
 
 	return service.get_checkout_summary(stay)
 
@@ -37,7 +37,7 @@ def check_out(
 	reason: str | None = None,
 ) -> dict:
 	"""Settle, post and release the room."""
-	require_permission(STAY_DOCTYPE, "write")
+	authorise_document(STAY_DOCTYPE, stay, "write")
 
 	return service.check_out(
 		stay,
@@ -50,7 +50,7 @@ def check_out(
 @frappe.whitelist(methods=["POST"])
 def reverse_checkout(stay: str, reason: str) -> dict:
 	"""Undo a checkout. Requires front office and finance authority."""
-	require_permission(STAY_DOCTYPE, "write")
+	authorise_document(STAY_DOCTYPE, stay, "write")
 
 	return service.reverse_checkout(stay, reason)
 
@@ -91,6 +91,7 @@ def reconciliation(property: str | None = None) -> dict:
 def reconcile_folio(folio: str) -> dict:
 	"""Compare one folio against what actually reached ERPNext."""
 	require_role(RECONCILIATION_ROLES)
+	authorise_document(FOLIO_DOCTYPE, folio, "read")
 
 	return posting_service.reconcile_folio(folio)
 
@@ -99,6 +100,7 @@ def reconcile_folio(folio: str) -> dict:
 def retry_posting(log: str) -> dict:
 	"""Retry a failed posting under its original idempotency key."""
 	require_role(RECONCILIATION_ROLES)
+	authorise_document(posting_service.POSTING_LOG, log, "read")
 
 	return posting_service.retry_posting(log)
 
@@ -111,6 +113,6 @@ def post_folio(folio: str) -> dict:
 	post at checkout.
 	"""
 	require_role(RECONCILIATION_ROLES)
-	require_permission(FOLIO_DOCTYPE, "write")
+	authorise_document(FOLIO_DOCTYPE, folio, "write")
 
 	return service._post_to_erp(folio)

@@ -10,7 +10,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, now_datetime, nowdate
 
-from hospitality_pms.services.base import lock_document, require_role
+from hospitality_pms.services.base import lock_and_read, require_role
 from hospitality_pms.services.exceptions import HospitalityPMSError, throw
 
 ACCOUNT_DOCTYPE = "Corporate Account"
@@ -140,13 +140,20 @@ def consume_credit(
 	Locked, because two bookings confirmed at the same instant must not both
 	read the same remaining credit and both fit inside it.
 	"""
-	lock_document(ACCOUNT_DOCTYPE, account)
+	# The balance this decision is made from must be the committed balance at
+	# the moment the lock was granted, not the one this transaction saw before
+	# it started waiting. Locking and then reading separately is what let two
+	# concurrent bookings both record `credit_before = 0` and both fit inside
+	# the same remaining credit (P1-4, root cause N1).
+	current = lock_and_read(
+		ACCOUNT_DOCTYPE, account, ["credit_used", "credit_limit", "property"]
+	)
 
 	assert_contract_valid(account)
 
-	doc = frappe.get_doc(ACCOUNT_DOCTYPE, account)
-	before = flt(doc.credit_used)
-	limit = flt(doc.credit_limit)
+	before = flt(current["credit_used"])
+	limit = flt(current["credit_limit"])
+	property_name = current["property"]
 	after = before + flt(amount)
 
 	exceeded = limit > 0 and after > limit + 0.005
@@ -154,7 +161,7 @@ def consume_credit(
 	if exceeded and not allow_exception:
 		_log_credit(
 			account,
-			doc.property,
+			property_name,
 			"Credit exceeded",
 			amount=amount,
 			before=before,
@@ -186,7 +193,7 @@ def consume_credit(
 
 	_log_credit(
 		account,
-		doc.property,
+		property_name,
 		"Credit consumed" + (" (exception approved)" if exceeded else ""),
 		amount=amount,
 		before=before,
@@ -201,12 +208,14 @@ def consume_credit(
 
 def release_credit(account: str, amount: float, *, reason: str | None = None, folio: str | None = None) -> dict:
 	"""Return credit when a booking is cancelled or an invoice is settled."""
-	lock_document(ACCOUNT_DOCTYPE, account)
+	# Current under lock, for the same reason as consume_credit: releasing
+	# against a stale balance loses whichever movement committed while this
+	# transaction was waiting.
+	current = lock_and_read(ACCOUNT_DOCTYPE, account, ["credit_used", "credit_limit", "property"])
 
-	doc = frappe.get_doc(ACCOUNT_DOCTYPE, account)
-	before = flt(doc.credit_used)
+	before = flt(current["credit_used"])
 	after = max(before - flt(amount), 0.0)
-	limit = flt(doc.credit_limit)
+	limit = flt(current["credit_limit"])
 
 	frappe.db.set_value(
 		ACCOUNT_DOCTYPE,
@@ -216,7 +225,7 @@ def release_credit(account: str, amount: float, *, reason: str | None = None, fo
 	)
 
 	_log_credit(
-		account, doc.property, "Credit released", amount=amount, before=before, after=after,
+		account, current["property"], "Credit released", amount=amount, before=before, after=after,
 		folio=folio, reason=reason,
 	)
 
@@ -234,14 +243,16 @@ def set_credit_status(account: str, status: str, reason: str) -> str:
 	if status == ACTIVE:
 		require_role(CREDIT_APPROVAL_ROLES + CREDIT_ESCALATION_ROLES)
 
-	lock_document(ACCOUNT_DOCTYPE, account)
-	doc = frappe.get_doc(ACCOUNT_DOCTYPE, account)
-	previous = doc.credit_status
+	# `previous` goes into the audit trail, so it has to be the status this
+	# change actually moved away from - not the one this transaction happened
+	# to read before it acquired the lock.
+	current = lock_and_read(ACCOUNT_DOCTYPE, account, ["credit_status", "property"])
+	previous = current["credit_status"]
 
 	frappe.db.set_value(ACCOUNT_DOCTYPE, account, "credit_status", status, update_modified=True)
 
 	_log_credit(
-		account, doc.property, "Credit status changed", from_status=previous, to_status=status,
+		account, current["property"], "Credit status changed", from_status=previous, to_status=status,
 		reason=reason.strip(), approved_by=frappe.session.user,
 	)
 

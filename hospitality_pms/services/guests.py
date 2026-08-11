@@ -306,17 +306,33 @@ def merge_guests(source: str, target: str, reason: str) -> dict:
 
 
 def assert_not_blacklisted(guest: str):
-	"""Refuse an operation for a blacklisted guest."""
-	blacklisted, reason = frappe.db.get_value(GUEST_DOCTYPE, guest, ["is_blacklisted", "blacklist_reason"]) or (
-		0,
-		None,
-	)
+	"""Refuse an operation for a blacklisted guest, without saying why (P2-6).
 
-	if blacklisted:
-		throw(
-			_("Guest {0} is blacklisted: {1}").format(guest, reason or _("no reason recorded")),
-			exc=HospitalityPMSError,
-		)
+	`blacklist_reason` sits at permlevel 3 precisely so it does not reach a
+	front desk screen: it can carry incident detail, police references or HR
+	material, and the agent needs to know *that* they must refuse, not what the
+	guest is alleged to have done. `is_blacklisted` is permlevel 2, which the
+	front office does hold, and that is the part the agent needs.
+
+	This function used to read both fields with `frappe.db.get_value` - which
+	applies no permlevel filtering at all, being a raw column read - and
+	interpolate the reason straight into the message. The permlevel design was
+	correct and this one call defeated it.
+
+	Only the flag is read now. Whoever needs the reason reads the Guest record
+	through the ordinary document path, where the permlevel applies and the
+	roles that own blacklisting can see it.
+	"""
+	if not frappe.db.get_value(GUEST_DOCTYPE, guest, "is_blacklisted"):
+		return
+
+	throw(
+		_(
+			"This guest cannot be checked in. Please contact a manager, who can review the "
+			"guest's record."
+		),
+		exc=HospitalityPMSError,
+	)
 
 
 def get_active_alerts(guest: str) -> list[dict]:

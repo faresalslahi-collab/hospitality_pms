@@ -53,6 +53,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { CHARGE_TYPE_OPTIONS, PAYER_OPTIONS, postChargeResource } from '@/resources/folio'
 import { normaliseError } from '@/utils/errors'
 import { t } from '@/utils/i18n'
+import { useOperationKey } from '@/utils/operationKey'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -67,6 +68,11 @@ const open = computed({
 })
 
 const postCharge = postChargeResource()
+
+// One key per charge the operator is posting. It outlives a failed attempt, so
+// pressing Post again after a timeout retries the same operation rather than
+// starting a second one.
+const operation = useOperationKey('charge')
 
 const saving = ref(false)
 const errorMessage = ref('')
@@ -88,6 +94,8 @@ watch(
     if (!isOpen) return
     errorMessage.value = ''
     Object.assign(form, blankForm())
+    // Opening the dialog is the operator starting a new charge.
+    operation.reset()
   },
 )
 
@@ -104,8 +112,10 @@ async function submit() {
       quantity: Number(form.quantity || 1),
       tax_amount: Number(form.tax_amount || 0),
       payer: form.payer,
+      idempotency_key: operation.current(),
     })
 
+    operation.done()
     emit('posted')
     open.value = false
   } catch (error) {

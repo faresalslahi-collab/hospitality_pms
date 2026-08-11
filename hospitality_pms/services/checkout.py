@@ -25,7 +25,7 @@ from hospitality_pms.services import posting as posting_service
 from hospitality_pms.services import reservations as reservation_service
 from hospitality_pms.services import rooms as room_service
 from hospitality_pms.services import stays as stay_service
-from hospitality_pms.services.base import lock_document, require_role
+from hospitality_pms.services.base import lock_and_get_doc, lock_document, require_role
 from hospitality_pms.services.exceptions import FolioError, InvalidStateTransitionError, throw
 from hospitality_pms.services.property import get_property
 
@@ -77,6 +77,14 @@ def get_checkout_summary(stay: str) -> dict:
 	change anything.
 	"""
 	doc = frappe.get_doc(STAY_DOCTYPE, stay)
+
+	# Checked here as well as at the endpoint. This is the function that
+	# actually assembles the payload that leaked - guest name, room, charges,
+	# payments, balance and blockers - and it is reachable from more than one
+	# caller, so the guard belongs with the disclosure rather than only in
+	# front of it (P1-15).
+	doc.check_permission("read")
+
 	folio = doc.folio or folio_service.get_folio_for_stay(stay)
 
 	if not folio:
@@ -125,9 +133,9 @@ def check_out(
 	desk. It needs a manager, because letting a guest leave owing money is a
 	credit decision.
 	"""
-	lock_document(STAY_DOCTYPE, stay)
-
-	doc = frappe.get_doc(STAY_DOCTYPE, stay)
+	# Current under lock: a stay checked out by another till a moment ago must
+	# not be checked out again from this transaction's earlier view (N1).
+	doc = lock_and_get_doc(STAY_DOCTYPE, stay)
 	doc.check_permission("write")
 
 	if doc.stay_status not in (stay_service.IN_HOUSE, stay_service.DUE_OUT):
@@ -329,9 +337,7 @@ def reverse_checkout(stay: str, reason: str) -> dict:
 	if not reason or not reason.strip():
 		throw(_("A reason is required to reverse a checkout."))
 
-	lock_document(STAY_DOCTYPE, stay)
-
-	doc = frappe.get_doc(STAY_DOCTYPE, stay)
+	doc = lock_and_get_doc(STAY_DOCTYPE, stay)
 
 	if doc.stay_status != stay_service.CHECKED_OUT:
 		throw(
