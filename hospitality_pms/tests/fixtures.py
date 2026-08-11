@@ -149,6 +149,27 @@ class Fixtures:
 		frappe.set_user("Administrator")
 		frappe.db.rollback()
 
+		try:
+			self._teardown_records()
+		finally:
+			# Settings are global. A record this suite could not delete is
+			# untidy; a site left with multi-property operation switched on
+			# because a delete raised on the way past is a behaviour change, so
+			# the restore happens whatever else went wrong.
+			self._restore_settings()
+
+		self.created.clear()
+		frappe.db.commit()
+
+	def _restore_settings(self):
+		for fieldname, value in self._settings.items():
+			frappe.db.set_single_value("PMS Settings", fieldname, value)
+
+		frappe.clear_document_cache("PMS Settings", "PMS Settings")
+		self._settings.clear()
+		frappe.db.commit()
+
+	def _teardown_records(self):
 		# Real ERPNext documents first, and through the ORM, because a
 		# submitted invoice owns GL Entries that only cancel-and-delete
 		# removes. Deleting the posting log underneath them would leave the
@@ -174,15 +195,6 @@ class Fixtures:
 		for doctype, names in by_doctype.items():
 			for name in reversed(names):
 				_force_delete(doctype, name)
-
-		for fieldname, value in self._settings.items():
-			frappe.db.set_single_value("PMS Settings", fieldname, value)
-
-		frappe.clear_document_cache("PMS Settings", "PMS Settings")
-
-		self._settings.clear()
-		self.created.clear()
-		frappe.db.commit()
 
 	def _teardown_erp_documents(self):
 		"""Cancel and delete every ERPNext document this suite's postings made.

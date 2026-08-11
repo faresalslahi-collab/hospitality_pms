@@ -28,7 +28,7 @@ from hospitality_pms.services.base import (
 	service_context,
 )
 from hospitality_pms.services.exceptions import FolioError, throw
-from hospitality_pms.services.property import get_business_date
+from hospitality_pms.services.property import assert_posting_allowed, get_business_date
 
 FOLIO_DOCTYPE = "Guest Folio"
 FOLIO_LOG_DOCTYPE = "Folio Log"
@@ -203,6 +203,16 @@ def post_charge(
 
 	_assert_sign_is_valid(charge_type, amount, tax_amount)
 
+	charge_business_date = business_date or get_business_date(doc.property)
+
+	# Corrections keep their way in: `SIGNED_CHARGE_TYPES` are the adjustment
+	# and discount workflows, which already demand an elevated role and a
+	# reason. Everything else is ordinary trading and belongs to an open day.
+	if charge_type not in SIGNED_CHARGE_TYPES:
+		assert_posting_allowed(
+			doc.property, charge_business_date, what=_("a charge"), exc=FolioError
+		)
+
 	# Discounts are entered as positive numbers by operators and stored
 	# negative, so the balance arithmetic is a plain sum everywhere else.
 	if charge_type in CREDIT_CHARGE_TYPES and amount > 0:
@@ -212,7 +222,7 @@ def post_charge(
 		"charges",
 		{
 			"charge_date": charge_date or nowdate(),
-			"business_date": business_date or get_business_date(doc.property),
+			"business_date": charge_business_date,
 			"charge_type": charge_type,
 			"description": description,
 			"item": item,
@@ -283,6 +293,16 @@ def post_payment(
 	if amount <= 0:
 		throw(_("A payment amount must be greater than zero."), exc=FolioError)
 
+	payment_business_date = business_date or get_business_date(doc.property)
+
+	# A refund is money going back to the guest - a correction, and one that may
+	# legitimately settle something from a closed day. Ordinary receipts belong
+	# to an open business date.
+	if payment_type != "Refund":
+		assert_posting_allowed(
+			doc.property, payment_business_date, what=_("a payment"), exc=FolioError
+		)
+
 	# A refund reduces what has been received.
 	if payment_type == "Refund":
 		amount = -amount
@@ -291,7 +311,7 @@ def post_payment(
 		"payments",
 		{
 			"payment_date": payment_date or nowdate(),
-			"business_date": business_date or get_business_date(doc.property),
+			"business_date": payment_business_date,
 			"payment_type": payment_type,
 			"payment_method": payment_method,
 			"amount": amount,

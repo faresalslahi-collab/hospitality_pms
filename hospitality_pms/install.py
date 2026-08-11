@@ -39,9 +39,9 @@ def sync_schema_constraints():
 	makes fresh install, upgrade and repeated migrate converge on the same
 	schema.
 	"""
-	from hospitality_pms.setup.schema import apply_financial_idempotency_constraints
+	from hospitality_pms.setup.schema import apply_all_constraints
 
-	apply_financial_idempotency_constraints()
+	apply_all_constraints()
 	frappe.db.commit()
 
 

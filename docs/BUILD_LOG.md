@@ -1,6 +1,6 @@
 # Hospitality PMS — Build Acceptance Log
 
-**Current application version:** 16.6.2 (branch `version-16`)
+**Current application version:** 16.6.3 (branch `version-16`)
 
 One record per completed build, in the format required by
 `09_Hospitality_PMS_Build_Test_and_Acceptance_Standard_v1.2_APPROVED.md` section 4.
@@ -2294,5 +2294,159 @@ tests/test_channel_retry.py            8 tests   OK
   declare `supports_idempotent_replay = False` until their lookup APIs are
   wired, so an ambiguous outcome on those parks for manual reconciliation. That
   is the correct answer, not a gap: guessing would risk a double refund.
+
+Result: PASS
+
+---
+
+## 16.6.3 — Onboarding Integrity Hardening, Wave 4: Night Audit and business-date integrity
+
+Four findings, all of them variations on one theme: **the audit trusted its own
+paperwork.** A workflow status stood in for the accounting behind it, a counter
+of zero stood in for work that had been done, and a row cap stood in for a
+population.
+
+### Target state machine and durable completion
+
+The statuses are unchanged - `Open → Reviewing → Posting → Ready to Close →
+Closed`, with `Closed → Reviewing` on reopen. No cosmetic states were added,
+because the missing thing was never a state; it was evidence.
+
+Each mandatory step now records that it finished:
+
+| Marker | Written by |
+|---|---|
+| `review_completed_on` / `_by` | `review()` |
+| `posting_completed_on` / `_by` | `post_room_charges()` |
+| `reconciliation_completed_on` / `_by` | `reconcile()` |
+| `reconciliation_population`, `reconciliation_variances` | `reconcile()` |
+| `reconciled_row_count`, `reconciled_row_total` | `reconcile()` — the staleness fingerprint |
+
+A count of zero variances is now interpretable, because the population it was
+counted over is recorded beside it (HPMS-DEC-142).
+
+### P1-7 — close on trust
+
+**Reproduced.** `review()` then `close()` advanced the business date with
+`charges_posted = 0`, `room_revenue = 0` and no room charge on any folio.
+
+`close()` now locks the audit and the property, reads both from those locking
+reads, and refuses unless: review, posting and reconciliation are all marked;
+the reconciliation is not older than the posting; the audit-date fingerprint
+still matches; no blocking exception is unresolved; and Wave 3's durable ledger
+holds no unfinished posting operation for the property. Only then does the date
+move, and the date and the status move together.
+
+**Staleness** is detected by fingerprint rather than by a flag (HPMS-DEC-143).
+A late charge on the audit date changes the count and total of that date's
+monetary rows, so the reconciliation is invalidated automatically - whatever
+path posted the charge, and without that path having to know an audit exists.
+
+### P1-9 — the 200-row blind spot
+
+**Reproduced.** 205 settled folios, a variance beyond the first 200,
+`variances = 0`, and the day closed.
+
+The cap is gone. The population (HPMS-DEC-144) is folios settled since the
+previous closed audit, **plus** any settled folio still carrying a charge that
+has not reached ERPNext — the safety net that stops a variance falling out of
+the window and becoming permanently invisible. It is read to exhaustion,
+paginated on `name` rather than `modified`, so a folio changing mid-run cannot
+shuffle past the cursor and be skipped.
+
+In-house folios are deliberately excluded. A guest still in the hotel
+accumulates charges that reach ERPNext at checkout; treating those as
+unreconciled would make it impossible to close a day at an occupied hotel. That
+was found by a test, not by inspection — the first implementation was too broad
+and blocked every close.
+
+### P2-1 — figures that were a diff, and two audits for one day
+
+**Reproduced.** A second `post_room_charges` posted nothing, correctly, and
+overwrote `room_revenue` with the nothing it had posted. ADR and RevPAR were
+computed from `doc.room_revenue` in review and reconcile but never after
+posting, so they lagged a step behind.
+
+Figures are now read back off the folios (HPMS-DEC-145) and computed after room
+revenue is resolved. Two runs produce identical rows, revenue, ADR and RevPAR.
+
+`(property, business_date)` is unique in the database (HPMS-DEC-146), applied by
+patch and by the install hooks. Two concurrent `start()` calls now produce one
+audit and hand both callers the same name rather than one of them a duplicate-key
+error.
+
+### P1-8 — the three-day rewind
+
+**Reproduced.** With the 8th, 9th and 10th closed and the property on the 11th,
+reopening the 8th moved the property to the 8th and left the chain unfinishable.
+
+A reopen is now only the undo of the last close (HPMS-DEC-147): the audit must
+be the newest closed one and the property must sit exactly one day past it.
+Reopen clears the close and the reconciliation, and leaves posting marked — the
+charges are already on the folios and are idempotent, so re-closing must not
+post them again. Verified: reopen, re-reconcile, re-close returns the property
+to exactly where it was, with the same number of room charges.
+
+### `block_posting_after_close`
+
+Wired (HPMS-DEC-148). With the setting on, an ordinary charge or receipt dated
+into a closed business date is refused, per property. Adjustments, discounts and
+refunds are exempt: corrections must stay possible, and each of those already
+demands an elevated role and a reason. With the setting off, behaviour is
+unchanged.
+
+### Authorization and document integrity
+
+Every Night Audit endpoint naming an audit now goes through Wave 1's
+`authorise_document`, which brings the property boundary with it; the service
+keeps its `require_role`. A Finance Manager holds Night Audit write by the
+approved matrix and still cannot close the day.
+
+The controller refuses direct edits to the workflow status, the completion
+markers, the business date and the figures (HPMS-DEC-149). `read_only` hides a
+field in a form and stops nothing else, and the people who hold Night Audit
+write are exactly the people the gate constrains.
+
+### Business date versus calendar date
+
+Every `now_datetime()` in the Night Audit is an audit-trail timestamp —
+`started_on`, the three `*_completed_on`, `resolved_on`, `closed_on`,
+`reopened_on` — and correctly wall-clock. There is no `nowdate()` or `today()`
+anywhere in the service or its API: `start()` takes the date from the property
+under lock, and `close()` advances by exactly one day from the audit's own date.
+No scheduled task closes a day automatically.
+
+### Validation
+
+222 tests, all passing. 181 from Waves 1–3, unchanged and still green; 41 new.
+
+```
+tests/test_night_audit.py             16 tests   OK
+tests/test_night_audit_concurrency.py  9 tests   OK
+tests/test_business_date.py           16 tests   OK
+```
+
+- Concurrency with two OS processes: one audit from two simultaneous starts,
+  one day's advance from two simultaneous closes.
+- Migration clean and repeat migrate a no-op; the composite unique index is
+  present and no duplicate audits existed to block it. Duplicates would have
+  stopped the migration with a report, never a deletion.
+- Reconciliation of 206 folios: 1,275 SQL statements (~6.2 per folio), 1.71s.
+  Linear and bounded — the per-folio cost is Wave 2's `reconcile_folio`. Batching
+  it is P2-7's job and is not a release gate here.
+- No test residue. A teardown bug found during this run — a failed delete could
+  strand a global PMS Setting — is fixed: settings now restore in a `finally`.
+
+### Intentionally still open
+
+- **Inventory is untouched.** P1-5, P1-6, P2-5 and N8 remain for the inventory
+  wave; nothing here changes stay extension, multi-room check-in or assignable
+  rooms.
+- **P2-2** (payment callback precedence) and **P2-7** (performance) are not
+  addressed beyond removing the 200-row correctness cap.
+- **Remaining calendar-date defaults** outside the Night Audit —
+  `api.reservations.arrivals` / `departures` / `calendar`, and the two Vue
+  screens defaulting to the browser's date — are unchanged and remain
+  documented for Wave 6. None is reachable from the audit path.
 
 Result: PASS

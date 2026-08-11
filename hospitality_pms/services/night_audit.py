@@ -25,7 +25,16 @@ from hospitality_pms.services import posting as posting_service
 from hospitality_pms.services import reservations as reservation_service
 from hospitality_pms.services import rooms as room_service
 from hospitality_pms.services import stays as stay_service
-from hospitality_pms.services.base import assert_transition, lock_document, require_role
+from hospitality_pms.services import durability
+from hospitality_pms.services.base import (
+	NIGHT_AUDIT_SERVICE,
+	assert_transition,
+	lock_and_get_doc,
+	lock_and_read,
+	lock_document,
+	require_role,
+	service_context,
+)
 from hospitality_pms.services.exceptions import NightAuditError, throw
 from hospitality_pms.services.property import BUSINESS_DATE_FLAG, get_business_date, get_property
 
@@ -70,6 +79,10 @@ REOPEN_ROLES = (
 
 BLOCKING = "Blocking"
 
+#: How many folios one page of the reconciliation population fetches. A page
+#: size, not a limit: pagination runs to exhaustion.
+RECONCILIATION_PAGE = 500
+
 
 # ---------------------------------------------------------------------------
 # Lifecycle
@@ -81,10 +94,20 @@ def start(property_name: str, business_date=None) -> str:
 
 	Returns the existing audit if one is already open for that date, so two
 	auditors starting at once work on the same record instead of two.
+
+	Serialised on the Property row, and backed by a unique index on
+	`(property, business_date)`. The check-then-insert on its own was a race:
+	two schedulers reading "no audit yet" at the same instant both created one,
+	and a property with two audits for one date has two sets of figures and two
+	ways to close it (P2-1).
 	"""
 	require_role(AUDITOR_ROLES)
 
-	business_date = getdate(business_date or get_business_date(property_name))
+	# Locked first: the audit for a date and the property's date are one
+	# decision, and this is the row every other Night Audit operation
+	# serialises on.
+	current = lock_and_read("Property", property_name, ["business_date"])
+	business_date = getdate(business_date or current["business_date"])
 
 	existing = frappe.db.get_value(
 		AUDIT_DOCTYPE,
@@ -101,17 +124,29 @@ def start(property_name: str, business_date=None) -> str:
 			)
 		return existing["name"]
 
-	doc = frappe.get_doc(
-		{
-			"doctype": AUDIT_DOCTYPE,
-			"property": property_name,
-			"business_date": business_date,
-			"next_business_date": add_days(business_date, 1),
-			"audit_status": OPEN,
-			"started_on": now_datetime(),
-			"started_by": frappe.session.user,
-		}
-	).insert(ignore_permissions=True)
+	try:
+		with service_context(NIGHT_AUDIT_SERVICE):
+			doc = frappe.get_doc(
+				{
+					"doctype": AUDIT_DOCTYPE,
+					"property": property_name,
+					"business_date": business_date,
+					"next_business_date": add_days(business_date, 1),
+					"audit_status": OPEN,
+					"started_on": now_datetime(),
+					"started_by": frappe.session.user,
+				}
+			).insert(ignore_permissions=True)
+	except frappe.UniqueValidationError:
+		# The database refused a second audit for this date. Another caller got
+		# there first, so hand back theirs rather than an opaque duplicate-key
+		# error - starting an audit twice is a normal thing for two schedulers
+		# to do, not a failure.
+		frappe.db.rollback()
+
+		return frappe.db.get_value(
+			AUDIT_DOCTYPE, {"property": property_name, "business_date": business_date}, "name"
+		)
 
 	return doc.name
 
@@ -124,8 +159,7 @@ def review(audit: str) -> dict:
 	"""
 	require_role(AUDITOR_ROLES)
 
-	lock_document(AUDIT_DOCTYPE, audit)
-	doc = frappe.get_doc(AUDIT_DOCTYPE, audit)
+	doc = lock_and_get_doc(AUDIT_DOCTYPE, audit)
 
 	if doc.audit_status == CLOSED:
 		throw(_("This audit is closed."), exc=NightAuditError)
@@ -192,8 +226,12 @@ def review(audit: str) -> dict:
 			},
 		)
 
-	_refresh_figures(doc, business_date)
-	doc.save(ignore_permissions=True)
+	_refresh_figures(doc, business_date, room_revenue=flt(doc.room_revenue))
+
+	doc.review_completed_on = now_datetime()
+	doc.review_completed_by = frappe.session.user
+
+	_save(doc)
 
 	return {
 		"audit": audit,
@@ -221,7 +259,7 @@ def resolve_exception(audit: str, row_name: str, resolution: str) -> str:
 	row.resolved_by = frappe.session.user
 	row.resolved_on = now_datetime()
 
-	doc.save(ignore_permissions=True)
+	_save(doc)
 
 	return row_name
 
@@ -256,8 +294,7 @@ def post_room_charges(audit: str) -> dict:
 	"""
 	require_role(AUDITOR_ROLES)
 
-	lock_document(AUDIT_DOCTYPE, audit)
-	doc = frappe.get_doc(AUDIT_DOCTYPE, audit)
+	doc = lock_and_get_doc(AUDIT_DOCTYPE, audit)
 
 	if doc.audit_status == CLOSED:
 		throw(_("This audit is closed."), exc=NightAuditError)
@@ -268,7 +305,6 @@ def post_room_charges(audit: str) -> dict:
 	posted = 0
 	skipped = 0
 	failed = []
-	revenue = 0.0
 
 	for stay in stay_service.get_stays_for_room_charge(doc.property, business_date):
 		if not stay["folio"]:
@@ -292,26 +328,38 @@ def post_room_charges(audit: str) -> dict:
 				skipped += 1
 			else:
 				posted += 1
-				revenue += flt(result.get("total_amount") or result.get("amount"))
 		except Exception as exc:  # noqa: BLE001
 			failed.append({"stay": stay["name"], "error": str(exc)[:200]})
 
-	frappe.db.set_value(
-		AUDIT_DOCTYPE,
-		audit,
-		{
-			"charges_posted": posted,
-			"rooms_charged": posted + skipped,
-			"postings_failed": len(failed),
-			"room_revenue": flt(revenue, 2),
-		},
-		update_modified=True,
-	)
+	# Derived from what is on the folios, not from what this run happened to
+	# insert. The figures used to be built out of `posted` and a running total
+	# of newly created rows, so a retry - which correctly posts nothing -
+	# overwrote the day's revenue with zero and took ADR and RevPAR with it
+	# (P2-1). Read back, they are the same on every run.
+	charged = _posted_room_charges(doc.property, business_date)
+
+	# Figures are refreshed *after* room revenue is resolved, and given that
+	# revenue explicitly. Previously `_refresh_figures` read `doc.room_revenue`
+	# from before the posting run, so ADR and RevPAR were always one operation
+	# behind whatever had just been posted.
+	doc = lock_and_get_doc(AUDIT_DOCTYPE, audit)
+	_refresh_figures(doc, business_date, room_revenue=charged["revenue"])
+
+	doc.rooms_charged = charged["rooms"]
+	doc.charges_posted = charged["rooms"]
+	doc.postings_failed = len(failed)
+	doc.room_revenue = flt(charged["revenue"], 2)
+	doc.posting_completed_on = now_datetime()
+	doc.posting_completed_by = frappe.session.user
+
+	_save(doc)
 
 	return {
 		"audit": audit,
 		"posted": posted,
 		"already_posted": skipped,
+		"rooms_charged": charged["rooms"],
+		"room_revenue": flt(charged["revenue"], 2),
 		"failed": failed,
 	}
 
@@ -324,24 +372,40 @@ def mark_due_outs(audit: str) -> list[str]:
 
 
 def reconcile(audit: str) -> dict:
-	"""Check the subledger against ERPNext before allowing a close."""
+	"""Check the subledger against ERPNext before allowing a close.
+
+	Examines its whole population, and records how big that population was.
+
+	It used to take `limit=200` folios ordered by `modified desc`. The ordering
+	is perfectly deterministic, which is precisely what made it dangerous: the
+	oldest folios were never the newest two hundred, so a variance in one of
+	them was not occasionally missed but *systematically* invisible, and the
+	day closed over it every time (P1-9).
+	"""
 	require_role(AUDITOR_ROLES)
 
-	lock_document(AUDIT_DOCTYPE, audit)
-	doc = frappe.get_doc(AUDIT_DOCTYPE, audit)
+	doc = lock_and_get_doc(AUDIT_DOCTYPE, audit)
 
-	_refresh_figures(doc, getdate(doc.business_date))
+	if doc.audit_status == CLOSED:
+		throw(_("This audit is closed."), exc=NightAuditError)
 
+	business_date = getdate(doc.business_date)
+
+	population = reconciliation_population(doc.property, business_date)
 	variances = []
-	for folio in frappe.get_all(
-		folio_service.FOLIO_DOCTYPE,
-		filters={"property": doc.property, "folio_status": ("in", (folio_service.SETTLED, folio_service.CLOSED))},
-		pluck="name",
-		limit=200,
-	):
+
+	for folio in population:
 		result = posting_service.reconcile_folio(folio)
+
 		if not result["is_reconciled"]:
 			variances.append(result)
+
+	# Rebuilt rather than appended to, so a variance that has since been fixed
+	# stops blocking the close instead of lingering from an earlier run.
+	doc.set(
+		"audit_exceptions",
+		[row for row in doc.audit_exceptions if row.exception_type != "Unposted Charge"],
+	)
 
 	for variance in variances:
 		doc.append(
@@ -357,63 +421,160 @@ def reconcile(audit: str) -> dict:
 			},
 		)
 
+	_refresh_figures(doc, business_date, room_revenue=flt(doc.room_revenue))
+
+	fingerprint = _audit_date_fingerprint(doc.property, business_date)
+
+	doc.reconciliation_completed_on = now_datetime()
+	doc.reconciliation_completed_by = frappe.session.user
+	doc.reconciliation_population = len(population)
+	doc.reconciliation_variances = len(variances)
+	doc.reconciled_row_count = fingerprint["rows"]
+	doc.reconciled_row_total = flt(fingerprint["total"], 2)
+
 	if not _blocking_exceptions(doc):
 		_transition(doc, READY_TO_CLOSE)
 
-	doc.save(ignore_permissions=True)
+	_save(doc)
 
 	return {
 		"audit": audit,
+		"population": len(population),
 		"variances": len(variances),
 		"blocking": len(_blocking_exceptions(doc)),
 		"audit_status": doc.audit_status,
 	}
 
 
+def reconciliation_population(property_name: str, business_date) -> list[str]:
+	"""The folios this audit is responsible for checking.
+
+	Two clauses, and both are needed:
+
+	* folios in a settled state touched since the last closed audit - the money
+	  this audit period is actually accountable for, rather than every folio
+	  the hotel has ever settled, which would grow without bound and re-check
+	  2019 on every run;
+	* any **settled** folio still carrying a charge that has not reached
+	  ERPNext, whatever its date. This is the safety net: a variance cannot
+	  fall out of the window and become permanently invisible, which is the
+	  failure P1-9 was.
+
+	An in-house folio is deliberately not in either clause. A guest still in the
+	hotel accumulates charges all week and they reach ERPNext at checkout, so
+	treating those as unreconciled would block every close at a hotel with
+	anybody staying in it.
+
+	Read once, to exhaustion, paginated on `name`. Keyed on the primary key
+	rather than on `modified` so a folio changing while reconciliation runs
+	cannot shuffle itself past the cursor and be skipped, or back behind it and
+	be counted twice.
+	"""
+	since = _previous_closed_audit_date(property_name, business_date)
+	names: list[str] = []
+	cursor = ""
+
+	while True:
+		page = frappe.db.sql(
+			"""
+			select f.name
+			from `tabGuest Folio` f
+			where f.property = %(property)s
+			  and f.name > %(cursor)s
+			  and (
+			        (f.folio_status in ('Settled', 'Closed') and f.modified >= %(since)s)
+			     or (
+			            f.folio_status in ('Settled', 'Closed')
+			            and exists (
+			                select 1 from `tabFolio Charge` c
+			                where c.parent = f.name and ifnull(c.is_posted_to_erp, 0) = 0
+			            )
+			        )
+			  )
+			order by f.name asc
+			limit %(page_size)s
+			""",
+			{
+				"property": property_name,
+				"cursor": cursor,
+				"since": since,
+				"page_size": RECONCILIATION_PAGE,
+			},
+			pluck=True,
+		)
+
+		if not page:
+			return names
+
+		names.extend(page)
+		cursor = page[-1]
+
+
+def _previous_closed_audit_date(property_name: str, business_date):
+	"""The last date this property closed, or the beginning of time.
+
+	With no previous close there is no window to speak of, so the first audit
+	examines everything settled - which is the right answer for a property
+	being audited for the first time.
+	"""
+	previous = frappe.db.get_value(
+		AUDIT_DOCTYPE,
+		{
+			"property": property_name,
+			"audit_status": CLOSED,
+			"business_date": ("<", getdate(business_date)),
+		},
+		"business_date",
+		order_by="business_date desc",
+	)
+
+	return getdate(previous) if previous else getdate("1900-01-01")
+
+
 def close(audit: str) -> dict:
 	"""Close the business date and roll the property forward.
 
-	This is the only place the property's business date moves. It refuses while
-	any blocking exception is unresolved, because closing over an unresolved
-	exception is how a hotel loses a day's revenue quietly.
+	The only place the property's business date moves, and the gate everything
+	else in this wave exists to make meaningful.
+
+	It used to check the workflow status and the exception list. Neither is
+	evidence: `review()` moves the audit to Reviewing, Reviewing may legally
+	reach Ready to Close, and so review-then-close advanced the date with no
+	room charge posted anywhere and `room_revenue = 0` (P1-7). A status says
+	what someone pressed, not what the accounting did.
+
+	Every precondition below is re-read under the locks, immediately before the
+	date moves, and the date and the audit status move together.
 	"""
 	require_role(AUDITOR_ROLES)
 
-	lock_document(AUDIT_DOCTYPE, audit)
-	doc = frappe.get_doc(AUDIT_DOCTYPE, audit)
+	# Locked in a fixed order - audit, then property - and read from those same
+	# locking reads, so nothing here is decided from a snapshot taken before
+	# another close was let through (Wave 1, N1).
+	doc = lock_and_get_doc(AUDIT_DOCTYPE, audit)
 
-	blocking = _blocking_exceptions(doc)
-	if blocking:
-		throw(
-			_("{0} blocking exception(s) must be resolved before the business date can close.").format(
-				len(blocking)
-			),
-			exc=NightAuditError,
-		)
-
-	if doc.audit_status != READY_TO_CLOSE:
-		_transition(doc, READY_TO_CLOSE)
+	if doc.audit_status == CLOSED:
+		throw(_("Audit {0} is already closed.").format(audit), exc=NightAuditError)
 
 	business_date = getdate(doc.business_date)
-	next_date = add_days(business_date, 1)
 
-	property_doc = frappe.get_doc("Property", doc.property)
+	_assert_steps_complete(doc, business_date)
+	_assert_no_blocking_exceptions(doc)
+	_assert_no_unresolved_posting_failures(doc.property)
 
-	if getdate(property_doc.business_date) != business_date:
+	property_state = lock_and_read("Property", doc.property, ["business_date"])
+
+	if getdate(property_state["business_date"]) != business_date:
 		throw(
 			_("The property's business date is {0}, but this audit closes {1}.").format(
-				property_doc.business_date, business_date
+				property_state["business_date"], business_date
 			),
 			exc=NightAuditError,
 		)
 
-	property_doc.business_date = next_date
-	frappe.flags[BUSINESS_DATE_FLAG] = True
-	try:
-		property_doc.save(ignore_permissions=True)
-	finally:
-		frappe.flags[BUSINESS_DATE_FLAG] = False
+	next_date = add_days(business_date, 1)
 
+	_set_business_date(doc.property, next_date)
 	_transition(doc, CLOSED)
 
 	frappe.db.set_value(
@@ -434,30 +595,144 @@ def close(audit: str) -> dict:
 	}
 
 
+def _assert_steps_complete(doc, business_date):
+	"""Every mandatory step must have said, durably, that it finished."""
+	if not doc.review_completed_on:
+		throw(_("The day has not been reviewed."), exc=NightAuditError)
+
+	if not doc.posting_completed_on:
+		throw(
+			_("The day's room charges have not been posted."),
+			exc=NightAuditError,
+		)
+
+	if not doc.reconciliation_completed_on:
+		throw(
+			_("The folios have not been reconciled against ERPNext."),
+			exc=NightAuditError,
+		)
+
+	if getdate(doc.reconciliation_completed_on) and doc.posting_completed_on:
+		if doc.reconciliation_completed_on < doc.posting_completed_on:
+			throw(
+				_("Room charges were posted after the last reconciliation. Reconcile again."),
+				exc=NightAuditError,
+			)
+
+	# The money on this date must be the money that was reconciled. Comparing a
+	# fingerprint rather than trusting a flag means any later posting - through
+	# any path, by any service - invalidates the reconciliation, without every
+	# one of those paths having to remember to say so.
+	fingerprint = _audit_date_fingerprint(doc.property, business_date)
+
+	if int(fingerprint["rows"]) != int(doc.reconciled_row_count or 0) or flt(
+		fingerprint["total"], 2
+	) != flt(doc.reconciled_row_total, 2):
+		throw(
+			_(
+				"Money has been posted to {0} since it was reconciled. Reconcile again before "
+				"closing."
+			).format(business_date),
+			exc=NightAuditError,
+		)
+
+
+def _assert_no_blocking_exceptions(doc):
+	blocking = _blocking_exceptions(doc)
+
+	if blocking:
+		throw(
+			_("{0} blocking exception(s) must be resolved before the business date can close.").format(
+				len(blocking)
+			),
+			exc=NightAuditError,
+		)
+
+
+def _assert_no_unresolved_posting_failures(property_name: str):
+	"""Wave 3's durable ledger is the authority on whether posting worked.
+
+	A posting that took its own transaction down left no Financial Posting Log
+	row at all - that was P1-14 - so an audit that consulted only the log would
+	be told everything was fine by the absence of the evidence.
+	"""
+	unresolved = durability.failed_posting_operations(property_name, limit=20)
+
+	if unresolved:
+		throw(
+			_(
+				"{0} financial posting operation(s) have not completed. Resolve them before "
+				"closing the business date."
+			).format(len(unresolved)),
+			exc=NightAuditError,
+		)
+
+
 def reopen(audit: str, reason: str) -> dict:
-	"""Reopen a closed business date. Manager exception only."""
+	"""Reopen a closed business date by exactly one day. Manager exception only.
+
+	Reopen used to check only that the audit was closed, and then set the
+	property's date to that audit's date. Reopening the 8th while the 9th and
+	10th were also closed rewound the property three days and left the chain
+	unfinishable: the 9th could not close because the property was no longer on
+	the 9th, and nothing could move it back (P1-8).
+
+	So a reopen is only ever the *undo of the last close*. The audit must be
+	the newest closed one, and the property must be sitting exactly one day
+	past it - which is precisely the state the last close left behind.
+	"""
 	require_role(REOPEN_ROLES)
 
 	if not reason or not reason.strip():
 		throw(_("A reason is required to reopen a closed business date."), exc=NightAuditError)
 
-	lock_document(AUDIT_DOCTYPE, audit)
-	doc = frappe.get_doc(AUDIT_DOCTYPE, audit)
+	doc = lock_and_get_doc(AUDIT_DOCTYPE, audit)
 
 	if doc.audit_status != CLOSED:
 		throw(_("Audit {0} is not closed.").format(audit), exc=NightAuditError)
 
-	property_doc = frappe.get_doc("Property", doc.property)
-	property_doc.business_date = getdate(doc.business_date)
+	business_date = getdate(doc.business_date)
 
-	frappe.flags[BUSINESS_DATE_FLAG] = True
-	try:
-		property_doc.save(ignore_permissions=True)
-	finally:
-		frappe.flags[BUSINESS_DATE_FLAG] = False
+	later = frappe.db.get_value(
+		AUDIT_DOCTYPE,
+		{
+			"property": doc.property,
+			"business_date": (">", business_date),
+			"audit_status": CLOSED,
+		},
+		["name", "business_date"],
+		as_dict=True,
+		order_by="business_date asc",
+	)
 
+	if later:
+		throw(
+			_(
+				"{0} was closed after this one. Reopen the most recent closed date ({1}) first."
+			).format(later["name"], later["business_date"]),
+			exc=NightAuditError,
+		)
+
+	property_state = lock_and_read("Property", doc.property, ["business_date"])
+	expected = add_days(business_date, 1)
+
+	if getdate(property_state["business_date"]) != expected:
+		throw(
+			_(
+				"The property is on {0}. Only the audit for the day immediately before it ({1}) "
+				"can be reopened."
+			).format(property_state["business_date"], business_date),
+			exc=NightAuditError,
+		)
+
+	_set_business_date(doc.property, business_date)
 	_transition(doc, REVIEWING)
 
+	# The close is undone, and so is the proof that supported it. Posting is
+	# deliberately left marked: the room charges are already on the folios and
+	# are idempotent, so re-closing must not post them again. What has to be
+	# earned again is the reconciliation - the day is open for changes, and any
+	# change invalidates it.
 	frappe.db.set_value(
 		AUDIT_DOCTYPE,
 		audit,
@@ -465,11 +740,30 @@ def reopen(audit: str, reason: str) -> dict:
 			"reopened_on": now_datetime(),
 			"reopened_by": frappe.session.user,
 			"reopen_reason": reason.strip(),
+			"closed_on": None,
+			"closed_by": None,
+			"reconciliation_completed_on": None,
+			"reconciliation_completed_by": None,
+			"reconciled_row_count": 0,
+			"reconciled_row_total": 0,
 		},
 		update_modified=True,
 	)
 
-	return {"audit": audit, "business_date": str(doc.business_date), "reason": reason.strip()}
+	return {"audit": audit, "business_date": str(business_date), "reason": reason.strip()}
+
+
+def _set_business_date(property_name: str, value):
+	"""Move the property's business date, through the one guarded path."""
+	frappe.flags[BUSINESS_DATE_FLAG] = True
+	try:
+		property_doc = lock_and_get_doc("Property", property_name)
+		property_doc.business_date = getdate(value)
+		property_doc.save(ignore_permissions=True)
+	finally:
+		frappe.flags[BUSINESS_DATE_FLAG] = False
+
+	frappe.clear_document_cache("Property", property_name)
 
 
 # ---------------------------------------------------------------------------
@@ -495,11 +789,80 @@ def _transition(doc, target: str):
 	return target
 
 
+def _save(doc):
+	"""Save an audit from inside this service, past the controller's guard."""
+	with service_context(NIGHT_AUDIT_SERVICE):
+		doc.save(ignore_permissions=True)
+
+
+def _posted_room_charges(property_name: str, business_date) -> dict:
+	"""The night's room revenue, read back off the folios.
+
+	The authoritative answer to "what did this property charge for rooms on
+	this date", independent of which run posted it. Reversed rows are excluded:
+	a reversal is not revenue.
+	"""
+	row = frappe.db.sql(
+		"""
+		select count(*) as rooms, coalesce(sum(c.total_amount), 0) as revenue
+		from `tabFolio Charge` c
+		inner join `tabGuest Folio` f on f.name = c.parent
+		where f.property = %(property)s
+		  and c.business_date = %(date)s
+		  and c.charge_type = 'Room Charge'
+		  and ifnull(c.is_reversed, 0) = 0
+		""",
+		{"property": property_name, "date": getdate(business_date)},
+		as_dict=True,
+	)[0]
+
+	return {"rooms": int(row["rooms"] or 0), "revenue": flt(row["revenue"])}
+
+
+def _audit_date_fingerprint(property_name: str, business_date) -> dict:
+	"""A cheap summary of every monetary row dated to this audit.
+
+	Compared at close against the value taken when reconciliation ran. If it
+	has moved, something was posted in between and the reconciliation no longer
+	describes the money on the folios - so it has to be earned again.
+
+	A fingerprint rather than a flag on purpose: it catches a late charge
+	whatever path posted it, without every posting path having to remember to
+	invalidate an audit it may know nothing about.
+	"""
+	charges = frappe.db.sql(
+		"""
+		select count(*) as rows_count, coalesce(sum(c.total_amount), 0) as total
+		from `tabFolio Charge` c
+		inner join `tabGuest Folio` f on f.name = c.parent
+		where f.property = %(property)s and c.business_date = %(date)s
+		""",
+		{"property": property_name, "date": getdate(business_date)},
+		as_dict=True,
+	)[0]
+
+	payments = frappe.db.sql(
+		"""
+		select count(*) as rows_count, coalesce(sum(p.amount), 0) as total
+		from `tabFolio Payment` p
+		inner join `tabGuest Folio` f on f.name = p.parent
+		where f.property = %(property)s and p.business_date = %(date)s
+		""",
+		{"property": property_name, "date": getdate(business_date)},
+		as_dict=True,
+	)[0]
+
+	return {
+		"rows": int(charges["rows_count"] or 0) + int(payments["rows_count"] or 0),
+		"total": flt(charges["total"]) + flt(payments["total"]),
+	}
+
+
 def _blocking_exceptions(doc) -> list:
 	return [row for row in doc.audit_exceptions if row.severity == BLOCKING and not row.is_resolved]
 
 
-def _refresh_figures(doc, business_date):
+def _refresh_figures(doc, business_date, *, room_revenue: float = 0.0):
 	"""Recompute the day's operational and revenue statistics."""
 	property_name = doc.property
 
@@ -510,7 +873,7 @@ def _refresh_figures(doc, business_date):
 	sellable = frappe.db.count("Hotel Room", {"property": property_name, "is_active": 1})
 	occupied = len(in_house)
 
-	room_revenue = flt(doc.room_revenue)
+	room_revenue = flt(room_revenue)
 
 	payments = frappe.db.sql(
 		"""

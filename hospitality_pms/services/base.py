@@ -326,6 +326,9 @@ FINANCIAL_POSTING = "hpms_financial_posting"
 #: Creating a Stay as part of check-in or another approved orchestration.
 STAY_ORCHESTRATION = "hpms_stay_orchestration"
 
+#: Writing the Night Audit's workflow status, completion markers and figures.
+NIGHT_AUDIT_SERVICE = "hpms_night_audit_service"
+
 
 @contextmanager
 def service_context(flag: str):

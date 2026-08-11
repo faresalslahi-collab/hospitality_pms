@@ -11,6 +11,7 @@ from frappe.utils import getdate
 
 from hospitality_pms.services.exceptions import (
 	ConfigurationError,
+	HospitalityPMSError,
 	PropertyAccessError,
 	throw,
 )
@@ -130,6 +131,62 @@ def get_business_date(property_name: str):
 		)
 
 	return getdate(business_date)
+
+
+def is_business_date_closed(property_name: str, business_date) -> bool:
+	"""Whether a Night Audit has already closed this property on this date.
+
+	Queried directly rather than through the Night Audit service, which imports
+	the folio service and would make the dependency circular. The status string
+	is the contract between them.
+	"""
+	if not property_name or not business_date:
+		return False
+
+	return bool(
+		frappe.db.exists(
+			"Night Audit",
+			{
+				"property": property_name,
+				"business_date": getdate(business_date),
+				"audit_status": "Closed",
+			},
+		)
+	)
+
+
+def assert_posting_allowed(property_name: str, business_date, *, what: str, exc=HospitalityPMSError):
+	"""Refuse ordinary money dated into a day the hotel has already closed.
+
+	`PMS Settings.block_posting_after_close` existed and was read nowhere, so a
+	charge could be back-dated into a business date whose Night Audit had
+	closed and whose revenue had already been reported. The audit's figures
+	then described a day that had since changed underneath them.
+
+	Only the ordinary path is fenced. Corrections still have to be possible or
+	a mistake in a closed day becomes permanent, so the callers exempt the
+	privileged, reasoned workflows - an adjustment, a discount, a refund - each
+	of which already demands an elevated role and a written reason. The
+	difference being enforced is between *correcting* a closed day and quietly
+	*back-dating into* one.
+
+	`exc` lets the caller keep its own error contract - everything the folio
+	service raises is a `FolioError`, and a caller catching that should not have
+	to know this particular refusal came from a neighbouring module.
+	"""
+	if not get_settings().block_posting_after_close:
+		return
+
+	if not is_business_date_closed(property_name, business_date):
+		return
+
+	throw(
+		_(
+			"The business date {0} has been closed by the Night Audit, so {1} cannot be posted "
+			"to it. Use an adjustment, or reopen the business date."
+		).format(getdate(business_date), _(what)),
+		exc=exc,
+	)
 
 
 def assert_business_date_change_allowed(doc):

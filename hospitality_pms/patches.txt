@@ -6,3 +6,4 @@ hospitality_pms.patches.v1_0.rename_doctypes_to_commercial_names
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
 hospitality_pms.patches.v16_6.add_folio_idempotency_uniqueness
+hospitality_pms.patches.v16_6.add_night_audit_uniqueness
