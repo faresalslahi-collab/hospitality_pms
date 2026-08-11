@@ -1,13 +1,16 @@
 <!--
-  Departures board for the property's business date.
+  Departures board for the property's business date, on the shared operational table.
 
-  One request returns the whole day, including each stay's checkout blockers,
-  which the server has already worded and translated. The filter below is client
-  side for the same reason as the arrivals board.
+  One request returns the whole day, including each stay's checkout blockers, which
+  the server has already worded and translated. The filter and search below are
+  client side for the same reason as the arrivals board.
 
-  `can_check_out` is the server's answer and is never recomputed here. A blocked
-  stay still shows its Check out link, because the checkout screen is where a
-  manager resolves the blocker; the badge explains why it is not a clean exit.
+  `can_check_out` is the server's answer and is never recomputed here — it weighs a
+  disputed folio and the individual split folios, neither of which reaches this
+  page. A blocked stay still shows its Check out action, because the checkout
+  screen is where a manager resolves the blocker; the badge explains why it is not
+  a clean exit. Nothing here is disabled on a blocker: the blocked rows are exactly
+  the ones a supervisor has to be able to open.
 -->
 <template>
   <div>
@@ -20,151 +23,191 @@
       </template>
     </PageHeader>
 
-    <LoadingState v-if="board.loading && !board.data" />
-    <ErrorState v-else-if="board.error" :error="board.error" :on-retry="reload" />
-    <EmptyState v-else-if="!rows.length" :message="t('page.departures.empty')" />
-
-    <div v-else class="space-y-4 p-5">
-      <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div class="space-y-4 p-5">
+      <div v-if="rows.length" class="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div v-for="tile in tiles" :key="tile.key" class="rounded border border-outline-gray-1 px-3 py-2">
           <p class="text-xs uppercase tracking-wide text-ink-gray-5">{{ tile.label }}</p>
           <p class="mt-0.5 text-lg font-semibold text-ink-gray-9">{{ tile.value }}</p>
         </div>
       </div>
 
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <FormControl v-model="filter" type="select" :label="t('page.departures.filter')" :options="filterOptions" />
-      </div>
+      <OperationalDataTable
+        :columns="columns"
+        :rows="visibleRows"
+        row-key="key"
+        :loading="board.loading"
+        :error="board.error"
+        :empty-message="emptyMessage"
+        :actions="actions"
+        searchable
+        :search="search"
+        :search-label="t('page.departures.search_label')"
+        :aria-label="t('page.departures.title')"
+        sticky-header
+        @search-change="search = $event"
+        @row-action="onRowAction"
+      >
+        <template #toolbar>
+          <div class="w-full sm:w-56">
+            <FormControl
+              v-model="filter"
+              type="select"
+              size="sm"
+              :label="t('page.departures.filter')"
+              :options="filterOptions"
+            />
+          </div>
+        </template>
 
-      <EmptyState v-if="!visibleRows.length" :message="t('page.departures.filter_empty')" />
+        <template #error="{ error }">
+          <ErrorState :error="error" :on-retry="reload" />
+        </template>
 
-      <div v-else class="overflow-x-auto rounded border border-outline-gray-1">
-        <table class="w-full min-w-max text-p-sm">
-          <thead class="bg-surface-gray-1 text-xs uppercase tracking-wide text-ink-gray-5">
-            <tr>
-              <th class="p-2 text-start">{{ t('page.departures.guest') }}</th>
-              <th class="p-2 text-start">{{ t('page.departures.room') }}</th>
-              <th class="p-2 text-start">{{ t('page.departures.stay') }}</th>
-              <th class="p-2 text-start">{{ t('page.departures.folio') }}</th>
-              <th class="p-2 text-start">{{ t('page.departures.balance') }}</th>
-              <th class="p-2 text-start">{{ t('page.departures.status') }}</th>
-              <th class="p-2 text-start">{{ t('page.departures.readiness') }}</th>
-              <th class="p-2 text-end">{{ t('common.actions') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in visibleRows" :key="row.key" class="border-t border-outline-gray-1 align-top">
-              <td class="p-2">
-                <span class="text-ink-gray-9">{{ row.guest_name }}</span>
-                <Badge
-                  v-if="row.vip_status"
-                  class="ms-1"
-                  :theme="vipStatusTheme(row.vip_status)"
-                  variant="subtle"
-                  :label="row.vip_status"
-                />
-              </td>
-              <td class="p-2 font-medium whitespace-nowrap">
-                <RouterLink
-                  :to="{ name: 'Stay', params: { id: row.stay } }"
-                  class="text-ink-blue-3 hover:underline"
-                >
-                  {{ row.room_number }}
-                </RouterLink>
-              </td>
-              <td class="p-2 whitespace-nowrap">
-                <span>{{ formatDate(row.arrival_date) }} – {{ formatDate(row.departure_date) }}</span>
-                <span class="ms-2 text-ink-gray-5">{{ row.nights }} {{ t('page.reservations.nights') }}</span>
-              </td>
-              <td class="p-2 whitespace-nowrap">
-                <RouterLink
-                  v-if="row.folio"
-                  :to="{ name: 'Folio', params: { id: row.folio } }"
-                  class="text-ink-blue-3 hover:underline"
-                >
-                  {{ row.folio }}
-                </RouterLink>
-                <span v-else class="text-ink-gray-5">—</span>
-              </td>
-              <!-- Split folios are counted, not summed into the primary balance: the
-                   two numbers settle separately and merging them would mislead. -->
-              <td class="p-2 whitespace-nowrap">
-                <Badge
-                  :theme="balanceTheme(row.balance)"
-                  variant="subtle"
-                  :label="formatCurrency(row.balance, row.currency)"
-                />
-                <p v-if="row.related_folios > 0" class="mt-1 text-xs text-ink-gray-5">
-                  {{ t('page.departures.split_folios', { count: row.related_folios }) }}
-                </p>
-              </td>
-              <td class="p-2">
-                <Badge :theme="stayStatusTheme(row.stay_status)" variant="subtle" :label="row.stay_status" />
-              </td>
-              <td class="p-2">
-                <Badge
-                  v-if="row.is_checked_out"
-                  theme="gray"
-                  variant="subtle"
-                  :label="t('page.departures.checked_out')"
-                />
-                <Badge
-                  v-else-if="row.can_check_out"
-                  theme="green"
-                  variant="subtle"
-                  :label="t('page.departures.ready')"
-                />
-                <template v-else>
-                  <Badge theme="orange" variant="subtle" :label="t('page.departures.blocked')" />
-                  <!-- Blockers arrive already worded and translated by the server. -->
-                  <ul v-if="row.blockers?.length" class="mt-1 list-disc ps-4 text-xs text-ink-gray-6">
-                    <li v-for="(blocker, index) in row.blockers" :key="index">{{ blocker }}</li>
-                  </ul>
-                </template>
-              </td>
-              <td class="p-2 text-end whitespace-nowrap">
-                <RouterLink
-                  v-if="row.folio"
-                  :to="{ name: 'Folio', params: { id: row.folio } }"
-                  class="text-ink-blue-3 hover:underline"
-                >
-                  {{ t('page.departures.action.open_folio') }}
-                </RouterLink>
-                <RouterLink
-                  v-if="!row.is_checked_out"
-                  :to="{ name: 'Checkout', params: { stay: row.stay } }"
-                  class="ms-3 text-ink-blue-3 hover:underline"
-                >
-                  {{ t('page.departures.action.checkout') }}
-                </RouterLink>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+        <template #cell:guest_name="{ row }">
+          <span class="text-ink-gray-9">{{ row.guest_name }}</span>
+          <Badge
+            v-if="row.vip_status"
+            class="ms-1"
+            :theme="vipStatusTheme(row.vip_status)"
+            variant="subtle"
+            :label="row.vip_status"
+          />
+        </template>
+
+        <template #cell:room_number="{ row }">
+          <RouterLink
+            :to="{ name: 'Stay', params: { id: row.stay } }"
+            class="font-medium text-ink-blue-3 hover:underline"
+          >
+            {{ row.room_number }}
+          </RouterLink>
+        </template>
+
+        <template #cell:stay_dates="{ row }">
+          <span>{{ formatDate(row.arrival_date) }} – {{ formatDate(row.departure_date) }}</span>
+          <span class="ms-2 text-ink-gray-5">{{ row.nights }} {{ t('page.reservations.nights') }}</span>
+        </template>
+
+        <template #cell:folio="{ row }">
+          <RouterLink
+            v-if="row.folio"
+            :to="{ name: 'Folio', params: { id: row.folio } }"
+            class="text-ink-blue-3 hover:underline"
+          >
+            {{ row.folio }}
+          </RouterLink>
+          <span v-else class="text-ink-gray-5">—</span>
+        </template>
+
+        <!-- Split folios are counted, not summed into the primary balance: the
+             two numbers settle separately and merging them would mislead. -->
+        <template #cell:balance="{ row }">
+          <FolioBalance :balance="row.balance" :currency="row.currency" :show-label="false" />
+          <p v-if="row.related_folios > 0" class="mt-1 text-xs text-ink-gray-5">
+            {{ t('page.departures.split_folios', { count: row.related_folios }) }}
+          </p>
+        </template>
+
+        <!--
+          The server's verdict, restated. Nothing here derives readiness from the
+          balance: a settled folio is not permission to leave.
+        -->
+        <template #cell:readiness="{ row }">
+          <Badge
+            v-if="row.is_checked_out"
+            theme="gray"
+            variant="subtle"
+            :label="t('page.departures.checked_out')"
+          />
+          <Badge
+            v-else-if="row.can_check_out"
+            theme="green"
+            variant="subtle"
+            :label="t('page.departures.ready')"
+          />
+          <template v-else>
+            <Badge theme="orange" variant="subtle" :label="t('page.departures.blocked')" />
+            <!-- Blockers arrive already worded and translated by the server. -->
+            <ul v-if="row.blockers?.length" class="mt-1 list-disc ps-4 text-xs text-ink-gray-6">
+              <li v-for="(blocker, index) in row.blockers" :key="index">{{ blocker }}</li>
+            </ul>
+          </template>
+        </template>
+      </OperationalDataTable>
     </div>
+
+    <ActionDrawer
+      v-model="drawerOpen"
+      :title="selected?.guest_name || ''"
+      :subtitle="selected ? `${t('page.departures.room')} ${selected.room_number}` : ''"
+    >
+      <div v-if="selected" class="space-y-4">
+        <FolioBalance :balance="selected.balance" :currency="selected.currency" size="md" />
+
+        <dl class="space-y-3">
+          <div v-for="item in detailItems" :key="item.label">
+            <dt class="text-xs uppercase tracking-wide text-ink-gray-5">{{ item.label }}</dt>
+            <dd class="text-p-sm text-ink-gray-8">{{ item.value }}</dd>
+          </div>
+        </dl>
+
+        <div v-if="!selected.can_check_out && selected.blockers?.length">
+          <p class="text-xs uppercase tracking-wide text-ink-gray-5">{{ t('page.departures.blockers') }}</p>
+          <ul class="mt-1 list-disc ps-4 text-p-sm text-ink-gray-7">
+            <li v-for="(blocker, index) in selected.blockers" :key="index">{{ blocker }}</li>
+          </ul>
+        </div>
+      </div>
+
+      <template #footer>
+        <Button variant="subtle" @click="openStay">{{ t('page.departures.action.open_stay') }}</Button>
+        <Button variant="subtle" @click="openGuest">{{ t('page.departures.action.guest_profile') }}</Button>
+        <Button v-if="selected?.folio" variant="subtle" @click="openFolio">
+          {{ t('page.departures.action.open_folio') }}
+        </Button>
+        <Button v-if="canExtend(selected)" variant="subtle" @click="extendFromDrawer">
+          {{ t('page.departures.action.extend') }}
+        </Button>
+        <Button v-if="selected && !selected.is_checked_out" variant="solid" @click="openCheckout">
+          {{ t('page.departures.action.checkout') }}
+        </Button>
+      </template>
+    </ActionDrawer>
+
+    <ExtendStayDialog v-model="extendOpen" :stay="extendTarget" @changed="reload" />
   </div>
 </template>
 
 <script setup>
 import { Badge, Button, FeatherIcon, FormControl } from 'frappe-ui'
 import { computed, ref, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 
+import ExtendStayDialog from '@/components/ExtendStayDialog.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import EmptyState from '@/components/states/EmptyState.vue'
+import ActionDrawer from '@/components/operational/ActionDrawer.vue'
+import FolioBalance from '@/components/operational/FolioBalance.vue'
+import OperationalDataTable from '@/components/operational/OperationalDataTable.vue'
 import ErrorState from '@/components/states/ErrorState.vue'
-import LoadingState from '@/components/states/LoadingState.vue'
-import { balanceTheme, departuresBoardResource } from '@/resources/frontOffice'
-import { stayStatusTheme } from '@/resources/stays'
+import { departuresBoardResource } from '@/resources/frontOffice'
 import { vipStatusTheme } from '@/resources/guests'
+import { STAY_OPERATION_ROLES, stayStatusTheme } from '@/resources/stays'
 import { property } from '@/stores/property'
+import { session } from '@/stores/session'
 import { formatCurrency, formatDate } from '@/utils/format'
 import { t } from '@/utils/i18n'
 
+const router = useRouter()
 const board = departuresBoardResource()
 
 const filter = ref('all')
+const search = ref('')
+
+const drawerOpen = ref(false)
+const selected = ref(null)
+
+const extendOpen = ref(false)
+const extendTarget = ref(null)
 
 /** Predicates over the rows already in memory; no filter re-fetches the board. */
 const FILTERS = {
@@ -181,9 +224,63 @@ const filterOptions = computed(() =>
   Object.keys(FILTERS).map((value) => ({ label: t(`page.departures.filter.${value}`), value })),
 )
 
+const columns = computed(() => [
+  { key: 'guest_name', label: t('page.departures.guest'), secondary: true },
+  { key: 'room_number', label: t('page.departures.room'), primary: true, nowrap: true },
+  { key: 'stay_dates', label: t('page.departures.stay'), field: 'arrival_date', nowrap: true },
+  { key: 'folio', label: t('page.departures.folio'), nowrap: true, hideBelow: 'lg' },
+  { key: 'balance', label: t('page.departures.balance'), nowrap: true },
+  {
+    key: 'stay_status',
+    label: t('page.departures.status'),
+    type: 'badge',
+    theme: (row) => stayStatusTheme(row.stay_status),
+  },
+  { key: 'readiness', label: t('page.departures.readiness'), field: 'can_check_out' },
+])
+
+/**
+ * Row actions.
+ *
+ * Checkout is offered on a blocked row on purpose (see the file header). Extend
+ * mirrors the stay-operation role because it opens a mutating dialog from this
+ * board, and it is withheld from an already-departed stay, which the server
+ * refuses outright — this board carries checked-out rows by design.
+ */
+const actions = computed(() => [
+  { key: 'details', label: t('page.departures.action.details'), icon: 'info' },
+  {
+    key: 'folio',
+    label: t('page.departures.action.open_folio'),
+    available: (row) => Boolean(row.folio),
+  },
+  {
+    key: 'checkout',
+    label: t('page.departures.action.checkout'),
+    theme: 'blue',
+    available: (row) => !row.is_checked_out,
+  },
+])
+
 const rows = computed(() => board.data?.rows || [])
 
-const visibleRows = computed(() => rows.value.filter(FILTERS[filter.value] || FILTERS.all))
+const visibleRows = computed(() => {
+  const predicate = FILTERS[filter.value] || FILTERS.all
+  const term = search.value.trim().toLowerCase()
+
+  return rows.value.filter((row) => {
+    if (!predicate(row)) return false
+    if (!term) return true
+
+    return [row.guest_name, row.room_number, row.folio, row.stay]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(term))
+  })
+})
+
+const emptyMessage = computed(() =>
+  rows.value.length ? t('page.departures.filter_empty') : t('page.departures.empty'),
+)
 
 const tiles = computed(() => {
   const s = board.data?.summary || {}
@@ -203,6 +300,99 @@ const tiles = computed(() => {
     },
   ]
 })
+
+const detailItems = computed(() => {
+  const row = selected.value
+  if (!row) return []
+
+  return [
+    { label: t('page.departures.status'), value: row.stay_status },
+    { label: t('page.stay.arrival'), value: formatDate(row.arrival_date) },
+    { label: t('page.stay.departure'), value: formatDate(row.departure_date) },
+    { label: t('page.departures.nights'), value: String(row.nights ?? '') },
+    { label: t('page.departures.folio'), value: row.folio || '—' },
+    {
+      label: t('page.departures.readiness'),
+      value: row.is_checked_out
+        ? t('page.departures.checked_out')
+        : row.can_check_out
+          ? t('page.departures.ready')
+          : t('page.departures.blocked'),
+    },
+  ]
+})
+
+/**
+ * Extending needs the stay-operation role and an in-house stay. The status test
+ * is the server's own rule restated for visibility only: `extend_stay` refuses
+ * anything that is not in house, and re-checks under a lock.
+ */
+function canExtend(row) {
+  if (!row) return false
+
+  return !row.is_checked_out && session.hasRole(STAY_OPERATION_ROLES)
+}
+
+function onRowAction({ action, row }) {
+  if (action === 'details') {
+    selected.value = row
+    drawerOpen.value = true
+    return
+  }
+
+  if (action === 'folio') {
+    router.push({ name: 'Folio', params: { id: row.folio } })
+    return
+  }
+
+  if (action === 'checkout') {
+    router.push({ name: 'Checkout', params: { stay: row.stay } })
+  }
+}
+
+/** The stay, in the shape the stay dialogs read it. */
+function stayShape(row) {
+  return {
+    name: row.stay,
+    guest_name: row.guest_name,
+    room: row.room_number,
+    room_type: row.room_type,
+    arrival_date: row.arrival_date,
+    departure_date: row.departure_date,
+  }
+}
+
+/** A dialog is never stacked inside the panel: the drawer closes first. */
+function extendFromDrawer() {
+  const row = selected.value
+  drawerOpen.value = false
+  extendTarget.value = stayShape(row)
+  extendOpen.value = true
+}
+
+function openStay() {
+  const row = selected.value
+  drawerOpen.value = false
+  router.push({ name: 'Stay', params: { id: row.stay } })
+}
+
+function openGuest() {
+  const row = selected.value
+  drawerOpen.value = false
+  router.push({ name: 'GuestProfile', params: { id: row.guest } })
+}
+
+function openFolio() {
+  const row = selected.value
+  drawerOpen.value = false
+  router.push({ name: 'Folio', params: { id: row.folio } })
+}
+
+function openCheckout() {
+  const row = selected.value
+  drawerOpen.value = false
+  router.push({ name: 'Checkout', params: { stay: row.stay } })
+}
 
 function reload() {
   board.fetch({ property: property.activeName.value })

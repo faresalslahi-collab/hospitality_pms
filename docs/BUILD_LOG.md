@@ -2930,3 +2930,296 @@ charges. It will check out normally the moment the tax mapping is decided. No
 direct edit, no deletion, no bypass.
 
 Result: PASS with one accounting decision outstanding
+
+---
+
+## 16.7.0 — Operational UI Kit and frontend test foundation
+
+Baseline: **`b8718b8`** — `version-16` with the 16.6.6 UAT remediation merged
+locally, `--no-ff`, history preserved. Pre-merge `version-16` was `8a6d074`;
+the remediation head was `9ae4c01`; the merge-base equalled `version-16`, so the
+remediation was exactly one commit ahead with **no divergent commits**, and the
+merged tree is byte-identical to `9ae4c01`. Nothing was pushed, pulled or
+fetched at any point in this build.
+
+Post-merge regression on the integrated baseline: 35/35 `test_uat_remediation`,
+15/15 `test_final_integrity`, 20/20 `test_authorization`, 36/36
+`test_business_date`.
+
+This build establishes the shared operational frontend primitives and the test
+runner that keeps them honest, then proves both by migrating three boards. It is
+an evolution of a working 24-page frontend, not a replacement, and it changes
+**no backend code**: `git diff` against the baseline touches nothing under
+`hospitality_pms/` except the version marker.
+
+### Test foundation
+
+There was no Vue component runner — seven plain Node assertions on
+`operationalDate.js` and nothing else. Now: **Vitest 3.2.7 + Vue Test Utils
+2.4.6 + jsdom 26**, chosen because they run on the toolchain that is already
+here. Vite stayed at **6.4.3** and Vue at 3.5.41; nothing was upgraded to obtain
+a newer runner.
+
+Two obstacles were real and are worth recording:
+
+- frappe-ui ships source with **extensionless relative imports**, which Node's
+  ESM resolver refuses. `test.server.deps.inline: ['frappe-ui']` routes it
+  through the same Vite resolver the application build uses.
+- frappe-ui's components import `~icons/lucide/*`, specifiers that only exist
+  inside its Vite plugin — and that plugin also rewrites the served
+  `hospitality_pms/www/pms.html` as a build side effect. Rather than load a
+  build plugin into a test run, `tests/lucideStub.js` resolves those specifiers
+  to one empty `<svg>`. Icons carry no operational meaning here: every status and
+  action is labelled in text, which is the accessibility rule regardless.
+
+`vitest.config.js` is deliberately separate from `vite.config.js` for that
+reason. Scripts preserve the old behaviour instead of replacing it:
+`test:node` is the original seven checks verbatim, `test:unit` is Vitest, and
+`test` runs both. The seven Node checks still pass, unmodified.
+
+`tests/helpers.js` holds only what repeated four times over: a memory-history
+router carrying the route names the boards link through, the property and session
+stores (plain `reactive` modules, so a test mutates the real store), a stand-in
+for a frappe-ui resource so no test can reach the network, and the document
+direction. `tests/foundation.spec.js` tests the harness itself, so a broken
+config fails in one obvious place rather than in every spec at once.
+
+### UI kit architecture
+
+Five components in `src/components/operational/`:
+
+| Component | Responsibility |
+|---|---|
+| `OperationalDataTable` | the one list/table primitive for operational boards |
+| `ActionDrawer` | contextual detail and related actions beside the board |
+| `MoneyDisplay` | an amount, formatted through `Intl`, never calculated |
+| `FolioBalance` | a balance and its semantic state — settled, due, credit |
+| `AlertBadge` | that a record carries alerts, and nothing more |
+
+**The table knows nothing about hotels.** It imports no resource, makes no
+request, holds no role rule and reads no clock. It receives `rows`, `loading`,
+`error`, page/sort/filter/search state, and emits intent: `page-change`,
+`sort-change`, `filter-change`, `search-change`, `row-action`, `row-click`. It
+never sorts, paginates or filters what it was given — the DOM order equals the
+prop order, which is what makes a server-sorted board honest. Pages own every
+request. Filter values are opaque: the table carries them back out without
+asking what they mean.
+
+State handling reuses the existing shared components rather than reinventing
+them: `LoadingState`, `EmptyState`, `ErrorState`, `PermissionDenied`, through
+`normaliseError`. A permission failure renders `PermissionDenied`, which
+structurally cannot offer a retry. Rows already on screen are never blanked by a
+refetch — the board dims and reports `aria-busy` instead, because a desk reading
+a name mid-sentence should not lose it to a poll.
+
+**Responsive.** Desktop and tablet get the semantic `<table>` in a horizontally
+scrollable container; below `md` the same rows render as cards, in one component,
+because two components would drift and the row actions are exactly what must not
+go missing on the narrow one. `hideBelow` drops low-priority columns on the
+desktop table only.
+
+**RTL.** Logical properties throughout — `text-start`/`text-end`, `ms-`/`me-`,
+`ps-`/`pe-`, `start-`/`end-`, `border-s`. No physical direction utility appears
+in any of the eight new or migrated files. `ActionDrawer` is pinned with
+`inset-y-0 end-0`, so the browser places it at the end of the reading direction
+with no script and no mirrored copy.
+
+This is enforced by reading the **source**, not the rendered markup
+(`tests/rtlSource.spec.js`): frappe-ui's own `Select.vue` hard-codes `text-left`
+and `ml-auto`, so a grep over a mounted board's HTML fails on a dependency's
+internals and proves nothing about the code this repo owns. The same spec checks
+that every `t()` key used by the new code exists in **both** catalogues — which
+caught a real missing key — and re-asserts the generic-CRUD ban across the whole
+frontend. Both guards were verified to fail when a violation is injected.
+
+**Drawer accessibility.** `role="dialog"`, `aria-modal`, `aria-labelledby` on a
+`useId()` title; focus moves into the panel on open and **returns to the element
+that opened it** on close; Tab and Shift+Tab wrap at both ends; Escape and
+overlay click close where configured; only the content area scrolls; the page
+scroll lock is counted and released on unmount as well as on close.
+
+One layering constraint found and designed around: frappe-ui's `Dialog` is a
+Radix portal with **no z-index**, so a dialog opened from inside the `z-40`
+drawer would paint behind it and fight it for Escape and the focus trap. Rather
+than change shared CSS or build an overlay registry — both beyond this build —
+**a drawer never hosts a dialog trigger that leaves the drawer open**. Dialogs
+launch from the row; a drawer action that needs one closes the drawer first,
+which also returns focus before the dialog claims it. Asserted in the In-House
+spec.
+
+**`AlertBadge` is built so the privacy boundary cannot be crossed by accident.**
+It accepts no `reason`, `detail` or `notes` prop, has **no slot**, and sets
+`inheritAttrs: false` so a stray attribute cannot land in an inspectable,
+printable DOM. It says an alert exists, how many if the server counted, and how
+severe if the server graded — and where that hints there is more, it says so with
+one generic sentence identical for every record. Its spec attacks it with twelve
+leak attributes and four slot names carrying realistic blacklist text and asserts
+none reaches the DOM. `services/front_office.get_guest_flags` never sends a
+reason; the boundary is enforced by the payload and by the component.
+
+**`FolioBalance` never infers checkout eligibility.** A settled balance is not
+permission to leave: `can_check_out` weighs a disputed folio and the individual
+split folios, neither of which reaches a board row. Its spec sweeps six balances
+across both sizes and both label states against a checkout-wording pattern
+applied to the full markup, so the claim cannot be smuggled through an
+`aria-label` or a tooltip.
+
+### Migration: three proving boards
+
+Only **Arrivals, Departures and In-House**. Nine hand-built tables remain
+untouched (backlog below).
+
+**Arrivals.** All prior columns kept, plus ETA, nights and an alerts column.
+`guarantee_type` and `departure_date` were kept although the brief's illustrative
+column list omits them: both are on screen today and both are desk decision
+inputs. Actions: Details (drawer), Assign room, Check in; Open reservation and
+Guest profile from the drawer. Room assignment is an upgrade from a link to the
+existing `AssignRoomDialog` — the arrivals board is one row per **room line**, so
+it already carries every identifier that dialog needs.
+
+The deposit is deliberately **not** a plain money column. It is a
+per-reservation figure that the server copies onto every room line of a booking,
+so a summable column would read as 750 owed against a 250 deposit — the same
+mistake `_arrivals_summary` already refuses to make by counting distinct
+reservations. It renders as a qualified flag, only when something is outstanding.
+
+**Departures.** Behaviour preserved exactly, including the decision that matters:
+a blocked stay **keeps its visible Checkout action** and shows the server's own
+blocker wording, because the checkout screen is where a manager resolves the
+blocker and hiding or disabling the action would strand precisely the rows that
+need attention. Nothing recomputes `can_check_out`. Split folios stay counted,
+not summed. Balance now renders through `FolioBalance`; Extend Stay is offered in
+the drawer, gated on the stay-operation role and withheld from an already
+departed stay, which the service refuses outright.
+
+**In-House** was the thinnest board (119 lines, read-only, no row actions). It
+now has the shared table, search, a status filter and quick actions: Open stay,
+Guest profile, Folio, Room move, Extend, Shorten, Checkout — every one reachable
+from the fields `stays.in_house` already returns, and all three stay dialogs
+reused as they stand. It also now imports `inHouseResource()` instead of calling
+`apiResource('stays.in_house')` inline, which was the one board bypassing its own
+resource module.
+
+What In-House deliberately does **not** show, because the payload does not
+contain it: no balance, no checkout-readiness badge, and no alerts column. A
+readiness badge with no `can_check_out` and no `blockers` would be a guess about
+whether a guest may leave, and an empty alerts column would read as a clearance
+this board never checked. Its spec asserts all three absences. The rate stays in
+the **active property's** currency, exactly as before this migration: the row
+carries no `currency` of its own. That is an assumption, and the fix is backlog
+item 1 below — a blocker for any multi-currency property.
+
+### Permissions
+
+Row actions follow one rule: **offer an action when the server's own row data
+says it applies; add a role check only when the action opens a mutating dialog
+from the board, and only by importing a constant that already exists.** No
+component declares a role array. Navigation carries no role check, because the
+destination page authorises its own request and mirrors the role where it
+mutates — gating a link would be new authorization logic in Vue, diverging from
+the page it points at. `FRONT_DESK_ROLES` gates Assign Room;
+`STAY_OPERATION_ROLES` gates Move room, Extend and Shorten. Backend authority is
+unchanged and remains the only thing that decides.
+
+### Validation
+
+- **Frontend:** 10 files, **188 tests, all passing** — table 16, drawer 17,
+  MoneyDisplay 10, AlertBadge 25, FolioBalance 13, Arrivals 22, Departures 19,
+  In-House 16, source guards 37, foundation 13.
+- **Existing Node checks:** **7/7**, unmodified.
+- **Backend:** **389 tests, all passing** — the same count as the 16.6.6
+  baseline, on a build that changed no backend code.
+- **Production build:** passes, no new warnings. The pre-existing >500 kB
+  index-chunk advisory is unchanged.
+- **Bundle:** total assets 1,784,319 → 1,813,915 B (**+29,596 B, +1.7 %**).
+  `index.js` +306 B, `index.css` −41 B. The kit landed as one shared
+  `OperationalDataTable` chunk of 14,739 B, with the three boards growing
+  ~4.1–4.7 kB each. Sharing one table across three boards is the point; no
+  optimisation was attempted and none is warranted.
+- **Generic CRUD:** none. No `frappe.client.*`, no `frappe.db.*`, no
+  `createDocumentResource`, no `/api/resource/` anywhere in `frontend/src`, and
+  `createResource` is imported only inside `src/resources/`, where `apiPath`
+  forces the `hospitality_pms.api` namespace.
+- **Business date:** unchanged. All three boards still fetch on `{ property }`
+  alone and send no `on_date`, so the server remains the sole owner of the
+  operating day; all three keep the immediate property watcher. No `new Date()`
+  in any migrated page. Asserted per board.
+- **Untouched:** router and navigation (no rename, no reorganisation — that is
+  16.7.1), all 22 existing dialogs, the shared state components, every other
+  page, and all backend code.
+
+### Backlog: remaining hand-built tables
+
+Not migrated, deliberately, and not to be migrated automatically. In rough order
+of operational value: **Reservations**, **Room Rack**, **Folio**, **Checkout**,
+**Housekeeping**, **Maintenance**, **Guest Services**, **Kitchen**, **Guests**,
+plus the Calendar grid and the Availability results, which are not row-per-record
+tables and may not suit this primitive at all. Each migration should be judged on
+whether the shared table fits, not on consistency for its own sake.
+
+### Deferred to 16.7.1
+
+Endpoint extensions, all recorded and none implemented here:
+
+1. **`currency` in `services.stays.get_in_house`** — highest value. `Stay.currency`
+   exists and `get_stay` already returns it; the in-house board assumes the
+   property's currency without it.
+2. `room_number` in `get_in_house` — the field list returns the Hotel Room
+   docname, which is the room *code*; the other two boards resolve a room number,
+   so the Room column does not mean the same thing on all three.
+3. `vip_status` / `is_blacklisted` in `get_in_house`, via the existing
+   `get_guest_flags`, before In-House can carry an alerts column.
+4. `balance` / `folio_status` and `can_check_out` / `blockers` in `get_in_house`,
+   via the patterns the departures board already uses, before it can carry a
+   balance column or a readiness badge.
+5. `is_blacklisted` on the **departures** row — `get_guest_flags` already fetches
+   it and the row simply does not copy it.
+6. `rate_plan` on the arrivals row; a decision on whether a per-room-line
+   deposit figure should be marked booking-scoped in the payload.
+7. The guest alert **register** on the boards — needs a bulk equivalent of
+   `get_active_alerts`; per-row fetching is not acceptable at 500 rooms.
+8. Related folios as a list rather than a count, for split-folio settlement from
+   the board.
+9. `business_date` from `api.stays.in_house`, so the board can state which day it
+   is showing.
+10. Deep-linking check-in to a single room line (router + `CheckIn.vue`).
+
+Also 16.7.1 and beyond, unchanged by this build: Front Desk Command Center,
+navigation reorganisation, global search (needs one new aggregate API), the
+Services workspace union, and authorization metadata for row actions.
+
+### Findings recorded, not fixed
+
+Three pre-existing defects were found by review and left alone, because this
+build changes no backend code and no unmigrated page:
+
+- **`get_guest_flags` reads `is_blacklisted` with permission-free
+  `frappe.get_all`** (`services/front_office.py:140`), while the arrivals
+  endpoint gates only on Reservation read. `is_blacklisted` is permlevel 2 with a
+  narrower reader set, and `api/guests.py:166` checks that permlevel correctly
+  for the same field. So roles outside `BLACKLIST_READERS` — housekeeping,
+  maintenance, kitchen, revenue — can receive the flag from the arrivals board.
+  Backend-owned, code-confirmed, not runtime-tested. The new badge does not make
+  the field more prominent than the badge it replaced.
+- **`utils/format.toServerDate` parses an ISO date as UTC and reads it back
+  local**, so at a negative UTC offset it can shift a business date back one day.
+  Reached today only by `Calendar.vue:245`, which this build does not migrate.
+  Qatar is UTC+3, so it is latent here. The migrated boards use neither
+  `toServerDate` nor any client date, and a spec asserts that.
+- **Alert bodies sit at permlevel 0** and are readable by any Guest reader on the
+  guest profile. Deliberate per `get_active_alerts`, reached from no board.
+
+### Subagent usage
+
+Six specialist roles ran under a Lead: one engineer per primitive
+(`OperationalDataTable`; `ActionDrawer`; `FolioBalance`/`AlertBadge`), a domain
+expert on which columns and actions the current endpoints genuinely support, and
+a security reviewer on generic CRUD, row-action authorization, alert privacy and
+business-date context. File ownership was assigned before any parallel edit; the
+locale catalogues, the shared test helpers, the three pages and this log stayed
+with the Lead, and no two agents held the same file. Every component was read and
+verified by the Lead rather than accepted on report. Three specialist
+recommendations changed the design: the deposit-column treatment, the
+In-House suppressions, and the drawer/dialog layering rule.
+
+Result: **PASS**

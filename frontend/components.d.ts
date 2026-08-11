@@ -8,7 +8,9 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    ActionDrawer: typeof import('./src/components/operational/ActionDrawer.vue')['default']
     AddStayNoteDialog: typeof import('./src/components/AddStayNoteDialog.vue')['default']
+    AlertBadge: typeof import('./src/components/operational/AlertBadge.vue')['default']
     AppLayout: typeof import('./src/components/AppLayout.vue')['default']
     AppSidebar: typeof import('./src/components/AppSidebar.vue')['default']
     ArrivalsPanel: typeof import('./src/components/dashboard/ArrivalsPanel.vue')['default']
@@ -23,6 +25,7 @@ declare module 'vue' {
     EmptyState: typeof import('./src/components/states/EmptyState.vue')['default']
     ErrorState: typeof import('./src/components/states/ErrorState.vue')['default']
     ExtendStayDialog: typeof import('./src/components/ExtendStayDialog.vue')['default']
+    FolioBalance: typeof import('./src/components/operational/FolioBalance.vue')['default']
     GuestDuplicateDialog: typeof import('./src/components/GuestDuplicateDialog.vue')['default']
     GuestForm: typeof import('./src/components/GuestForm.vue')['default']
     GuestRequestDialog: typeof import('./src/components/GuestRequestDialog.vue')['default']
@@ -34,10 +37,12 @@ declare module 'vue' {
     LoadingState: typeof import('./src/components/states/LoadingState.vue')['default']
     MaintenanceTicketDialog: typeof import('./src/components/MaintenanceTicketDialog.vue')['default']
     MiniBars: typeof import('./src/components/dashboard/MiniBars.vue')['default']
+    MoneyDisplay: typeof import('./src/components/operational/MoneyDisplay.vue')['default']
     NightAuditCard: typeof import('./src/components/dashboard/NightAuditCard.vue')['default']
     NightAuditCloseDialog: typeof import('./src/components/NightAuditCloseDialog.vue')['default']
     NightAuditExceptionDialog: typeof import('./src/components/NightAuditExceptionDialog.vue')['default']
     NightAuditReopenDialog: typeof import('./src/components/NightAuditReopenDialog.vue')['default']
+    OperationalDataTable: typeof import('./src/components/operational/OperationalDataTable.vue')['default']
     PageHeader: typeof import('./src/components/PageHeader.vue')['default']
     PermissionDenied: typeof import('./src/components/states/PermissionDenied.vue')['default']
     PostAdjustmentDialog: typeof import('./src/components/PostAdjustmentDialog.vue')['default']
