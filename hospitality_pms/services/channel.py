@@ -37,6 +37,7 @@ from frappe.utils import add_days, add_to_date, now_datetime, nowdate
 from hospitality_pms.integrations.channel import get_adapter
 from hospitality_pms.services import reservations as reservation_service
 from hospitality_pms.services import durability
+from hospitality_pms.services.property import resolve_operational_date
 from hospitality_pms.services.availability import get_availability
 from hospitality_pms.services.exceptions import ConfigurationError, throw
 from hospitality_pms.services.rates import get_rate_breakdown
@@ -494,7 +495,10 @@ def sync_all(property_name: str) -> dict:
 	`push_rates`) but does not stop the others - a scheduler job that aborts
 	on the first bad channel would leave every channel after it stale.
 	"""
-	from_date = nowdate()
+	# From the property's operating day, not the calendar's. A hotel that has
+	# not yet closed yesterday still has tonight to sell, and a window opening
+	# on the calendar date would silently omit the nights it is still working.
+	from_date = resolve_operational_date(property_name)
 	to_date = add_days(from_date, DEFAULT_SYNC_HORIZON_DAYS)
 
 	results: dict[str, list] = {"availability": [], "rates": [], "failed": [], "skipped": []}

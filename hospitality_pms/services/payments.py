@@ -33,8 +33,98 @@ FAILURE_QUEUE = "PMS Integration Failure Queue"
 #: Transaction states in which the money is the hotel's and belongs on the folio.
 SETTLED_STATES = ("Captured",)
 
-#: States from which nothing further will happen.
-TERMINAL_STATES = ("Captured", "Failed", "Cancelled", "Refunded")
+#: States after which the provider has finished with the original attempt, and
+#: `completed_on` is stamped. Not the same question as "may this change" - see
+#: `ALLOWED_TRANSITIONS`.
+COMPLETING_STATES = ("Captured", "Failed", "Cancelled", "Refunded", "Partially Refunded")
+
+#: Every status the DocType defines. A callback naming anything else is not a
+#: state this system knows how to be in, and is refused rather than stored.
+TRANSACTION_STATES = (
+	"Initiated",
+	"Pending",
+	"Authorised",
+	"Captured",
+	"Failed",
+	"Cancelled",
+	"Refunded",
+	"Partially Refunded",
+)
+
+#: States that settle the question the durable ledger was left holding: the
+#: provider has told us, conclusively, what became of the operation.
+CONCLUSIVE_STATES = (
+	"Authorised",
+	"Captured",
+	"Failed",
+	"Cancelled",
+	"Refunded",
+	"Partially Refunded",
+)
+
+#: What a transaction in each state may become.
+#:
+#: This replaces "if the current state is terminal, ignore the callback", which
+#: conflated two different questions and got both of them wrong (P2-2).
+#:
+#: `Failed` was treated as final, so a provider that failed one attempt and
+#: captured the retry had its capture discarded: the gateway held the guest's
+#: money and the folio was never credited. A failure is not final - it is the
+#: absence of settlement so far, and later evidence of settlement outranks it.
+#:
+#: `Partially Refunded` was not in the list at all, so a stale failure could
+#: overwrite it while `refunded_amount` stayed populated: a transaction that had
+#: failed and yet refunded money.
+#:
+#: What is genuinely final is economic: once the hotel has the money, nothing a
+#: gateway says later takes it back except a refund. Once it has been given
+#: back, nothing at all follows.
+#:
+#: A repeat of the current status is not a transition and is not listed; it is
+#: handled as an idempotent replay.
+ALLOWED_TRANSITIONS = {
+	"Initiated": ("Pending", "Authorised", "Captured", "Failed", "Cancelled"),
+	"Pending": ("Authorised", "Captured", "Failed", "Cancelled"),
+	# An authorisation is a promise, not money. It can still fall through.
+	"Authorised": ("Captured", "Failed", "Cancelled"),
+	# Not final: the retry that worked arrives after the attempt that did not.
+	"Failed": ("Authorised", "Captured"),
+	# Likewise - a guest who abandoned checkout and then completed it.
+	"Cancelled": ("Authorised", "Captured"),
+	# Settled. The only way out is giving the money back.
+	"Captured": ("Partially Refunded", "Refunded"),
+	"Partially Refunded": ("Refunded",),
+	# Nothing follows a full refund.
+	"Refunded": (),
+}
+
+#: What `_classify_transition` decides about an incoming status.
+APPLY = "apply"
+REPEAT = "repeat"
+REFUSE = "refuse"
+UNKNOWN = "unknown"
+
+
+def _classify_transition(current: str, incoming: str) -> str:
+	"""Decide what an inbound status means for a transaction already in `current`.
+
+	Deliberately not a numeric priority comparison. Priorities encode a total
+	order that payment states do not have - `Cancelled` and `Failed` are not
+	ranked against each other in any meaningful way, and `Partially Refunded`
+	is both "more settled" and "less settled" than `Captured` depending on
+	which question is being asked. The allowed pairs are written out instead,
+	so each one can be justified on its own.
+	"""
+	if incoming not in TRANSACTION_STATES:
+		return UNKNOWN
+
+	if current == incoming:
+		return REPEAT
+
+	if incoming in ALLOWED_TRANSITIONS.get(current, ()):
+		return APPLY
+
+	return REFUSE
 
 
 def initiate_payment(
@@ -200,41 +290,116 @@ def handle_callback(
 		TRANSACTION_DOCTYPE, transaction["name"], "transaction_status"
 	)["transaction_status"]
 
-	if transaction["transaction_status"] in TERMINAL_STATES:
-		# A replayed callback for a transaction already in its final state.
+	current = transaction["transaction_status"]
+	status = normalised.get("status") or "Pending"
+	verdict = _classify_transition(current, status)
+
+	if verdict in (REFUSE, UNKNOWN):
+		# Stale or unintelligible. The row is left exactly as it is, and the
+		# event is recorded rather than swallowed: a provider telling us
+		# something we cannot act on is worth a human's attention, and a
+		# refused regression is the system working, not an error.
+		_log_refused_callback(transaction["name"], current, status, verdict, normalised)
+
 		return {
 			"matched": True,
 			"transaction": transaction["name"],
-			"transaction_status": transaction["transaction_status"],
-			"duplicate": True,
+			"transaction_status": current,
+			"duplicate": verdict == REFUSE,
+			"ignored": True,
+			"applied": False,
+			"reason": _("A {0} callback cannot move a transaction that is {1}.").format(
+				status, current
+			),
 		}
 
-	status = normalised.get("status") or "Pending"
+	if verdict == APPLY:
+		frappe.db.set_value(
+			TRANSACTION_DOCTYPE,
+			transaction["name"],
+			{
+				"transaction_status": status,
+				"provider_status": normalised.get("provider_status"),
+				"response_payload": json.dumps(normalised, default=str),
+				"completed_on": now_datetime() if status in COMPLETING_STATES else None,
+				"failure_reason": normalised.get("failure_reason"),
+			},
+			update_modified=True,
+		)
 
-	frappe.db.set_value(
-		TRANSACTION_DOCTYPE,
-		transaction["name"],
-		{
-			"transaction_status": status,
-			"provider_status": normalised.get("provider_status"),
-			"response_payload": json.dumps(normalised, default=str),
-			"completed_on": now_datetime() if status in TERMINAL_STATES else None,
-			"failure_reason": normalised.get("failure_reason"),
-		},
-		update_modified=True,
-	)
-
+	# Reached for a repeat as well as a first application. `_apply_to_folio`
+	# is keyed on the transaction, so a replay credits nothing twice - and a
+	# capture whose folio posting was lost to a rollback is repaired by the
+	# next delivery rather than staying uncredited forever.
 	applied = None
 	if status in SETTLED_STATES:
 		applied = _apply_to_folio(transaction["name"])
+
+	_resolve_durable_operation(transaction["name"], status, reference)
 
 	return {
 		"matched": True,
 		"transaction": transaction["name"],
 		"transaction_status": status,
 		"folio_payment": applied,
-		"duplicate": False,
+		"duplicate": verdict == REPEAT,
+		"applied": verdict == APPLY,
 	}
+
+
+def _log_refused_callback(transaction: str, current: str, status: str, verdict: str, normalised: dict):
+	"""Keep the evidence of a callback that was not acted on.
+
+	An unknown status is a provider contract change or a bad integration and
+	somebody needs to see it. A refused regression is routine - the model
+	working as designed - so it is noted at a lower level and not raised as an
+	alert.
+	"""
+	frappe.log_error(
+		title=f"Payment callback refused: {current} -> {status}",
+		message=json.dumps(
+			{
+				"transaction": transaction,
+				"current_status": current,
+				"callback_status": status,
+				"verdict": verdict,
+				"payload": normalised,
+			},
+			default=str,
+			indent=2,
+		),
+	)
+
+
+def _resolve_durable_operation(transaction: str, status: str, reference: str | None):
+	"""Let a conclusive callback close the durable operation it belongs to.
+
+	Wave 3 parks an operation in `Needs Reconciliation` when the provider's
+	answer was lost, so that nobody re-issues it. A callback that then proves
+	what happened *is* that answer, arriving late. Leaving the ledger waiting
+	for a human afterwards is not caution; it is a queue that never drains.
+
+	Resolved through the Wave-3 service rather than by writing the ledger here,
+	so there is still one implementation of what resolution means. Only
+	`Needs Reconciliation` is this path's business: an operation still
+	Executing is being handled by the call that opened it.
+	"""
+	if status not in CONCLUSIVE_STATES:
+		return
+
+	key = frappe.db.get_value(TRANSACTION_DOCTYPE, transaction, "idempotency_key")
+	if not key:
+		return
+
+	record = durability.get_operation(key)
+	if not record or record["queue_status"] != durability.NEEDS_RECONCILIATION:
+		return
+
+	durability.complete_operation(
+		key,
+		external_reference=reference,
+		note=_("Resolved by a provider callback reporting {0}.").format(status),
+	)
 
 
 def _apply_to_folio(transaction: str) -> str | None:
@@ -283,22 +448,50 @@ def sync_status(transaction: str) -> dict:
 	adapter = get_provider(doc.property, doc.provider)
 	result = adapter.get_status(doc.provider_reference)
 
-	lock_document(TRANSACTION_DOCTYPE, transaction)
+	# Current read under the lock: the status was loaded before the provider
+	# was asked, and asking takes network time during which a callback may
+	# have moved it.
+	current = lock_and_read(TRANSACTION_DOCTYPE, transaction, "transaction_status")[
+		"transaction_status"
+	]
 
-	frappe.db.set_value(
-		TRANSACTION_DOCTYPE,
-		transaction,
-		{
-			"transaction_status": result.status,
-			"provider_status": result.provider_status,
-			"response_payload": json.dumps(result.raw, default=str),
-		},
-		update_modified=True,
-	)
+	# The provider is authoritative about its own capture and knows nothing
+	# about a refund the hotel issued afterwards, so its answer goes through
+	# the same transition model as a callback rather than straight over the
+	# top of local state.
+	verdict = _classify_transition(current, result.status)
+
+	if verdict in (REFUSE, UNKNOWN):
+		_log_refused_callback(transaction, current, result.status, verdict, result.raw or {})
+
+		return {
+			"transaction": transaction,
+			"transaction_status": current,
+			"folio_payment": None,
+			"ignored": True,
+			"reason": _("The provider reports {0}; the transaction is {1}.").format(
+				result.status, current
+			),
+		}
+
+	if verdict == APPLY:
+		frappe.db.set_value(
+			TRANSACTION_DOCTYPE,
+			transaction,
+			{
+				"transaction_status": result.status,
+				"provider_status": result.provider_status,
+				"response_payload": json.dumps(result.raw, default=str),
+				"completed_on": now_datetime() if result.status in COMPLETING_STATES else None,
+			},
+			update_modified=True,
+		)
 
 	applied = None
 	if result.status in SETTLED_STATES:
 		applied = _apply_to_folio(transaction)
+
+	_resolve_durable_operation(transaction, result.status, doc.provider_reference)
 
 	return {"transaction": transaction, "transaction_status": result.status, "folio_payment": applied}
 

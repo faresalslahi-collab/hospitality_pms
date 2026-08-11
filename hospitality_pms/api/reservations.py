@@ -11,7 +11,7 @@ from frappe.utils import getdate
 
 from hospitality_pms.services import reservations as service
 from hospitality_pms.services.base import authorise_document, require_permission
-from hospitality_pms.services.property import resolve_property
+from hospitality_pms.services.property import resolve_operational_date, resolve_property
 from hospitality_pms.services.rates import get_rate_breakdown
 
 RESERVATION_DOCTYPE = "Reservation"
@@ -271,7 +271,9 @@ def calendar(property: str | None = None, from_date: str | None = None, to_date:
 	require_permission(RESERVATION_DOCTYPE, "read")
 	property_name = resolve_property(property)
 
-	from_date = getdate(from_date or frappe.utils.nowdate())
+	# The operating day, not the calendar's - the same rule the front office
+	# boards use, so the two public endpoint families cannot drift apart again.
+	from_date = resolve_operational_date(property_name, from_date)
 	to_date = getdate(to_date or frappe.utils.add_days(from_date, 30))
 
 	records = frappe.get_list(

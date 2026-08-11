@@ -133,6 +133,22 @@ def get_business_date(property_name: str):
 	return getdate(business_date)
 
 
+def resolve_operational_date(property_name: str, on_date=None):
+	"""The date an operational question is about.
+
+	The single rule for every screen, board and endpoint that has to pick a
+	default day, and the answer is never `today()`. A property that has not
+	yet run its Night Audit is still working yesterday: its arrivals board,
+	its folio postings and its audit must all agree on which day that is, and
+	a calendar date agrees with none of them.
+
+	An explicit date always wins. Only the *default* is the business date -
+	nothing here stops a user asking about next Tuesday.
+	"""
+	return getdate(on_date) if on_date else getdate(get_business_date(property_name))
+
+
+
 def is_business_date_closed(property_name: str, business_date) -> bool:
 	"""Whether a Night Audit has already closed this property on this date.
 

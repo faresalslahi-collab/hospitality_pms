@@ -44,7 +44,7 @@ from hospitality_pms.services.exceptions import (
 	HospitalityPMSError,
 	throw,
 )
-from hospitality_pms.services.property import get_business_date
+from hospitality_pms.services.property import get_business_date, resolve_operational_date
 from hospitality_pms.services.rates import get_cancellation_charge, get_rate_breakdown
 from hospitality_pms.services.rooms import assert_assignable
 
@@ -871,12 +871,17 @@ def refresh_header_dates(reservation: str):
 
 
 def get_arrivals(property_name: str, on_date=None) -> list[dict]:
-	"""Reservations due to arrive on a date."""
+	"""Reservations due to arrive on a date.
+
+	Defaults to the property's operating day, not the calendar's. A hotel
+	mid-way between night audits is still working yesterday, and an arrivals
+	list that disagrees sends the desk looking for guests who are not due.
+	"""
 	return frappe.get_all(
 		RESERVATION_DOCTYPE,
 		filters={
 			"property": property_name,
-			"arrival_date": getdate(on_date or nowdate()),
+			"arrival_date": resolve_operational_date(property_name, on_date),
 			"reservation_status": ("in", (CONFIRMED, GUARANTEED)),
 		},
 		fields=[
@@ -897,12 +902,12 @@ def get_arrivals(property_name: str, on_date=None) -> list[dict]:
 
 
 def get_departures(property_name: str, on_date=None) -> list[dict]:
-	"""Reservations due to depart on a date."""
+	"""Reservations due to depart on a date, on the property's operating day."""
 	return frappe.get_all(
 		RESERVATION_DOCTYPE,
 		filters={
 			"property": property_name,
-			"departure_date": getdate(on_date or nowdate()),
+			"departure_date": resolve_operational_date(property_name, on_date),
 			"reservation_status": CHECKED_IN,
 		},
 		fields=[

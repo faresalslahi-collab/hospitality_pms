@@ -50,7 +50,8 @@
    "default": "1",
    "fieldname": "enable_realtime_updates",
    "fieldtype": "Check",
-   "label": "Enable Realtime Updates"
+   "label": "Enable Realtime Updates",
+   "description": "Reserved and not yet in effect. No screen is pushed to in real time today; operational screens refresh on navigation and on action."
   },
   {
    "fieldname": "general_col",
@@ -76,7 +77,7 @@
   },
   {
    "default": "30",
-   "description": "How long an unconfirmed reservation may hold inventory before the hold lapses.",
+   "description": "Reserved and not yet in effect. Tentative reservations do not hold inventory, so no hold expires; this takes effect only if a holding lifecycle is introduced.",
    "fieldname": "reservation_hold_minutes",
    "fieldtype": "Int",
    "label": "Reservation Hold (Minutes)"
@@ -85,7 +86,8 @@
    "default": "Direct",
    "fieldname": "default_reservation_source",
    "fieldtype": "Data",
-   "label": "Default Reservation Source"
+   "label": "Default Reservation Source",
+   "description": "Reserved and not yet in effect. A reservation's source is set by the channel or the agent creating it; this default is not applied."
   },
   {
    "fieldname": "reservation_col",
@@ -93,7 +95,7 @@
   },
   {
    "default": "24",
-   "description": "Default only. The rate plan policy overrides this once rate plans exist.",
+   "description": "Reserved and not yet in effect. Cancellation charges are governed per policy by Rate Policy > Free Cancellation Hours, which is what the system reads.",
    "fieldname": "cancellation_grace_hours",
    "fieldtype": "Int",
    "label": "Cancellation Grace (Hours)"
@@ -134,7 +136,7 @@
   },
   {
    "default": "03:00:00",
-   "description": "Advisory. The business date only closes when a Night Auditor completes the audit.",
+   "description": "Reserved and not yet in effect. The Night Audit is started deliberately by an auditor; nothing closes a business date on a schedule.",
    "fieldname": "night_audit_run_time",
    "fieldtype": "Time",
    "label": "Scheduled Night Audit Time"

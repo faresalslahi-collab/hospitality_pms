@@ -11,6 +11,7 @@ from frappe.utils import add_days, getdate
 from hospitality_pms.services import reservations as reservation_service
 from hospitality_pms.services import stays as stay_service
 from hospitality_pms.services.availability import get_availability
+from hospitality_pms.services.property import BUSINESS_DATE_FLAG
 from hospitality_pms.tests.fixtures import Fixtures
 
 ROOM_RATE = 100.0
@@ -38,6 +39,21 @@ class InventoryWorld:
 
 	def day(self, offset: int):
 		return add_days(self.business_date, offset)
+
+	def set_business_date(self, value):
+		"""Move the property's operating day, for arranging a test's premise.
+
+		Through the same guarded flag the Night Audit uses: the Property
+		controller refuses any other writer, and that control is one to work
+		with rather than around.
+		"""
+		frappe.flags[BUSINESS_DATE_FLAG] = True
+		try:
+			frappe.db.set_value("Property", self.property, "business_date", getdate(value))
+		finally:
+			frappe.flags[BUSINESS_DATE_FLAG] = False
+
+		frappe.db.commit()
 
 	# -- bookings ---------------------------------------------------------
 

@@ -29,7 +29,11 @@ from hospitality_pms.services import maintenance as maintenance_service
 from hospitality_pms.services import reservations as reservation_service
 from hospitality_pms.services import rooms as room_service
 from hospitality_pms.services import stays as stay_service
-from hospitality_pms.services.property import get_business_date, get_property
+from hospitality_pms.services.property import (
+	get_business_date,
+	get_property,
+	resolve_operational_date,
+)
 
 ROOM_DOCTYPE = "Hotel Room"
 ROOM_TYPE_DOCTYPE = "Room Type"
@@ -92,11 +96,12 @@ MAX_CALENDAR_ROOMS = 100
 def resolve_business_date(property_name: str, on_date=None):
 	"""The date a board is about.
 
-	Defaults to the property's business date rather than today: a property that
-	has not run its night audit is still working yesterday, and its arrivals
-	board must agree with its audit (SAS section 6).
+	Kept as the name the front office boards already call, delegating to the
+	one shared implementation. Wave 6 found the same rule written twice with
+	different answers - the boards resolved the business date and the legacy
+	reservation endpoints reached for `nowdate()` - so there is now one.
 	"""
-	return getdate(on_date) if on_date else getdate(get_business_date(property_name))
+	return resolve_operational_date(property_name, on_date)
 
 
 def get_room_states(property_name: str, rooms: list[str] | None = None) -> dict[str, dict]:

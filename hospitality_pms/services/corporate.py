@@ -12,6 +12,7 @@ from frappe.utils import flt, getdate, now_datetime, nowdate
 
 from hospitality_pms.services.base import lock_and_read, require_role
 from hospitality_pms.services.exceptions import HospitalityPMSError, throw
+from hospitality_pms.services.property import resolve_operational_date
 
 ACCOUNT_DOCTYPE = "Corporate Account"
 CREDIT_LOG_DOCTYPE = "Corporate Credit Log"
@@ -45,9 +46,16 @@ COMPANY_PAID_CHARGES = {
 
 
 def get_negotiated_rate(account: str, room_type: str, on_date=None) -> dict | None:
-	"""The contracted rate for a room type, if one is in force."""
+	"""The contracted rate for a room type, if one is in force on a date.
+
+	`on_date` is the date being priced - the night of the stay, not the day
+	the booking is made. Pricing a stay in March asks what the contract says
+	about March. Without one, the question is operational rather than
+	forward-looking and the answer is the property's business date; the
+	calendar date is never the right fallback for either.
+	"""
 	doc = frappe.get_cached_doc(ACCOUNT_DOCTYPE, account)
-	on_date = getdate(on_date or nowdate())
+	on_date = _contract_date(doc, on_date)
 
 	for row in doc.negotiated_rates:
 		if row.room_type != room_type or not row.is_active:
@@ -62,10 +70,28 @@ def get_negotiated_rate(account: str, room_type: str, on_date=None) -> dict | No
 	return None
 
 
+def _contract_date(doc, on_date=None):
+	"""Which date a contract question is being asked about.
+
+	An explicit service date wins: a reservation for the 20th is checked
+	against the 20th, whether or not the contract also covers today. Without
+	one the question is about trading now, and "now" for a hotel is its
+	business date - a property still working yesterday must not have its
+	contracts expire a day early because the calendar has moved on.
+	"""
+	if on_date:
+		return getdate(on_date)
+
+	if doc.property:
+		return resolve_operational_date(doc.property)
+
+	return getdate(nowdate())
+
+
 def assert_contract_valid(account: str, on_date=None):
-	"""Refuse to trade on an expired contract."""
+	"""Refuse to trade on an expired contract, as at the relevant date."""
 	doc = frappe.get_cached_doc(ACCOUNT_DOCTYPE, account)
-	on_date = getdate(on_date or nowdate())
+	on_date = _contract_date(doc, on_date)
 
 	if not doc.is_active:
 		throw(_("Corporate account {0} is not active.").format(account), exc=HospitalityPMSError)

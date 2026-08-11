@@ -100,29 +100,46 @@
 
 <script setup>
 import { Button, FormControl } from 'frappe-ui'
-import { computed, reactive } from 'vue'
+import { computed, reactive, watch } from 'vue'
 
 import PageHeader from '@/components/PageHeader.vue'
 import EmptyState from '@/components/states/EmptyState.vue'
 import ErrorState from '@/components/states/ErrorState.vue'
 import { availabilitySearchResource } from '@/resources/availability'
 import { property } from '@/stores/property'
-import { formatDate, toServerDate } from '@/utils/format'
+import { formatDate } from '@/utils/format'
+import { defaultStayRange } from '@/utils/operationalDate'
 import { t } from '@/utils/i18n'
 
 const search = availabilitySearchResource()
 
-// Default to tonight, which is what a walk-in asks for.
-const today = new Date()
-const tomorrow = new Date(today.getTime() + 86400000)
+// Tonight, which is what a walk-in asks for - on the *property's* day, not the
+// browser's. A hotel mid-way between night audits is still working yesterday,
+// and this screen used to open on a date it had already closed.
+let derived = defaultStayRange(property.businessDate.value)
 
 const form = reactive({
-  arrival: toServerDate(today),
-  departure: toServerDate(tomorrow),
+  arrival: derived.arrival,
+  departure: derived.departure,
   rooms: 1,
   adults: 2,
   children: 0,
 })
+
+// The property context arrives asynchronously, so the first paint may have
+// used the browser fallback. Re-derive when it lands - but only while the
+// dates are still the ones this screen chose, so an agent who has already
+// typed a date is never overwritten.
+watch(
+  () => property.businessDate.value,
+  (businessDate) => {
+    if (form.arrival !== derived.arrival || form.departure !== derived.departure) return
+
+    derived = defaultStayRange(businessDate)
+    form.arrival = derived.arrival
+    form.departure = derived.departure
+  },
+)
 
 const results = computed(() => {
   const types = search.data?.room_types || {}

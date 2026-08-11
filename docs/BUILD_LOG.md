@@ -2555,3 +2555,143 @@ tests/test_deposit_allocation.py 10 tests   OK
   future arrival. The interval check still applies; the status check does not.
 
 Result: PASS
+
+## 16.6.5 — Onboarding Integrity Hardening, Wave 6: payment state, business date, final integrity
+
+Findings closed: **P2-2**, **N6**, and the remaining business-date defects.
+This is the last required functional hardening wave before onboarding review.
+
+### P2-2 — terminal is not the same as final
+
+The original claim was that Captured could regress to Failed. It cannot, and
+did not reproduce. Two other defects did, and they are the same mistake seen
+from two sides: `TERMINAL_STATES` was being used to answer "may this change?",
+which is a different question from "will anything follow?".
+
+**Failed then Captured.** A provider fails one attempt and captures the retry.
+`Failed` was terminal, so the capture was discarded as a duplicate: the gateway
+held the guest's money and the folio was never credited.
+
+**Partially Refunded then Failed.** That state was not in the terminal list at
+all, so a stale failure overwrote it while `refunded_amount` stayed populated —
+a transaction that had failed and yet refunded money.
+
+Replaced by an explicit allowed-transition graph (HPMS-DEC-159). Numeric
+priorities were rejected: payment states have no total order, and each allowed
+pair needs its own justification. Economic settlement outranks a preliminary
+failure — `Failed`/`Cancelled` → `Captured` is allowed. Nothing outranks
+settlement afterwards except a refund (HPMS-DEC-160). `sync_status` writes the
+same field and now goes through the same model (HPMS-DEC-162).
+
+A conclusive callback also resolves its durable operation through the Wave-3
+service, so a ledger row does not sit in Needs Reconciliation after the answer
+it was waiting for has arrived (HPMS-DEC-161). A callback the model refused
+resolves nothing.
+
+### The operational day, everywhere
+
+One resolver — `property.resolve_operational_date` — now decides every default
+(HPMS-DEC-163). `front_office.resolve_business_date` delegates to it, so the
+two public endpoint families can no longer disagree.
+
+| Surface | Before | Now |
+|---|---|---|
+| `Availability.vue` | browser `new Date()` | property business date |
+| `ReservationNew.vue` | browser `new Date()` | property business date |
+| `api.reservations.arrivals` | `nowdate()` | property business date |
+| `api.reservations.departures` | `nowdate()` | property business date |
+| `api.reservations.calendar` | `nowdate()` | property business date |
+| `rates.get_applicable_rate_plans` | `nowdate()` | service date, else business date |
+| `channel.sync_all` | `nowdate()` | property business date |
+| `corporate.assert_contract_valid` | `nowdate()` | service date, else business date |
+| `corporate.get_negotiated_rate` | `nowdate()` | service date, else business date |
+| `guests.get_active_alerts` | calendar date | business date where property context exists |
+
+The last two were the open design decisions. Contract and rate validity are
+evaluated on the date being priced when the caller supplies one, because
+pricing a March stay asks what the contract says about March (HPMS-DEC-164).
+Guest alerts were decided from the schema, not the name: `valid_upto` is a
+Date, so it names a day and is answered on the business day; a Guest belongs to
+no single property, so without context the calendar date is the honest fallback
+(HPMS-DEC-165).
+
+Only defaults changed. An explicit future date is still honoured everywhere,
+and audit and provider timestamps remain wall-clock. The four kinds of date and
+when each applies are now written down in `CLAUDE.md`.
+
+### N6 — every setting has a disposition
+
+Three of the five original dead settings were real defects and are wired
+(`enable_overbooking` Wave 1, `block_posting_after_close` Wave 4,
+`block_assignment_for_out_of_order` verified descriptive in Wave 5). The
+remaining two are **not** defects, and neither is wired here.
+
+`reservation_hold_minutes` would expire a hold, but `Tentative` is outside
+`HOLDING_RESERVATION_STATES` and holds no inventory — there is nothing to
+release. `cancellation_grace_hours` would waive a charge inside a grace period,
+which `Rate Policy.free_cancellation_hours` already decides per policy; a
+second global rule would create an ambiguity, not a control. Wiring either
+would be inventing a feature (HPMS-DEC-166).
+
+Three further unread settings were found beyond the original five —
+`enable_realtime_updates`, `night_audit_run_time`, `default_reservation_source`
+— and classified the same way. Every placeholder's description now says it is
+not yet in effect, and `tests/test_settings_integrity.py` enforces that a WIRED
+setting is really read, a PLACEHOLDER really is not, and no new setting can be
+added without a disposition (HPMS-DEC-167).
+
+### Cross-wave integrity
+
+`tests/test_final_integrity.py` parses the source and fails on *new* uses of
+the patterns each wave removed: lock-then-stale-read, random financial
+identity, unguarded mutating endpoints, calendar-date operational defaults,
+Stay counted in availability, header dates no longer child-derived. Existing
+occurrences are allow-listed individually with a reason (HPMS-DEC-168).
+
+Twenty-five pre-Wave-1 lock-then-read sites were catalogued this way, in
+`guest_services`, `housekeeping`, `kitchen`, `maintenance`, `regulatory`,
+`hardware` and `rooms.set_status`. All are on operational rather than financial
+state, none was in any wave's scope, and none is a regression. **Recommended
+for Wave 7.**
+
+One suspected financial instance was investigated and **is not a defect**.
+`checkout._settle_folio` reads the folio balance plainly after locking it. A
+two-process race — with a probe first proving the harness can observe a stale
+snapshot at all — showed both checkout paths refuse correctly: the
+authoritative guard is in `FolioService.transition`, which every route to
+Settled passes through. No change made.
+
+### Validation
+
+354 tests, all passing. 285 from Waves 1–5, unchanged and still green; 69 new.
+
+```
+tests/test_payment_callback_state.py  27 tests   OK
+tests/test_business_date.py           36 tests   OK  (16 from Wave 4, 20 new)
+tests/test_final_integrity.py         15 tests   OK
+tests/test_settings_integrity.py       7 tests   OK
+frontend  yarn test                    7 checks  OK
+```
+
+- Concurrency with two OS processes: simultaneous failure and capture converge
+  on the capture and credit the folio once; two simultaneous captures credit it
+  once.
+- Frontend builds clean. The date rule is a pure module with its own Node
+  checks, because there is no test runner configured and adding one is not this
+  wave's business.
+- Migration clean; the settings description change applied.
+- No test residue: no leftover properties or transactions, and `PMS Settings`
+  at its DocType defaults. The one durable operation in Needs Reconciliation is
+  a pre-existing legacy `import_reservation` row from 2026-08-08.
+
+### P2-7 remeasured, not optimised
+
+| Hazard | Measurement | Verdict |
+|---|---|---|
+| Assignable-room N+1 | 500 rooms → **534 queries, 386 ms** | **STILL NEEDS WAVE 7.** Wave 5 added two queries and one field; the per-room lookup is untouched. |
+| Reconciliation volume | **13.8 queries, 19 ms per folio** (13 folios) | **STILL NEEDS WAVE 7.** Linear and bounded; per-folio cost is Wave 2's `reconcile_folio`. |
+| Unbounded availability horizon | 1,825 nights accepted: 3 queries, 39 ms, **972 KiB payload** | **STILL NEEDS WAVE 7.** Cheap in queries, unbounded in response size. |
+
+None is a correctness defect and none blocks onboarding.
+
+Result: PASS

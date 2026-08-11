@@ -13,6 +13,7 @@ from frappe.utils import now_datetime
 
 from hospitality_pms.services.base import lock_and_read, lock_document, require_role
 from hospitality_pms.services.exceptions import ConfigurationError, HospitalityPMSError, throw
+from hospitality_pms.services.property import resolve_operational_date
 
 GUEST_DOCTYPE = "Guest"
 MERGE_LOG_DOCTYPE = "Guest Merge Log"
@@ -340,10 +341,21 @@ def assert_not_blacklisted(guest: str):
 	)
 
 
-def get_active_alerts(guest: str) -> list[dict]:
-	"""Alerts a front desk agent must see when serving this guest."""
+def get_active_alerts(guest: str, property_name: str | None = None) -> list[dict]:
+	"""Alerts a front desk agent must see when serving this guest.
+
+	`valid_upto` is a Date, not a timestamp: it says which *day* an alert
+	stops applying, so it is answered on the property's operating day where
+	there is one. A hotel still working the 8th must still see an alert that
+	runs to the 8th, even though the calendar says the 10th.
+
+	A Guest belongs to no single property, so without property context there
+	is no business day to use and the calendar date is the honest fallback.
+	"""
 	doc = frappe.get_cached_doc(GUEST_DOCTYPE, guest)
-	today = frappe.utils.getdate()
+	today = (
+		resolve_operational_date(property_name) if property_name else frappe.utils.getdate()
+	)
 
 	return [
 		{
