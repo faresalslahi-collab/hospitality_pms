@@ -74,6 +74,22 @@ class IntegrationError(HospitalityPMSError):
 	http_status_code = 502
 
 
+class IntegrationAmbiguousError(IntegrationError):
+	"""The provider may or may not have acted; the answer never arrived.
+
+	Raised for a timeout, a dropped connection or any other transport failure
+	that happened *after* the request left. It is not the same as a refusal: a
+	refusal means nothing happened at the far end and trying again is safe,
+	while this means the money may already have moved and trying again could
+	move it twice.
+
+	Operations that end this way are parked for reconciliation rather than
+	retried (see `services.durability.flag_for_reconciliation`).
+	"""
+
+	http_status_code = 502
+
+
 class DuplicateRequestError(IntegrationError):
 	"""An idempotent operation was replayed; the original result stands."""
 

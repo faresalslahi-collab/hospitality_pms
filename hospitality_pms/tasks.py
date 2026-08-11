@@ -41,7 +41,22 @@ def sync_channels():
 
 
 def retry_failed_integrations():
-	"""Work the integration failure queue with backoff."""
-	from hospitality_pms.services.payments import retry_failed
+	"""Re-run the external operations that are due for another attempt.
 
-	return _for_each_property("integration failure retry", retry_failed)
+	Claims from the durable operation ledger and dispatches a real handler.
+	Before Wave 3 this incremented a counter and called nothing.
+	"""
+	from hospitality_pms.services.retry import retry_due_operations
+
+	return _for_each_property("integration failure retry", retry_due_operations)
+
+
+def reconcile_ambiguous_operations():
+	"""Establish the outcome of operations whose answer never arrived.
+
+	Asks the provider what it did; never re-issues the instruction. Operations
+	whose adapter cannot be queried stay where they are, waiting for a person.
+	"""
+	from hospitality_pms.services.retry import reconcile_due_operations
+
+	return _for_each_property("ambiguous operation reconciliation", reconcile_due_operations)

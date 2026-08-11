@@ -47,6 +47,27 @@ class PaymentProvider(ABC):
 	#: Provider name as it appears on the configuration row.
 	name: str = ""
 
+	#: Whether re-sending a request under the same idempotency key returns the
+	#: original outcome instead of performing the operation again.
+	#:
+	#: This is what decides whether an operation whose answer was lost can be
+	#: safely replayed. An adapter that leaves this False is saying "I cannot
+	#: tell you whether that refund happened", and the operation is parked for
+	#: a human rather than retried - which is the right answer, because the
+	#: alternative is refunding a guest twice.
+	supports_idempotent_replay: bool = False
+
+	def get_operation_status(self, idempotency_key: str) -> "PaymentResult | None":
+		"""What became of the operation sent under this key, if the provider knows.
+
+		Optional. The default says "no idea", which is honest for a provider
+		with no such lookup and keeps every adapter from having to pretend.
+
+		Used only to resolve an ambiguous outcome - a timeout, a lost reply -
+		where the alternative is a human reading the provider's dashboard.
+		"""
+		return None
+
 	def __init__(self, config):
 		self.config = config
 		self.property = config.property

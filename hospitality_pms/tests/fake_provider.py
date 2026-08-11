@@ -20,10 +20,39 @@ import os
 from pathlib import Path
 
 from hospitality_pms.integrations.payments.base import PaymentProvider, PaymentResult
+from hospitality_pms.services.exceptions import IntegrationAmbiguousError, IntegrationError
 
 #: Environment variable naming the file every call is appended to. Set by the
 #: test before the workers are spawned, and inherited by them.
 CALL_LOG_ENV = "HPMS_FAKE_PROVIDER_LOG"
+
+#: How the adapter should behave on the next call. An environment variable so a
+#: worker process inherits it, which a module-level flag could not do.
+MODE_ENV = "HPMS_FAKE_PROVIDER_MODE"
+
+#: Everything worked and the answer came back.
+MODE_OK = "ok"
+
+#: The provider refused outright. Nothing happened at the far end, so a retry
+#: is safe - the "explicit failure" case.
+MODE_REFUSE = "refuse"
+
+#: The provider *did* the work and the reply was lost. This is the dangerous
+#: one: the call is recorded, so the test can count it, and then the adapter
+#: raises as though nothing came back.
+MODE_TIMEOUT_AFTER_APPLY = "timeout_after_apply"
+
+#: The request never reached the provider. Recorded as no call at all, but the
+#: caller still cannot tell the difference - which is the point.
+MODE_TIMEOUT_BEFORE_APPLY = "timeout_before_apply"
+
+
+def set_mode(mode: str):
+	os.environ[MODE_ENV] = mode
+
+
+def current_mode() -> str:
+	return os.environ.get(MODE_ENV, MODE_OK)
 
 
 def call_log_path() -> Path | None:
@@ -66,6 +95,8 @@ def reset():
 	if path and path.exists():
 		path.unlink()
 
+	set_mode(MODE_OK)
+
 
 class RecordingAdapter(PaymentProvider):
 	"""Succeeds at everything, contacts nothing, records every call."""
@@ -83,14 +114,25 @@ class RecordingAdapter(PaymentProvider):
 		return_url=None,
 		metadata=None,
 	) -> PaymentResult:
-		record(
-			{
-				"operation": "initiate_payment",
-				"amount": float(amount),
-				"idempotency_key": idempotency_key,
-				"reference": reference,
-			}
-		)
+		mode = current_mode()
+		applied = mode in (MODE_OK, MODE_TIMEOUT_AFTER_APPLY)
+
+		if mode != MODE_TIMEOUT_BEFORE_APPLY:
+			record(
+				{
+					"operation": "initiate_payment",
+					"amount": float(amount),
+					"idempotency_key": idempotency_key,
+					"reference": reference,
+					"applied": applied,
+				}
+			)
+
+		if mode == MODE_REFUSE:
+			raise IntegrationError("fake provider refused the payment")
+
+		if mode in (MODE_TIMEOUT_AFTER_APPLY, MODE_TIMEOUT_BEFORE_APPLY):
+			raise IntegrationAmbiguousError("fake provider timed out; outcome unknown")
 
 		return PaymentResult(
 			success=True,
@@ -110,22 +152,61 @@ class RecordingAdapter(PaymentProvider):
 			provider_status="captured",
 		)
 
+	#: The recording adapter can say what became of a key, because it wrote
+	#: every call down. A real gateway with an idempotency-key lookup is the
+	#: same shape.
+	supports_idempotent_replay = True
+
+	def get_operation_status(self, idempotency_key: str) -> PaymentResult | None:
+		"""What the provider did under this key, from its own record of calls.
+
+		This is what lets a timed-out refund be resolved without asking the
+		provider to do it again.
+		"""
+		applied = [
+			call
+			for call in calls()
+			if call.get("idempotency_key") == idempotency_key and call.get("applied")
+		]
+
+		if not applied:
+			return None
+
+		return PaymentResult(
+			success=True,
+			status="Refunded" if applied[0]["operation"] == "refund" else "Captured",
+			provider_reference=f"FAKE-{applied[0]['operation'].upper()}-{idempotency_key}",
+			amount=float(applied[0]["amount"]),
+			provider_status="found",
+		)
+
 	def refund(self, provider_reference, amount, idempotency_key, *, reason=None) -> PaymentResult:
 		"""The call the over-refund tests count.
 
-		Recorded before returning, so a call that happened is counted even if
-		the caller's transaction later rolls back - which is exactly the
-		provider-succeeded-database-failed case the tests need to see.
+		`applied` records whether the money actually moved, which is the one
+		thing the caller cannot know when the reply is lost - and the thing the
+		tests must be able to check.
 		"""
-		record(
-			{
-				"operation": "refund",
-				"amount": float(amount),
-				"idempotency_key": idempotency_key,
-				"provider_reference": provider_reference,
-				"reason": reason,
-			}
-		)
+		mode = current_mode()
+		applied = mode in (MODE_OK, MODE_TIMEOUT_AFTER_APPLY)
+
+		if mode != MODE_TIMEOUT_BEFORE_APPLY:
+			record(
+				{
+					"operation": "refund",
+					"amount": float(amount),
+					"idempotency_key": idempotency_key,
+					"provider_reference": provider_reference,
+					"reason": reason,
+					"applied": applied,
+				}
+			)
+
+		if mode == MODE_REFUSE:
+			raise IntegrationError("fake provider refused the refund")
+
+		if mode in (MODE_TIMEOUT_AFTER_APPLY, MODE_TIMEOUT_BEFORE_APPLY):
+			raise IntegrationAmbiguousError("fake provider timed out; outcome unknown")
 
 		return PaymentResult(
 			success=True,

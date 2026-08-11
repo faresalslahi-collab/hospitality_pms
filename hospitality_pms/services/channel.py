@@ -36,6 +36,7 @@ from frappe.utils import add_days, add_to_date, now_datetime, nowdate
 
 from hospitality_pms.integrations.channel import get_adapter
 from hospitality_pms.services import reservations as reservation_service
+from hospitality_pms.services import durability
 from hospitality_pms.services.availability import get_availability
 from hospitality_pms.services.exceptions import ConfigurationError, throw
 from hospitality_pms.services.rates import get_rate_breakdown
@@ -280,7 +281,9 @@ def _resolve_guest(row) -> str:
 # ---------------------------------------------------------------------------
 
 
-def push_availability(property_name: str, channel: str, from_date, to_date) -> dict:
+def push_availability(
+	property_name: str, channel: str, from_date, to_date, *, operation_key: str | None = None
+) -> dict:
 	"""Push per-night, per-room-type available counts to a channel."""
 	channel_doc = frappe.get_cached_doc(CHANNEL_DOCTYPE, channel)
 
@@ -305,11 +308,20 @@ def push_availability(property_name: str, channel: str, from_date, to_date) -> d
 			)
 
 	return _run_sync(
-		channel_doc, "Availability", from_date, to_date, rows, lambda adapter: adapter.push_availability(from_date, to_date, rows)
+		channel_doc,
+		"Availability",
+		from_date,
+		to_date,
+		rows,
+		lambda adapter: adapter.push_availability(from_date, to_date, rows),
+		operation="push_availability",
+		operation_key=operation_key,
 	)
 
 
-def push_rates(property_name: str, channel: str, from_date, to_date) -> dict:
+def push_rates(
+	property_name: str, channel: str, from_date, to_date, *, operation_key: str | None = None
+) -> dict:
 	"""Push per-night, per-room-type rates to a channel."""
 	channel_doc = frappe.get_cached_doc(CHANNEL_DOCTYPE, channel)
 
@@ -342,17 +354,64 @@ def push_rates(property_name: str, channel: str, from_date, to_date) -> dict:
 			)
 
 	return _run_sync(
-		channel_doc, "Rates", from_date, to_date, rows, lambda adapter: adapter.push_rates(from_date, to_date, rows)
+		channel_doc,
+		"Rates",
+		from_date,
+		to_date,
+		rows,
+		lambda adapter: adapter.push_rates(from_date, to_date, rows),
+		operation="push_rates",
+		operation_key=operation_key,
 	)
 
 
-def _run_sync(channel_doc, sync_type: str, from_date, to_date, rows: list[dict], call) -> dict:
-	"""Shared push/log/queue plumbing for `push_availability` and `push_rates`."""
+def _run_sync(
+	channel_doc,
+	sync_type: str,
+	from_date,
+	to_date,
+	rows: list[dict],
+	call,
+	*,
+	operation: str,
+	operation_key: str | None = None,
+) -> dict:
+	"""Shared push/log/queue plumbing for `push_availability` and `push_rates`.
+
+	The push runs behind a durable operation, which is what stopped the failure
+	queue growing without bound (N7). One logical push is one ledger row: a
+	repeated failure updates it, and the scheduler dispatches a real retry from
+	it instead of merely counting one.
+
+	`operation_key` defaults to the channel *and the date range*, so a
+	deliberately ranged push is its own piece of work. The scheduler passes a
+	key naming only the channel, because "keep this channel in sync" is one
+	standing job whose window moves - and keying it on today's date would grow
+	a fresh row every day for ever.
+	"""
 	started = time.monotonic()
 	adapter = get_adapter(channel_doc.name)
+	key = operation_key or f"{operation}:{channel_doc.name}:{from_date}:{to_date}"
+
+	def push():
+		return call(adapter)
 
 	try:
-		result = call(adapter)
+		durable = durability.run_durably(
+			property_name=channel_doc.property,
+			integration_type="Channel",
+			operation=operation,
+			operation_key=key,
+			provider=channel_doc.name,
+			reference_doctype=CHANNEL_DOCTYPE,
+			reference_name=channel_doc.name,
+			payload={
+				"channel": channel_doc.name,
+				"from_date": str(from_date),
+				"to_date": str(to_date),
+			},
+			call=push,
+		)
 	except Exception as exc:  # noqa: BLE001
 		_write_sync_log(
 			channel_doc,
@@ -366,15 +425,12 @@ def _run_sync(channel_doc, sync_type: str, from_date, to_date, rows: list[dict],
 			request_payload={"rows": rows},
 			error_message=str(exc),
 		)
-		_queue_failure(
-			channel_doc.property,
-			channel_doc.name,
-			f"push_{sync_type.lower()}",
-			f"{channel_doc.name}:{sync_type}:{from_date}:{to_date}",
-			{"rows": rows},
-			str(exc),
-		)
 		raise
+
+	if not durable.performed:
+		return {"records_sent": 0, "status": "Skipped", "reason": "already resolved"}
+
+	result = durable.result
 
 	_write_sync_log(
 		channel_doc,
@@ -441,50 +497,50 @@ def sync_all(property_name: str) -> dict:
 	from_date = nowdate()
 	to_date = add_days(from_date, DEFAULT_SYNC_HORIZON_DAYS)
 
-	results: dict[str, list] = {"availability": [], "rates": [], "failed": []}
+	results: dict[str, list] = {"availability": [], "rates": [], "failed": [], "skipped": []}
 
 	channels = frappe.get_all(CHANNEL_DOCTYPE, filters={"property": property_name, "is_active": 1}, pluck="name")
 
 	for channel in channels:
 		channel_doc = frappe.get_cached_doc(CHANNEL_DOCTYPE, channel)
 
-		if channel_doc.push_availability:
-			try:
-				results["availability"].append(
-					{"channel": channel, **push_availability(property_name, channel, from_date, to_date)}
-				)
-			except Exception as exc:  # noqa: BLE001
-				results["failed"].append({"channel": channel, "operation": "availability", "error": str(exc)})
+		for enabled, operation, push in (
+			(channel_doc.push_availability, "push_availability", push_availability),
+			(channel_doc.push_rates, "push_rates", push_rates),
+		):
+			if not enabled:
+				continue
 
-		if channel_doc.push_rates:
+			# One standing operation per channel, so a channel that has been
+			# unreachable for a week is one row rather than three hundred.
+			key = f"{operation}:{channel}"
+			bucket = "availability" if operation == "push_availability" else "rates"
+
+			# The backoff is only meaningful if the scheduler honours it. A pass
+			# every thirty minutes that pushed regardless would exhaust the
+			# attempt budget in an afternoon and abandon a channel that was
+			# briefly unreachable - and would never stop hammering one that was
+			# not.
+			if not durability.is_due(key):
+				results["skipped"].append({"channel": channel, "operation": bucket})
+				continue
+
 			try:
-				results["rates"].append(
-					{"channel": channel, **push_rates(property_name, channel, from_date, to_date)}
+				results[bucket].append(
+					{"channel": channel, **push(property_name, channel, from_date, to_date, operation_key=key)}
 				)
 			except Exception as exc:  # noqa: BLE001
-				results["failed"].append({"channel": channel, "operation": "rates", "error": str(exc)})
+				results["failed"].append({"channel": channel, "operation": bucket, "error": str(exc)})
 
 	return results
 
 
 # ---------------------------------------------------------------------------
-# Failure queue
+# Failure recording
 # ---------------------------------------------------------------------------
-
-
-def _queue_failure(property_name: str, provider: str, operation: str, idempotency_key: str, payload, error: str):
-	frappe.get_doc(
-		{
-			"doctype": FAILURE_QUEUE,
-			"property": property_name,
-			"integration_type": "Channel",
-			"provider": provider,
-			"operation": operation,
-			"idempotency_key": idempotency_key,
-			"payload": json.dumps(payload, default=str),
-			"queue_status": "Pending",
-			"attempts": 0,
-			"last_error": error[:2000],
-			"next_attempt_on": add_to_date(now_datetime(), minutes=5),
-		}
-	).insert(ignore_permissions=True)
+#
+# `_queue_failure` used to insert a fresh PMS Integration Failure Queue row on
+# every failed push, with no check for one already describing the same work.
+# That is what produced thousands of rows for a handful of broken channels
+# (N7). Failure recording now belongs to `durability.run_durably`, which keys
+# on the operation and updates the row it already has.

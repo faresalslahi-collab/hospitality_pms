@@ -39,6 +39,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, now_datetime, nowdate
 
+from hospitality_pms.services import durability
 from hospitality_pms.services.base import lock_and_get_doc, lock_and_read
 from hospitality_pms.services.exceptions import ConfigurationError, PostingError, throw
 from hospitality_pms.services.guests import ensure_customer
@@ -307,17 +308,34 @@ def post_folio_invoice(folio: str, *, business_date=None, submit: bool = True) -
 		posting = get_posting(idempotency_key)
 		return {**posting, "duplicate": True}
 
-	try:
-		result = _build_and_submit_invoice(
+	durable = durability.run_durably(
+		property_name=doc.property,
+		integration_type="Other",
+		operation="post_folio_invoice",
+		operation_key=idempotency_key,
+		reference_doctype=FOLIO_DOCTYPE,
+		reference_name=folio,
+		payload={"folio": folio, "rows": [row.name for row in chargeable]},
+		call=lambda: _build_and_submit_invoice(
 			doc, chargeable, log, business_date=business_date, submit=submit
-		)
-	except Exception as exc:  # noqa: BLE001
-		# The failure is recorded outside the caller's rollback so the error
-		# survives for reconciliation even when the transaction is undone.
-		_mark_failed(log, frappe.get_traceback(with_context=False) or str(exc))
-		raise
+		),
+		reference_of=lambda result: result["erp_document"],
+	)
 
-	return {**result, "duplicate": False}
+	if not durable.performed:
+		# The ledger says this batch already reached ERPNext. That can only
+		# happen if the invoice was raised and the transaction that recorded it
+		# then rolled back, so the posting log is refreshed from the ledger
+		# rather than a second invoice being raised for the same charges.
+		return {
+			"log": log,
+			"erp_doctype": "Sales Invoice",
+			"erp_document": durable.external_reference,
+			"amount": flt(doc.total_charges),
+			"duplicate": True,
+		}
+
+	return {**durable.result, "duplicate": False}
 
 
 def _build_and_submit_invoice(doc, chargeable, log: str, *, business_date=None, submit: bool = True) -> dict:
@@ -577,13 +595,28 @@ def post_folio_payment(folio: str, payment_row: str, *, business_date=None) -> d
 		posting = get_posting(idempotency_key)
 		return {**posting, "duplicate": True}
 
-	try:
-		result = _build_and_submit_payment(doc, row, log, business_date=business_date)
-	except Exception as exc:  # noqa: BLE001
-		_mark_failed(log, frappe.get_traceback(with_context=False) or str(exc))
-		raise
+	durable = durability.run_durably(
+		property_name=doc.property,
+		integration_type="Other",
+		operation="post_folio_payment",
+		operation_key=idempotency_key,
+		reference_doctype=FOLIO_DOCTYPE,
+		reference_name=folio,
+		payload={"folio": folio, "payment_row": payment_row},
+		call=lambda: _build_and_submit_payment(doc, row, log, business_date=business_date),
+		reference_of=lambda result: result["erp_document"],
+	)
 
-	return {**result, "duplicate": False}
+	if not durable.performed:
+		return {
+			"log": log,
+			"erp_doctype": "Payment Entry",
+			"erp_document": durable.external_reference,
+			"amount": abs(flt(row.amount)),
+			"duplicate": True,
+		}
+
+	return {**durable.result, "duplicate": False}
 
 
 def _build_and_submit_payment(doc, row, log: str, *, business_date=None) -> dict:
@@ -1030,8 +1063,20 @@ def mark_reconciled(log: str) -> str:
 
 
 def get_failed_postings(property_name: str, limit: int = 100) -> list[dict]:
-	"""The failed posting queue, for the reconciliation dashboard."""
-	return frappe.get_all(
+	"""The failed posting queue, for the reconciliation dashboard.
+
+	Read from two places, because a posting can fail in two different ways.
+
+	A Financial Posting Log row marked Failed is one whose transaction survived
+	- the posting failed but the request went on. A posting that took its whole
+	transaction down with it leaves no such row at all, and used to leave
+	nothing whatsoever (P1-14); that one is found in the durable operation
+	ledger instead.
+
+	Night Audit calls this to decide whether the day's revenue reached ERPNext,
+	so an answer that omitted the second kind would be confidently wrong.
+	"""
+	logged = frappe.get_all(
 		POSTING_LOG,
 		filters={"property": property_name, "posting_status": FAILED},
 		fields=[
@@ -1047,3 +1092,34 @@ def get_failed_postings(property_name: str, limit: int = 100) -> list[dict]:
 		order_by="last_attempt_on desc",
 		limit=limit,
 	)
+
+	seen = {row["folio"] for row in logged if row["folio"]}
+
+	for row in durability.failed_posting_operations(property_name, limit=limit):
+		if row["reference_name"] in seen:
+			continue
+
+		logged.append(
+			{
+				"name": row["name"],
+				"posting_type": _POSTING_TYPE_BY_OPERATION.get(row["operation"], row["operation"]),
+				"folio": row["reference_name"],
+				"amount": None,
+				"attempts": row["attempts"],
+				"last_attempt_on": row["modified"],
+				"error_message": row["last_error"],
+				"business_date": None,
+				"durable_operation": row["operation_key"],
+				"operation_status": row["queue_status"],
+			}
+		)
+
+	return logged[:limit]
+
+
+#: Ledger operation names mapped back onto the posting vocabulary the
+#: reconciliation screen already speaks.
+_POSTING_TYPE_BY_OPERATION = {
+	"post_folio_invoice": "Sales Invoice",
+	"post_folio_payment": "Payment Entry",
+}

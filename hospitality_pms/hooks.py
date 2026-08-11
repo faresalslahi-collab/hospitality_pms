@@ -123,6 +123,13 @@ scheduler_events = {
 			"hospitality_pms.tasks.sync_channels",
 			"hospitality_pms.tasks.retry_failed_integrations",
 		],
+		# Hourly: ask providers what became of operations whose reply was lost.
+		# Rarer than the retry sweep on purpose - an ambiguous outcome is
+		# resolved by a lookup, not by pressure, and every lookup is a request
+		# to a provider that has already shown signs of being unwell.
+		"7 * * * *": [
+			"hospitality_pms.tasks.reconcile_ambiguous_operations",
+		],
 	},
 }
 

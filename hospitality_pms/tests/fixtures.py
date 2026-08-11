@@ -32,6 +32,7 @@ TEARDOWN_ORDER = (
 	"Reservation",
 	"Corporate Account",
 	"Payment Provider",
+	"Booking Channel",
 	"Daily Rate",
 	"Rate Plan",
 	"Hotel Room",
@@ -70,6 +71,7 @@ CASCADE_BY_PROPERTY = (
 	"Room Block",
 	"Corporate Account",
 	"Payment Provider",
+	"Booking Channel",
 	"Daily Rate",
 	"Rate Plan",
 	"Hotel Room",
@@ -602,6 +604,38 @@ class Fixtures:
 		).insert(ignore_permissions=True)
 
 		return self.track("Posting Profile", doc.name)
+
+	def booking_channel(self, property_name: str, room_type: str, rate_plan: str) -> str:
+		"""An active channel that pushes both availability and rates."""
+		name = f"WV3-{self.tag}"[:20]
+
+		if frappe.db.exists("Booking Channel", name):
+			return self.track("Booking Channel", name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Booking Channel",
+				"channel_code": name,
+				"channel_name": f"Wave 3 channel {self.tag}",
+				"property": property_name,
+				"channel_type": "OTA Direct",
+				"provider": "Generic Channel Manager",
+				"is_active": 1,
+				"push_availability": 1,
+				"push_rates": 1,
+				"default_rate_plan": rate_plan,
+				"room_mappings": [
+					{
+						"room_type": room_type,
+						"rate_plan": rate_plan,
+						"channel_room_code": "WV3-STD",
+						"is_active": 1,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		return self.track("Booking Channel", doc.name)
 
 	def user(self, handle: str, roles: list[str], *, properties: list[str] | None = None) -> str:
 		"""An operational user with real roles and real User Permissions.

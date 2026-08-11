@@ -1,6 +1,6 @@
 # Hospitality PMS — Build Acceptance Log
 
-**Current application version:** 16.6.1 (branch `version-16`)
+**Current application version:** 16.6.2 (branch `version-16`)
 
 One record per completed build, in the format required by
 `09_Hospitality_PMS_Build_Test_and_Acceptance_Standard_v1.2_APPROVED.md` section 4.
@@ -2107,5 +2107,192 @@ tests/test_erp_reconciliation.py  12 tests   OK
   posting and reconciliation correct. Audit sequencing, reopen, exhaustive
   population and retry figures are P1-7, P1-8, P1-9 and P2-1.
 - A legitimate *second* partial refund is still refused (pre-existing, P2-2).
+
+Result: PASS
+
+---
+
+## 16.6.2 — Onboarding Integrity Hardening, Wave 3: durable external operations and real retry
+
+Four findings, one architecture. P1-13, P1-14 and the residual half of P1-12
+are the same defect wearing three hats: **failure evidence was written inside
+the transaction that was about to be rolled back.** N7 is its companion — a
+queue that grew for ever because nothing ever drained it.
+
+### The architecture, and why this one
+
+A durable operation ledger written on a **second database connection**.
+
+Before any provider, channel or ERPNext call, a row is committed saying what is
+about to be attempted, under what key, for which property. It has its own
+transaction, so the caller's rollback cannot reach it. Afterwards, a second
+write records what came back.
+
+Two alternatives were considered and rejected, and the reasons matter:
+
+* **`frappe.db.commit()` in the service.** Forbidden by the build rules, and
+  wrong regardless — it would commit the caller's half-finished business work
+  along with the evidence, so a failed check-in would leave a real Stay behind.
+* **`frappe.db.after_rollback`.** Fires at the right moment on the right
+  connection, but whatever it writes is itself uncommitted, and in a request
+  that is ending nothing ever commits it.
+
+Both halves of the chosen mechanism are proven by test, not asserted:
+`test_operation_record_survives_caller_rollback` and
+`test_durable_write_does_not_commit_the_callers_work`. The second is the one
+that matters — it is what distinguishes this from a disguised commit.
+
+**The ledger is not the business record.** Payment Transaction and Financial
+Posting Log stay in the caller's transaction on purpose: a log row saying an
+invoice was posted must roll back with the invoice, or it lies. The ledger
+records something different — what an external system was asked to do — and
+that has to survive precisely when the business transaction does not
+(HPMS-DEC-134).
+
+The existing `PMS Integration Failure Queue` carries it, extended with
+`operation_key` (unique), `external_reference`, `claimed_on` and a reference
+pair. `reference_name` is deliberately plain Data rather than a Dynamic Link:
+an outbox row routinely outlives the record it names, and a validating link
+would refuse to save at exactly the moment the evidence matters.
+
+### State machine
+
+```
+Pending ──► Executing ──► Resolved                      (terminal)
+                │
+                ├──► Retrying ──► Executing ...
+                │        └──────► Abandoned             (terminal)
+                │
+                └──► Needs Reconciliation
+                         └──► Resolved / Retrying, once established
+```
+
+`Resolved` and `Abandoned` are terminal, and `Needs Reconciliation` cannot be
+reopened by a new attempt (HPMS-DEC-137). A test caught `begin_operation`
+silently moving an unreconciled operation back to `Executing`, which would have
+let the provider be called a second time for money that may already have moved.
+
+### Transaction boundaries
+
+```
+Transaction A  (durable connection)   begin_operation  -> commit
+               ── external call ──
+Transaction B  (durable connection)   complete / fail / flag -> commit
+
+Caller's own transaction               business state; commits or rolls back
+                                       independently, and cannot affect A or B
+```
+
+`services.retry.dispatch` is the one transaction boundary in the service layer,
+committing per operation so one broken folio in a sweep of twenty cannot undo
+the nineteen that worked (HPMS-DEC-141). No `frappe.db.commit()` was added to
+any domain service.
+
+### P1-12, residual — closed
+
+The provider refunds, the request then dies, everything local rolls back, and
+the next attempt refunds again. Reproduced:
+`test_retry_after_post_provider_failure_does_not_refund_again` failed with *"the
+guest was refunded twice"*.
+
+Now the ledger survives the rollback and says the refund reached the provider,
+so the retry takes a repair path — rebuilding local state — instead of calling
+the provider again. A timeout is classified separately: adapters raise
+`IntegrationAmbiguousError` for transport failures, the operation becomes
+`Needs Reconciliation`, and nothing re-issues it. Reconciliation *asks* the
+provider what it did through an optional adapter capability; an adapter that
+cannot answer leaves the work for a person (HPMS-DEC-135, HPMS-DEC-136).
+
+### P1-13 — closed
+
+Payment initiation now runs behind the same ledger. A refused initiation leaves
+a durable `Retrying` record after the request has rolled back; an ambiguous one
+leaves `Needs Reconciliation` and is not re-sent.
+
+`retry_failed` used to increment `attempts`, set `Retrying`, push the backoff
+out and return — it never called anything. It now claims from the ledger and
+dispatches a registered handler per operation type, classified `Safe Retry`,
+`Reconcile First` or `Manual Only`. An unregistered operation is **abandoned
+loudly**, not silently counted as retried (HPMS-DEC-138).
+
+### P1-14 — closed
+
+A failed posting left no trace, because `_mark_failed` and the re-raise were in
+the same doomed transaction — and Night Audit looks for exactly those rows.
+
+The Financial Posting Log is unchanged. Alongside it, the posting attempt is now
+a durable operation, so the failure survives; and `get_failed_postings` reads
+both sources, because a posting can fail in two ways and an answer that omitted
+the second would be confidently wrong. Retry preserves the Wave-2 batch
+fingerprint, so the same charges cannot produce a second Sales Invoice.
+
+### N7 — closed
+
+Before: `_queue_failure` inserted a row per failed push with no check for one
+already describing the same work, and nothing ever executed them. The site held
+**3,193 open rows describing 96 pieces of work** — 3,096 duplicates.
+
+After: a scheduled push has one standing operation per channel, so a repeated
+failure updates that row. Ten scheduler passes against a dead channel now
+produce one row per push type, asserted directly. The scheduler also honours
+`next_attempt_on`, so a briefly unreachable channel does not burn its whole
+attempt budget in an afternoon, and an abandoned operation is not quietly
+restarted on the next pass.
+
+### The existing backlog
+
+Not deleted, and not touched by any migration. A maintenance command an
+operator runs deliberately (HPMS-DEC-140):
+
+```
+bench --site <site> execute hospitality_pms.setup.queue_maintenance.report
+bench --site <site> execute hospitality_pms.setup.queue_maintenance.adopt
+bench --site <site> execute hospitality_pms.setup.queue_maintenance.adopt --kwargs '{"dry_run": 0}'
+```
+
+`report` reads only. `adopt` defaults to a dry run and, when applied, writes a
+status and a note — no row deleted, no key, payload or error rewritten. Legacy
+channel rows are marked superseded rather than adopted: the old payload holds
+only the pushed rows, not the channel or date range, so no handler could
+execute them. **It has not been run on this site**; the 3,193 rows are exactly
+as they were.
+
+### Validation
+
+181 tests, all passing. 88 from Wave 1 and 51 from Wave 2, both unchanged and
+still green; 42 new.
+
+```
+tests/test_durable_operations.py      17 tests   OK
+tests/test_payment_durability.py      10 tests   OK
+tests/test_financial_posting_retry.py  7 tests   OK
+tests/test_channel_retry.py            8 tests   OK
+```
+
+- Concurrent claiming proven with two OS processes: four due operations, two
+  schedulers, each operation claimed exactly once.
+- Migration clean and repeat migrate a no-op; `operation_key` carries a unique
+  index and every legacy row's is NULL, so nothing collided and nothing was
+  rewritten.
+- No network: payment adapters are the recording fake, the channel adapter a
+  stub.
+- No test residue; the legacy rows are untouched.
+- `git diff --check` clean; no `frappe.db.commit()` in a domain service; every
+  provider and channel call sits inside a durable operation.
+
+### Intentionally still open
+
+- **Night Audit is not redesigned.** This wave makes failed postings visible and
+  retryable; audit sequencing, reopen and exhaustive population remain P1-7,
+  P1-8, P1-9 and P2-1.
+- **An abandoned operation needs a person.** After max attempts an operation
+  stops and the scheduler does not recreate it, which is the bounded terminal
+  state the brief asked for — but nothing brings a recovered channel back
+  automatically. Visible through `operations_needing_attention` and the Desk
+  list.
+- **Adapters without a status lookup cannot self-reconcile.** Fatora and Stripe
+  declare `supports_idempotent_replay = False` until their lookup APIs are
+  wired, so an ambiguous outcome on those parks for manual reconciliation. That
+  is the correct answer, not a gap: guessing would risk a double refund.
 
 Result: PASS

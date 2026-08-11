@@ -15,14 +15,19 @@
   "provider",
   "operation",
   "idempotency_key",
+  "operation_key",
+  "external_reference",
   "payload_section",
   "payload",
+  "reference_doctype",
+  "reference_name",
   "status_section",
   "queue_status",
   "attempts",
   "status_col",
   "max_attempts",
   "next_attempt_on",
+  "claimed_on",
   "diagnostics_section",
   "last_error",
   "resolution_section",
@@ -84,6 +89,21 @@
    "search_index": 1
   },
   {
+   "fieldname": "operation_key",
+   "fieldtype": "Data",
+   "label": "Operation Key",
+   "unique": 1,
+   "read_only": 1,
+   "description": "Stable identity of one logical external operation. Unique, so a repeated failure updates this row rather than adding another."
+  },
+  {
+   "fieldname": "external_reference",
+   "fieldtype": "Data",
+   "label": "External Reference",
+   "read_only": 1,
+   "description": "The provider's own reference for this operation, when it gave one."
+  },
+  {
    "fieldname": "payload_section",
    "fieldtype": "Section Break",
    "label": "Payload"
@@ -92,6 +112,20 @@
    "fieldname": "payload",
    "fieldtype": "Long Text",
    "label": "Payload"
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference Document Type",
+   "options": "DocType",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Data",
+   "label": "Reference Name",
+   "read_only": 1,
+   "description": "The business record this operation was about. Plain data, not a link: an outbox row routinely outlives the record it names - that is the whole point of it - and a validating link would refuse to save precisely when the evidence matters most."
   },
   {
    "fieldname": "status_section",
@@ -106,7 +140,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Queue Status",
-   "options": "Pending\nRetrying\nResolved\nAbandoned",
+   "options": "Pending\nExecuting\nRetrying\nNeeds Reconciliation\nResolved\nAbandoned",
    "reqd": 1,
    "search_index": 1
   },
@@ -134,6 +168,13 @@
    "fieldtype": "Datetime",
    "label": "Next Attempt On",
    "search_index": 1
+  },
+  {
+   "fieldname": "claimed_on",
+   "fieldtype": "Datetime",
+   "label": "Claimed On",
+   "read_only": 1,
+   "description": "When a worker took this operation. A claim older than the lease is treated as a crashed worker and may be retaken."
   },
   {
    "fieldname": "diagnostics_section",
@@ -249,5 +290,6 @@
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
- "track_changes": 1
+ "track_changes": 1,
+ "title_field": "operation"
 }
