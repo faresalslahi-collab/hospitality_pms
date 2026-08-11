@@ -2804,3 +2804,129 @@ It creates disposable data and tears it down whether or not it passes.
   safe — declared unreviewed and out of scope.
 
 Result: PASS — ONBOARDING CANDIDATE, MERGED BASELINE
+
+## 16.6.6 — UAT Remediation 1: checkout authority and operational defects
+
+Five findings from the first onboarding UAT against the configured DOHA01
+property. Four are closed; one is partially closed and waits on an accounting
+decision that is not the build's to make.
+
+### DOHA-MAIN configuration
+
+The configuration reported as applied was **not present on either local site**:
+every field was `null`, the record's `modified` equalled its `creation`
+(`2026-08-08 16:57:32`) and it had no Version history. So it was derived from
+evidence and applied here.
+
+| Field | Applied | Evidence |
+|---|---|---|
+| `default_receivable_account` | `Debtors - EHQ` | Company default; `account_type = Receivable`, non-group, QAR; `debit_to` on all 83 prior invoices |
+| `default_income_account` | `Sales - EHQ` | Company default; `root_type = Income`, non-group; `income_account` on all 83 prior invoice items |
+| `default_cost_center` | `Main - EHQ` | Company `cost_center`; the only non-group cost centre; used by all 83 prior invoice items |
+| `default_tax_template` | **NOT APPLIED** | **ACCOUNTING DECISION REQUIRED** — see below |
+| `deposit_liability_account` | not applied | Read by no posting code; defined on the DocType only |
+
+**Why the tax template was stopped.** `QATAR VAT 15 - EHQ` is named as a VAT
+template and contains one row: account head `Payroll Payable - EHQ`, charge type
+Actual, **rate 0.0**, description "Payroll Payable". The company has **no account
+of `account_type = "Tax"`**, no account named VAT/Duty/Output, and its only
+`%Tax%` match is `Tax Expense - EHQ`, an *Expense* — the wrong side of the
+balance sheet for VAT collected from guests. No invoice on this company has ever
+carried tax, so there is no precedent to follow either. Pointing hotel VAT at
+Payroll Payable would be wrong, and creating a VAT account would be inventing
+tax treatment. Both are refused.
+
+All eight operationally-active charge types now resolve to item, income account
+and cost centre through the profile default; none is forced to a tax treatment.
+
+**Validated end to end** on a disposable folio: net 600 = folio net, grand total
+600 = folio gross, `debit_to = Debtors - EHQ`, every line `Sales - EHQ` /
+`Main - EHQ`, GL `Debtors 600 Dr / Sales 600 Cr`, no second invoice on retry,
+payment allocated to zero outstanding. A taxed charge on the same profile is
+still correctly refused.
+
+**UAT-003: PARTIALLY CLOSED.**
+
+### UAT-004 — trusted ERP posting identity
+
+Isolated to one unconditional gate: `PaymentEntry.validate` →
+`set_missing_ref_details(force=True)` → `get_reference_details`, whose first
+line is `frappe.has_permission("Sales Invoice", "read", …, throw=True)`. That
+call answers for the session user and ignores `ignore_permissions`, so a flag
+cannot satisfy it — only an identity can (HPMS-DEC-169).
+
+Posting now runs as `hospitality.posting.service@hospitality-pms.invalid`
+holding one role, `Hospitality Posting Service`, with **four read permissions
+and nothing else**:
+
+| DocType | Right | Earned by |
+|---|---|---|
+| Sales Invoice | read | `get_reference_details` reads the invoice being allocated against |
+| Account | read | `get_party_account` permission-checks the receivable |
+| Item | read | `set_missing_item_details` → `get_item_details` checks the item |
+| Customer | read | the Payment Entry validates its party |
+
+`Item Price` write was observed being checked and **deliberately not granted**:
+ERPNext skips the price update without it and the invoice posts correctly either
+way (HPMS-DEC-170). No create, write or submit anywhere — Hospitality inserts
+every document with `ignore_permissions`, so only ERPNext's internal read checks
+need satisfying.
+
+The order inside `erp_posting_authority` is the security property
+(HPMS-DEC-171): authenticate the caller → authorise the operation → resolve the
+property **from the folio** → derive the company from that property → only then
+adopt the identity → restore it in a `finally`. A caller who does not hold the
+property is refused before the identity ever changes. Both actors are audited:
+the human in `posted_by`, the executing identity alongside it (HPMS-DEC-172).
+
+Role and user are created idempotently from `after_install` / `after_migrate`;
+repeated migrate creates no duplicates and strips any role the identity has
+accumulated.
+
+**UAT-004: CLOSED.**
+
+### The other three
+
+- **UAT-001 CLOSED** — the adjustment reason reaches the Folio Log rather than
+  being validated and dropped (HPMS-DEC-174).
+- **UAT-002 CLOSED** — `Partially Refunded` is refundable up to the remaining
+  balance; 30 → 100 → 170 walks a 300 capture to `Refunded` (HPMS-DEC-173).
+- **UAT-005 CLOSED** — an already-blocking room is left as the operator set it;
+  otherwise `start_work` moves the room to `Under Maintenance`, which also fixes
+  a second defect the UAT had not named: starting a repair used to leave a
+  healthy room sellable (HPMS-DEC-175).
+
+Also fixed in passing: `authorise_document` refused with a completely empty
+`PermissionError`, so a front desk agent saw a blank error box (HPMS-DEC-176).
+
+### UAT-006 — personas
+
+All five approved roles already existed; none had a user. Created one local UAT
+user per role, each holding exactly that role and a DOHA01 Property permission,
+with no System Manager or Finance Manager shortcut:
+
+`uat.reservation.agent@`, `uat.front.office.manager@`, `uat.room.attendant@`,
+`uat.night.auditor@`, `uat.hospitality.admin@` (all `…hospitality-pms.invalid`).
+
+**UAT-006: RESOLVED.**
+
+### Validation
+
+**389 tests, all passing** — 354 from the merged baseline, unchanged, plus 35
+remediation tests. Concurrency, durability and cross-property suites all green.
+No frontend change, so no frontend run.
+
+Site state after remediation: business date `2026-08-11` unchanged;
+`HPMS-NA-2026-00004` still Posting and untouched; PMS Settings identical; the two
+disposable ERP documents cancelled through the standard workflow for **net live
+GL impact 0.00**.
+
+### Still open
+
+`HPMS-STAY-2026-00616` (AI-UAT Charlie, DOHA01-503) is **retained**. Its folio
+carries taxed Minibar (6.00) and Laundry (8.00) charges, so `post_folio_invoice`
+refuses on the unmapped tax template and the Closed transition refuses unposted
+charges. It will check out normally the moment the tax mapping is decided. No
+direct edit, no deletion, no bypass.
+
+Result: PASS with one accounting decision outstanding

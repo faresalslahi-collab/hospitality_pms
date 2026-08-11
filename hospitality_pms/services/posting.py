@@ -34,6 +34,7 @@ belongs to the wave that decides it.
 
 import hashlib
 import json
+from contextlib import contextmanager
 
 import frappe
 from frappe import _
@@ -43,7 +44,13 @@ from hospitality_pms.services import durability
 from hospitality_pms.services.base import lock_and_get_doc, lock_and_read
 from hospitality_pms.services.exceptions import ConfigurationError, PostingError, throw
 from hospitality_pms.services.guests import ensure_customer
-from hospitality_pms.services.property import get_business_date, get_company, get_property
+from hospitality_pms.services.property import (
+	get_business_date,
+	get_company,
+	get_property,
+	require_property_access,
+)
+from hospitality_pms.setup.posting_service import POSTING_SERVICE_USER
 
 POSTING_LOG = "Financial Posting Log"
 PROFILE_DOCTYPE = "Posting Profile"
@@ -177,7 +184,21 @@ def _claim(
 	return doc.name, False
 
 
-def _mark_posted(log: str, erp_doctype: str, erp_document: str):
+def _mark_posted(log: str, erp_doctype: str, erp_document: str, *, actor: str | None = None):
+	"""Record the posting, against the person who caused it.
+
+	`actor` is the human whose hotel operation this was. It has to be passed
+	in, because by the time an ERPNext document exists the session is running
+	as the posting service identity (see `erp_posting_authority`) and
+	`frappe.session.user` would name the service, not the front desk agent who
+	checked the guest out.
+
+	Both are kept: the human in `posted_by`, and the identity the ledger
+	document was actually written under alongside it, so "who did this" and
+	"what authority wrote it" are separately answerable.
+	"""
+	executed_as = frappe.session.user
+
 	frappe.db.set_value(
 		POSTING_LOG,
 		log,
@@ -186,10 +207,35 @@ def _mark_posted(log: str, erp_doctype: str, erp_document: str):
 			"erp_doctype": erp_doctype,
 			"erp_document": erp_document,
 			"posted_on": now_datetime(),
-			"posted_by": frappe.session.user,
+			"posted_by": actor or executed_as,
 			"error_message": None,
 		},
 		update_modified=True,
+	)
+
+	if actor and executed_as != actor:
+		_note_service_execution(log, actor, executed_as)
+
+
+def _note_service_execution(log: str, actor: str, executed_as: str):
+	"""Leave the trust boundary visible on the posting log's payload.
+
+	Written into the existing `payload` field rather than a new column: the
+	posting log is the record of what was sent and under what authority, and
+	a reader needs both names in one place.
+	"""
+	try:
+		payload = json.loads(frappe.db.get_value(POSTING_LOG, log, "payload") or "{}")
+	except (ValueError, TypeError):
+		payload = {}
+
+	if not isinstance(payload, dict):
+		payload = {"payload": payload}
+
+	payload["_authority"] = {"initiated_by": actor, "executed_as": executed_as}
+
+	frappe.db.set_value(
+		POSTING_LOG, log, "payload", json.dumps(payload, default=str, indent=1), update_modified=False
 	)
 
 
@@ -338,10 +384,82 @@ def post_folio_invoice(folio: str, *, business_date=None, submit: bool = True) -
 	return {**durable.result, "duplicate": False}
 
 
+@contextmanager
+def erp_posting_authority(property_name: str, *, what: str):
+	"""The trust boundary between an authorised hotel operation and ERPNext.
+
+	Posting to the ledger is the *system's* act on behalf of an operation the
+	hotel has already authorised - not the front desk agent's act. That
+	distinction is the whole of UAT-004.
+
+	A Front Office Agent may check a guest out. Checkout raises a Payment
+	Entry, and ERPNext's own validation reads the Sales Invoice it allocates
+	against, so `check_doctype_permission` refused the agent with a bare
+	`PermissionError`. Granting the front desk Sales Invoice and Payment Entry
+	read would fix the symptom by giving every agent in the estate the run of
+	the accounts - a far worse position than the one it repairs.
+
+	So the elevation is here instead, and it is deliberately small:
+
+	* it is entered only from inside a posting operation, never from an
+	  endpoint, and it is not whitelisted;
+	* the caller must already hold the folio's own property, re-checked here
+	  against the property read from the record rather than from the request;
+	* the company is derived from that property, so no caller can point a
+	  posting at another company's books;
+	* it is released in a `finally`, so nothing downstream inherits it.
+
+	What it does *not* do is make the caller an accounting user. Outside this
+	block the agent still cannot read one Sales Invoice, and the tests in
+	`test_uat_remediation.py` assert exactly that.
+	"""
+	# 1. Authorise as the real caller, before any elevation exists. The
+	#    property comes from the folio, so this re-asks the Wave-1 boundary
+	#    question against the record rather than against anything the client
+	#    sent, and a cross-property caller is refused here with a message.
+	require_property_access(property_name)
+
+	# 2. The company follows from that property. Nothing the caller supplies
+	#    can point the posting at another company's books.
+	company = get_company(property_name)
+
+	if not company:
+		throw(
+			_("Property {0} has no company, so {1} cannot be posted.").format(property_name, what),
+			exc=ConfigurationError,
+		)
+
+	# 3. Only now does the identity change, and only for the length of one
+	#    document operation. ERPNext asks `frappe.has_permission("Sales
+	#    Invoice", "read", ...)` while it builds a Payment Entry; that call
+	#    answers for the session user and ignores `ignore_permissions`, so a
+	#    flag cannot satisfy it - an identity has to. The service identity
+	#    holds that one permission and nothing else, which is why it is not
+	#    Administrator and not a person.
+	actor = frappe.session.user
+	previous_flag = frappe.flags.ignore_permissions
+
+	frappe.flags.ignore_permissions = True
+	frappe.set_user(POSTING_SERVICE_USER)
+	try:
+		yield company, actor
+	finally:
+		# 4. Restored unconditionally. A posting that raises part way through
+		#    must not leave the session holding the service identity.
+		frappe.set_user(actor)
+		frappe.flags.ignore_permissions = previous_flag
+
+
 def _build_and_submit_invoice(doc, chargeable, log: str, *, business_date=None, submit: bool = True) -> dict:
+	with erp_posting_authority(doc.property, what=_("a sales invoice")) as (company, actor):
+		return _invoice_within_authority(
+			doc, chargeable, log, company, actor, business_date=business_date, submit=submit
+		)
+
+
+def _invoice_within_authority(doc, chargeable, log: str, company: str, actor: str, *, business_date=None, submit: bool = True) -> dict:
 	profile = get_posting_profile(doc.property)
 	profile_doc = frappe.get_cached_doc(PROFILE_DOCTYPE, profile)
-	company = get_company(doc.property)
 
 	customer = doc.customer or ensure_customer(doc.guest, company)
 
@@ -422,7 +540,7 @@ def _build_and_submit_invoice(doc, chargeable, log: str, *, business_date=None, 
 			update_modified=False,
 		)
 
-	_mark_posted(log, "Sales Invoice", invoice.name)
+	_mark_posted(log, "Sales Invoice", invoice.name, actor=actor)
 
 	return {
 		"log": log,
@@ -620,9 +738,13 @@ def post_folio_payment(folio: str, payment_row: str, *, business_date=None) -> d
 
 
 def _build_and_submit_payment(doc, row, log: str, *, business_date=None) -> dict:
+	with erp_posting_authority(doc.property, what=_("a payment entry")) as (company, actor):
+		return _payment_within_authority(doc, row, log, company, actor, business_date=business_date)
+
+
+def _payment_within_authority(doc, row, log: str, company: str, actor: str, *, business_date=None) -> dict:
 	profile = get_posting_profile(doc.property)
 	profile_doc = frappe.get_cached_doc(PROFILE_DOCTYPE, profile)
-	company = get_company(doc.property)
 
 	customer = doc.customer or ensure_customer(doc.guest, company)
 
@@ -696,7 +818,7 @@ def _build_and_submit_payment(doc, row, log: str, *, business_date=None) -> dict
 		update_modified=False,
 	)
 
-	_mark_posted(log, "Payment Entry", entry.name)
+	_mark_posted(log, "Payment Entry", entry.name, actor=actor)
 
 	return {
 		"log": log,

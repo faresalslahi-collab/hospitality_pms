@@ -169,6 +169,7 @@ def post_charge(
 	payer: str = "Guest",
 	charge_date=None,
 	business_date=None,
+	reason: str | None = None,
 	reference_doctype: str | None = None,
 	reference_name: str | None = None,
 ) -> dict:
@@ -245,11 +246,16 @@ def post_charge(
 	with service_context(FINANCIAL_POSTING):
 		doc.save(ignore_permissions=True)
 
+	# `reason` is carried through to the audit row rather than only validated.
+	# `post_adjustment` demanded one, checked it, and then called this function
+	# - which had no parameter to receive it - so every adjustment and discount
+	# recorded its amount, its actor and its day, and never why (UAT-001).
 	_log(
 		folio,
 		doc.property,
 		f"Charge posted: {charge_type}",
 		amount=row.total_amount,
+		reason=reason,
 		details={"description": description, "idempotency_key": idempotency_key},
 	)
 
@@ -467,6 +473,7 @@ def post_adjustment(
 		description,
 		amount,
 		payer=payer,
+		reason=reason.strip(),
 		idempotency_key=idempotency_key,
 	)
 

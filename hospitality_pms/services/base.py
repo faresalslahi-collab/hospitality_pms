@@ -96,7 +96,20 @@ def authorise_document(doctype: str, name: str, ptype: str = "read"):
 	require_permission(doctype, ptype)
 
 	doc = frappe.get_doc(doctype, name)
-	doc.check_permission(ptype)
+
+	try:
+		doc.check_permission(ptype)
+	except frappe.PermissionError:
+		# Frappe's document check raises with no message at all, so a front
+		# desk agent who picks up somebody else's stay saw a blank error box
+		# and had nothing to act on (found in UAT). The refusal itself is
+		# correct; only its silence was the defect. Deliberately says what was
+		# refused and not why - the reason would disclose the very record the
+		# check just decided this user may not see.
+		throw(
+			_("You are not permitted to {0} {1} {2}.").format(_(ptype), _(doctype), name),
+			exc=PermissionDeniedError,
+		)
 
 	property_name = doc.get("property")
 
