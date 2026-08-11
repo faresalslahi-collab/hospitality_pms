@@ -2695,3 +2695,112 @@ frontend  yarn test                    7 checks  OK
 None is a correctness defect and none blocks onboarding.
 
 Result: PASS
+
+## 16.6.5 — Local integration: Waves 1–6 merged into version-16
+
+Not a feature build. The cumulative hardening branch was merged into
+`version-16` locally and revalidated end to end.
+
+### Merge
+
+`version-16` stood at `ecb2157` and was a **strict ancestor** of the Wave-6
+tip, so the merge-base was `ecb2157` itself and there was no divergent mainline
+work. The six wave commits were each confirmed to be an ancestor of Wave 6 and
+to follow its predecessor — the lineage was verified from the repository, not
+from the wave reports. The range contains no merge commits.
+
+```
+ecb2157  (baseline)          -> 031a089 Wave 1 -> 370ea14 Wave 2
+      -> aed68b0 Wave 3      -> 998e6f0 Wave 4 -> 8841ba8 Wave 5
+      -> e806b3b Wave 6      -> 0e5fa7b merge commit
+```
+
+Merged with `--no-ff`, preserving all six waves. **No conflicts.** The merged
+tree is byte-identical to the Wave-6 tip.
+
+### What the integration check found
+
+One real defect, in versioning rather than in code: Waves 1–4 kept
+`package.json` in step with `hospitality_pms/__init__.py`, and Waves 5 and 6
+updated only the latter. `package.json` still read 16.6.3. Corrected to 16.6.5.
+
+Every hardening invariant was re-checked directly and holds: the unique
+`(parent, idempotency_key)` indexes on Folio Charge and Folio Payment, the
+unique `(property, business_date)` index on Night Audit, unique `operation_key`
+on the durable ledger, the folio child-row posting guard, the Night Audit
+durable close markers, batch-fingerprinted invoice identity, and no `new Date()`
+in either corrected screen.
+
+### Validation
+
+| Check | Result |
+|---|---|
+| `bench migrate` (first) | clean; both v16_6 patches applied |
+| `bench migrate` (second) | clean, no-op, non-destructive |
+| Backend suite | **354 passed, 0 failed** across 24 modules |
+| Frontend unit tests | **7 / 7** |
+| Frontend production build | pass |
+| Lifecycle smoke | **PASS**, 30 assertions |
+| Cross-property boundary | 20 / 20 |
+| Concurrency (two-process) | all races green, incl. both harness-validity tests |
+| Durability | rollback survival, ambiguous outcomes, posting visibility, channel retry, single-claim |
+
+No data was destroyed by the migration: the 3,217-row legacy integration queue
+is intact, as are 4 Night Audits and 37 folios. The single operation in Needs
+Reconciliation is a pre-existing legacy `import_reservation` row from
+2026-08-08, not a product of this work.
+
+`setup/lifecycle_smoke.py` is added as an operator-runnable integration check,
+alongside `inventory_audit.py` and `queue_maintenance.py`:
+
+    bench --site <site> execute hospitality_pms.setup.lifecycle_smoke.run
+
+It creates disposable data and tears it down whether or not it passes.
+
+### Behavioural changes operators and integrators must know
+
+1. **Financial mutations require an operation key.** `post_charge`,
+   `post_payment`, adjustments and reversals all take an idempotency key, and a
+   replay returns the original result instead of posting again. Callers that
+   previously retried blindly now get a `duplicate` response.
+2. **Direct Stay creation is blocked.** A Stay is created only by check-in
+   orchestration; `frappe.get_doc({"doctype": "Stay"}).insert()` is refused.
+3. **Overbooking obeys `enable_overbooking`, plus a role, a reason and an audit
+   record.** A reservation writer can no longer oversell on their own authority.
+4. **Ordinary posting into a closed business date is refused** when
+   `block_posting_after_close = 1`. Adjustments, discounts and refunds are
+   deliberately exempt: correcting a closed day must stay possible.
+5. **Reservation header dates derive from the room lines** — earliest arrival,
+   latest departure. A header typed wider than its rooms now narrows to them.
+6. **Multi-room reservations normalise at confirmation** to one Reservation Room
+   row per physical room, each with `rooms = 1`. Integrations reading a
+   confirmed booking should expect N rows rather than one row of N.
+7. **Multi-head tax templates are refused.** Folio tax posts as `Actual` rows
+   matching the folio exactly; a template that would spread tax across heads is
+   rejected rather than silently approximated.
+8. **Abandoned durable operations require an operator.** Nothing auto-retries
+   past the limit, and nothing is auto-deleted; use
+   `queue_maintenance.report`.
+9. **Operational date defaults are the Property business date, not the calendar
+   date** — arrivals, departures, calendars, availability and the New
+   Reservation screen. Explicit dates supplied by a caller are unchanged, and
+   audit and provider timestamps remain wall-clock.
+10. **Payment callbacks follow an explicit transition graph.** A late `Captured`
+    now settles a transaction previously marked `Failed`; a stale `Failed`
+    can no longer unwind `Captured`, `Partially Refunded` or `Refunded`.
+
+### Disposition
+
+- **P2-7 — DEFERRED TO PERFORMANCE.** The merge changed no code, so the Wave-6
+  measurements stand unchanged: 500-room assignable search ~534 queries /
+  386 ms; reconciliation ~13.8 queries / 19 ms per folio; availability accepts
+  1,825 nights at ~972 KiB. None is a correctness defect.
+  **WAVE 7 CAN WAIT UNTIL RC.**
+- **~25 historical lock-then-read sites — RC HARDENING BACKLOG.** Catalogued in
+  `tests/test_final_integrity.py` with a reason each, in `guest_services`,
+  `housekeeping`, `kitchen`, `maintenance`, `regulatory`, `hardware` and
+  `rooms.set_status`. All predate Wave 1, all are on operational rather than
+  financial state, and none has a reproduced correctness failure. Not declared
+  safe — declared unreviewed and out of scope.
+
+Result: PASS — ONBOARDING CANDIDATE, MERGED BASELINE
