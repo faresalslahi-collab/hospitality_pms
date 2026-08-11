@@ -33,6 +33,21 @@ FAILURE_QUEUE = "PMS Integration Failure Queue"
 #: Transaction states in which the money is the hotel's and belongs on the folio.
 SETTLED_STATES = ("Captured",)
 
+#: States that still hold money the hotel could give back.
+#:
+#: `Partially Refunded` belongs here and was missing (UAT-002): eligibility
+#: tested `status == "Captured"`, so the first partial refund moved the
+#: transaction out of the only eligible state and locked the rest of the
+#: capture away. The line immediately below the guard computes
+#: `refundable = amount - refunded_amount`, which could never be reached for
+#: anything but the first refund - the arithmetic was already written for
+#: incremental refunds, and only the guard disagreed.
+#:
+#: `Refunded` is deliberately absent: nothing remains, and the amount check
+#: would refuse it anyway. Keeping it out means the caller is told the
+#: transaction is finished rather than that they asked for too much.
+REFUNDABLE_STATES = ("Captured", "Partially Refunded")
+
 #: States after which the provider has finished with the original attempt, and
 #: `completed_on` is stamped. Not the same question as "may this change" - see
 #: `ALLOWED_TRANSITIONS`.
@@ -560,7 +575,7 @@ def refund_payment(transaction: str, amount: float, reason: str, *, idempotency_
 			"duplicate": True,
 		}
 
-	if current["transaction_status"] not in SETTLED_STATES:
+	if current["transaction_status"] not in REFUNDABLE_STATES:
 		throw(
 			_("Transaction {0} is {1} and cannot be refunded.").format(
 				transaction, _(current["transaction_status"])

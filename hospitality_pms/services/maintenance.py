@@ -134,16 +134,42 @@ def start_work(ticket: str) -> str:
 	frappe.db.set_value(TICKET_DOCTYPE, ticket, "started_on", now_datetime(), update_modified=True)
 
 	if doc.room:
-		room_service.set_status(
-			doc.room,
-			room_service.MAINTENANCE,
-			"Required",
-			reason=_("Maintenance ticket {0} started").format(ticket),
-			reference_doctype=TICKET_DOCTYPE,
-			reference_name=ticket,
-		)
+		_take_room_under_repair(doc.room, ticket)
 
 	return ticket
+
+
+def _take_room_under_repair(room: str, ticket: str):
+	"""Reflect that a technician now has this room open.
+
+	Two things were wrong with moving the room to `Required` here (UAT-005).
+
+	`Required` means *this room needs work*, not *work is happening*, and it is
+	not in `BLOCKING_MAINTENANCE` - so starting a repair on a healthy room left
+	it sellable while somebody had it apart. `Under Maintenance` is the state
+	the room model already has for exactly this, and it does block the sale.
+
+	And a room that has already been taken Out of Order or Out of Service is
+	left alone. `Out of Order` has no transition to `Required`, which is why the
+	natural order - find the fault, pull the room out of sale, then start work -
+	failed outright. Those states are also a deliberate severity judgement by
+	someone holding the maintenance role; starting work is not new information
+	about how bad the room is, so it must not quietly downgrade it. Both states
+	already block the sale, which is what starting work needs to guarantee.
+	"""
+	current = frappe.db.get_value(room_service.ROOM_DOCTYPE, room, "maintenance_status")
+
+	if current in room_service.BLOCKING_MAINTENANCE:
+		return
+
+	room_service.set_status(
+		room,
+		room_service.MAINTENANCE,
+		"Under Maintenance",
+		reason=_("Maintenance ticket {0} started").format(ticket),
+		reference_doctype=TICKET_DOCTYPE,
+		reference_name=ticket,
+	)
 
 
 def log_work(ticket: str, work_done: str, *, minutes: int | None = None, parts: str | None = None) -> str:

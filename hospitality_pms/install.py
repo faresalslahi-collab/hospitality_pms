@@ -64,9 +64,16 @@ def sync_roles():
 	access enabled, so this has to run after the DocType sync to put the
 	operational roles back to frontend-only.
 	"""
+	from hospitality_pms.setup.posting_service import ensure_posting_service
 	from hospitality_pms.setup.roles import create_roles
 
 	create_roles()
+
+	# The identity Hospitality posts to ERPNext under. Kept here so a fresh
+	# install, an upgrade and a repeated migrate all converge on the same
+	# narrowly-scoped role, permission and user (UAT-004).
+	ensure_posting_service()
+
 	frappe.db.commit()
 
 
