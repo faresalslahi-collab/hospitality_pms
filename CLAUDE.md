@@ -76,6 +76,43 @@ Sensitive actions listed in SAS section 7 must write an audit record with actor,
 timestamp, before/after and reason. Reason is mandatory for overrides, discounts,
 adjustments, reversals and Night Audit reopen.
 
+## Dates: which kind, and when
+
+Four different things get called "the date" in a hotel, and mixing them up was
+the single largest class of defect Phase 1 found. Every new date must be one of
+these deliberately.
+
+**Business date** — the hotel's operational and accounting day. *Every*
+operational default. A property that has not yet run its Night Audit is still
+working yesterday, and its arrivals board, folio postings, availability defaults
+and audit must all agree on which day that is.
+
+    from hospitality_pms.services.property import resolve_operational_date
+    on_date = resolve_operational_date(property_name, on_date)
+
+One implementation, in `services/property.py`. `front_office.resolve_business_date`
+delegates to it. Never write a second one.
+
+**Calendar date** — a real civil date, used only where a civil date is what is
+meant: when something physically happened (`charge_date`, `payment_date`,
+`booked_on`), or a reporting lookback over wall-clock data. These sit *alongside*
+the operational `business_date` on the same row, never instead of it.
+
+**Wall-clock timestamp** — `now_datetime()`, for audit trail and provider events:
+`started_on`, `*_completed_on`, `initiated_on`, `completed_on`. Never moved onto
+a business date; doing so makes the audit trail lie about real time.
+
+**Reservation service date** — the date being *priced or checked*, which for a
+future booking is neither today nor the business date. Contract validity, rate
+plan validity and negotiated rates are evaluated against the night in question
+when the caller supplies one, and fall back to the business date when the
+question is operational rather than forward-looking.
+
+Server side, `nowdate()` and `today()` in `services/` and `api/` are refused by
+`tests/test_final_integrity.py` unless allow-listed with a reason. Client side,
+operational screens default from `property.businessDate` via
+`utils/operationalDate.js` — never `new Date()`.
+
 ## Localisation
 
 - Every user-facing string is translatable: `frappe._()` server side, the i18n

@@ -10,7 +10,7 @@ import frappe
 from frappe import _
 
 from hospitality_pms.services import night_audit as service
-from hospitality_pms.services.base import require_permission
+from hospitality_pms.services.base import authorise_document, require_permission
 from hospitality_pms.services.property import resolve_property
 
 AUDIT_DOCTYPE = "Night Audit"
@@ -132,7 +132,7 @@ def start(property: str | None = None, business_date: str | None = None) -> dict
 @frappe.whitelist(methods=["POST"])
 def review(audit: str) -> dict:
 	"""Rebuild the day's exceptions and figures."""
-	require_permission(AUDIT_DOCTYPE, "write")
+	authorise_document(AUDIT_DOCTYPE, audit, "write")
 
 	result = service.review(audit)
 
@@ -142,7 +142,7 @@ def review(audit: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def resolve_exception(audit: str, row_name: str, resolution: str) -> dict:
 	"""Mark one exception row as dealt with."""
-	require_permission(AUDIT_DOCTYPE, "write")
+	authorise_document(AUDIT_DOCTYPE, audit, "write")
 
 	result = service.resolve_exception(audit, row_name, resolution)
 
@@ -152,7 +152,7 @@ def resolve_exception(audit: str, row_name: str, resolution: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def mark_no_shows(audit: str) -> dict:
 	"""Turn today's unresolved arrivals into no-shows."""
-	require_permission(AUDIT_DOCTYPE, "write")
+	authorise_document(AUDIT_DOCTYPE, audit, "write")
 
 	result = service.mark_no_shows(audit)
 
@@ -162,7 +162,7 @@ def mark_no_shows(audit: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def post_room_charges(audit: str) -> dict:
 	"""Post one night's room charge for every in-house stay."""
-	require_permission(AUDIT_DOCTYPE, "write")
+	authorise_document(AUDIT_DOCTYPE, audit, "write")
 
 	result = service.post_room_charges(audit)
 
@@ -172,7 +172,7 @@ def post_room_charges(audit: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def mark_due_outs(audit: str) -> dict:
 	"""Flag tomorrow's departures for the morning shift."""
-	require_permission(AUDIT_DOCTYPE, "write")
+	authorise_document(AUDIT_DOCTYPE, audit, "write")
 
 	result = service.mark_due_outs(audit)
 
@@ -182,7 +182,7 @@ def mark_due_outs(audit: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def reconcile(audit: str) -> dict:
 	"""Check the subledger against ERPNext before a close is possible."""
-	require_permission(AUDIT_DOCTYPE, "write")
+	authorise_document(AUDIT_DOCTYPE, audit, "write")
 
 	result = service.reconcile(audit)
 
@@ -192,7 +192,7 @@ def reconcile(audit: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def close(audit: str) -> dict:
 	"""Close the business date and roll the property forward."""
-	require_permission(AUDIT_DOCTYPE, "write")
+	authorise_document(AUDIT_DOCTYPE, audit, "write")
 
 	result = service.close(audit)
 
@@ -202,7 +202,7 @@ def close(audit: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def reopen(audit: str, reason: str) -> dict:
 	"""Reopen a closed business date. Manager exception only (service-enforced)."""
-	require_permission(AUDIT_DOCTYPE, "write")
+	authorise_document(AUDIT_DOCTYPE, audit, "write")
 
 	result = service.reopen(audit, reason)
 

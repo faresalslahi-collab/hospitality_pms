@@ -44,6 +44,17 @@
   "revpar",
   "exceptions_section",
   "audit_exceptions",
+  "completion_section",
+  "review_completed_on",
+  "review_completed_by",
+  "posting_completed_on",
+  "posting_completed_by",
+  "reconciliation_completed_on",
+  "reconciliation_completed_by",
+  "reconciliation_population",
+  "reconciliation_variances",
+  "reconciled_row_count",
+  "reconciled_row_total",
   "lifecycle_section",
   "started_on",
   "started_by",
@@ -297,6 +308,77 @@
    "fieldtype": "Table",
    "label": "Exceptions",
    "options": "Night Audit Exception"
+  },
+  {
+   "fieldname": "completion_section",
+   "fieldtype": "Section Break",
+   "label": "Step Completion",
+   "description": "Durable proof that each mandatory step actually ran. A counter of zero cannot tell 'posting found nothing to do' apart from 'posting never ran', so completion is recorded explicitly rather than inferred."
+  },
+  {
+   "fieldname": "review_completed_on",
+   "fieldtype": "Datetime",
+   "label": "Review Completed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "review_completed_by",
+   "fieldtype": "Link",
+   "label": "Review Completed By",
+   "read_only": 1,
+   "options": "User"
+  },
+  {
+   "fieldname": "posting_completed_on",
+   "fieldtype": "Datetime",
+   "label": "Posting Completed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "posting_completed_by",
+   "fieldtype": "Link",
+   "label": "Posting Completed By",
+   "read_only": 1,
+   "options": "User"
+  },
+  {
+   "fieldname": "reconciliation_completed_on",
+   "fieldtype": "Datetime",
+   "label": "Reconciliation Completed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reconciliation_completed_by",
+   "fieldtype": "Link",
+   "label": "Reconciliation Completed By",
+   "read_only": 1,
+   "options": "User"
+  },
+  {
+   "fieldname": "reconciliation_population",
+   "fieldtype": "Int",
+   "label": "Folios Reconciled",
+   "read_only": 1,
+   "description": "How many folios the reconciliation actually examined. Zero variances across zero folios is not the same answer as zero variances across two hundred."
+  },
+  {
+   "fieldname": "reconciliation_variances",
+   "fieldtype": "Int",
+   "label": "Variances Found",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reconciled_row_count",
+   "fieldtype": "Int",
+   "label": "Monetary Rows At Reconciliation",
+   "read_only": 1,
+   "description": "A fingerprint of the audit date's money taken when reconciliation ran. If it no longer matches at close, something was posted since and the reconciliation is stale."
+  },
+  {
+   "fieldname": "reconciled_row_total",
+   "fieldtype": "Currency",
+   "label": "Monetary Total At Reconciliation",
+   "read_only": 1
   },
   {
    "fieldname": "lifecycle_section",

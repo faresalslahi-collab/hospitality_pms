@@ -1,6 +1,6 @@
 # Hospitality PMS — Build Acceptance Log
 
-**Current application version:** 16.5.3 (branch `version-16`)
+**Current application version:** 16.6.3 (branch `version-16`)
 
 One record per completed build, in the format required by
 `09_Hospitality_PMS_Build_Test_and_Acceptance_Standard_v1.2_APPROVED.md` section 4.
@@ -1815,4 +1815,883 @@ Validation: PASS - targeted.
 Note: `nav.desk` existed but was referenced nowhere and read "Open Frappe Desk";
 it was retitled to "Desk" so it sits correctly beside app names, rather than
 adding a second near-identical key.
+Result: PASS
+
+---
+
+## 16.6.0 — Onboarding Integrity Hardening, Wave 1: locking, financial boundary, authorization
+
+Remediates thirteen findings reproduced against this site in the 16.6.0 Phase-1
+verification sweep. Each was promoted from its reproduction into a regression
+test before anything was changed, and each test was watched failing first.
+
+### N1 — a lock protected the snapshot, not the state
+
+The root cause behind both confirmed concurrency P1s. `lock_document()` issues
+`SELECT name … FOR UPDATE`, which serialises correctly but selects only a
+column that never changes; the `frappe.get_doc()` that followed was a plain
+read, answered under REPEATABLE READ from the snapshot this transaction opened
+*before* it began waiting for the lock. Every guard downstream therefore
+evaluated pre-lock state. This is not fixable by re-reading harder: within one
+REPEATABLE READ transaction no plain read will ever see the winner's commit.
+
+`services.base` gained `lock_and_read()`, `lock_and_get_doc()` and
+`lock_and_find()`. All three take the lock and return the values from that same
+locking statement, because InnoDB answers a locking read from the current row
+version. `lock_document()` remains for the case it is actually correct —
+serialising a row whose values the operation does not read — and now says so.
+
+The hazard itself is pinned by a test, not assumed:
+`test_harness_reproduces_stale_snapshot_hazard` proves that lock-then-plain-read
+still returns the stale value on this database. Without it, a green
+`test_lock_waiter_reads_committed_state` would prove nothing.
+
+### Lock call-site audit
+
+Every `lock_document` / `lock_documents` / `lock_room_type` call in
+`services/` was classified. "Unsafe" means a guard, a total or a state
+transition was decided from a value read after the lock but not by it.
+
+| Service / function | Protects | Decided from | Was | Changed |
+|---|---|---|---|---|
+| `corporate.consume_credit` | Corporate Account credit | `credit_used`, `credit_limit` | UNSAFE | Yes — `lock_and_read` |
+| `corporate.release_credit` | Corporate Account credit | `credit_used` | UNSAFE | Yes — `lock_and_read` |
+| `corporate.set_credit_status` | Credit status + audit | `credit_status` (logged as `from_status`) | UNSAFE | Yes — `lock_and_read` |
+| `reservations.confirm` | Reservation state, inventory, credit | `reservation_status`, room lines | UNSAFE | Yes — `lock_and_get_doc` + early transition assert |
+| `reservations.cancel` | Reservation state, credit release | `reservation_status`, totals | UNSAFE | Yes — `lock_and_get_doc` + early transition assert |
+| `reservations.guarantee` | Reservation state | `reservation_status` | UNSAFE | Yes — `lock_and_get_doc` |
+| `reservations.mark_no_show` | Reservation state | `reservation_status`, arrival | UNSAFE | Yes — `lock_and_get_doc` |
+| `reservations._transition` | Every reservation state change | `reservation_status` | UNSAFE | Yes — re-reads under lock; single choke point |
+| `folio.post_charge` | Duplicate key, postable state | child rows, `folio_status` | UNSAFE | Yes — `lock_and_get_doc`; key checked against locked rows |
+| `folio.post_payment` | Duplicate key, closed state | child rows, `folio_status` | UNSAFE | Yes — `lock_and_get_doc` |
+| `folio.reverse_charge` | Double reversal | `is_reversed` | UNSAFE | Yes — `lock_and_get_doc` |
+| `folio.transition` | State machine, balance, unposted charges | `folio_status`, `balance`, rows | UNSAFE | Yes — `lock_and_get_doc` |
+| `folio.split_folio` | Which rows move | child rows | UNSAFE | Yes — `lock_and_get_doc` |
+| `folio.merge_folio` | Which rows move, both states | both documents | UNSAFE | Yes — `lock_and_get_doc`, name-ordered |
+| `payments.refund_payment` | Refundable balance | `refunded_amount`, status | UNSAFE | Yes — `lock_and_read` + claim before provider call |
+| `payments.handle_callback` | Replay guard | `transaction_status` | UNSAFE | Yes — status re-read under lock |
+| `payments.sync_status` | — | provider is authoritative; no stale-dependent guard | SAFE | No |
+| `stays.check_in` | Reservation readiness | `reservation_status`, room lines | UNSAFE | Yes — `lock_and_get_doc` |
+| `stays.change_room` | In-house guard | `stay_status` | UNSAFE | Yes — `lock_and_get_doc` |
+| `stays.extend_stay` | In-house guard, dates | `stay_status`, `departure_date` | UNSAFE | Yes — `lock_and_get_doc` |
+| `stays.shorten_stay` | Date guards | `departure_date` | UNSAFE | Yes — `lock_and_get_doc` |
+| `stays.transition` | State machine | `stay_status` | UNSAFE | Yes — `lock_and_get_doc` |
+| `checkout.check_out` | Checked-out guard | `stay_status` | UNSAFE | Yes — `lock_and_get_doc` |
+| `checkout.reverse_checkout` | Checked-out guard | `stay_status` | UNSAFE | Yes — `lock_and_get_doc` |
+| `availability.lock_room_type` | Room Type rows | nothing read from the locked row | SAFE | No |
+| `reservations.assign_room`, `stays.change_room` (room lock) | Hotel Room | clash read from **Reservation Room / Stay**, which the Hotel Room lock does not cover | NEEDS INVESTIGATION | No — the lock *scope* is wrong, not just the read; belongs with P1-5 / N8 |
+| `posting.post_folio_invoice`, `posting.post_folio_payment` | Which rows are unposted | child rows | UNSAFE | No — deferred to the ERP-agreement wave (P1-10, P1-11, P1-14) |
+| `night_audit.review / post_room_charges / reconcile / close / reopen` | `audit_status` | audit document | UNSAFE | No — deferred to the business-date wave (P1-7, P1-8, P1-9, P2-1) |
+| `housekeeping.*` (5), `maintenance.*` (4), `kitchen.*` (2), `guest_services.*` (7), `guests.ensure_customer`, `guests.merge_guests`, `regulatory.register_guest`, `rooms.set_status` | task / ticket / request status | own document | UNSAFE | No — later waves; no Wave-1 finding, and changing lock semantics without that wave's tests would be an unverified change |
+
+Deferred sites are latent, not benign: each carries the same N1 hazard and
+should be corrected by the wave that owns its domain, which will have the tests
+to prove the correction.
+
+### Dead PMS Settings inventory
+
+`enable_overbooking` is wired by this wave. The other four are documented and
+deliberately left alone, because making a setting "used" by inventing partial
+behaviour is worse than a setting that plainly does nothing.
+
+| Setting | Intended control | Currently | Recommended wave |
+|---|---|---|---|
+| `enable_overbooking` | Master switch for selling beyond capacity | **Wired.** Read by `availability.authorise_overbooking`; when off, an override is refused for everyone including an administrator | Done (16.6.0) |
+| `block_posting_after_close` | Refuse folio postings dated into a closed business date | Read nowhere. `folio.post_charge` accepts any `business_date` a service passes | Business-date wave, with P1-7 / P1-8. Needs the closed-date rule defined first, so this is a consequence of that work rather than a switch to bolt on |
+| `reservation_hold_minutes` | Expiry for a tentative hold | Read nowhere; a Tentative reservation never expires | Reservation-lifecycle work. Needs a scheduled release job and a decision on what an expired hold becomes (Cancelled, or a new Expired state) |
+| `block_assignment_for_out_of_order` | Refuse assigning a room that is out of order | Read nowhere. `rooms.assert_assignable` already refuses on `BLOCKING_MAINTENANCE` unconditionally, so the setting would *relax* the rule, not tighten it | Inventory wave, with N8. Decide whether relaxation is wanted at all before wiring it |
+| `cancellation_grace_hours` | Free-cancellation window independent of the rate policy | Read nowhere. `rates.get_cancellation_charge` uses the Rate Policy's own `free_cancellation_hours` | Later. Two sources for one rule is the real question; the setting may be the one to delete |
+
+### Validation
+
+Targeted throughout, one consolidated run at completion. 88 tests, all passing.
+No full UAT, RC regression, performance or security suite was run.
+
+```
+tests/test_locking.py              5 tests   OK
+tests/test_reservation.py         15 tests   OK
+tests/test_guest_folio.py         23 tests   OK
+tests/test_stay.py                11 tests   OK
+tests/test_authorization.py       20 tests   OK
+tests/test_payment_transaction.py  9 tests   OK
+tests/test_schema_migration.py     5 tests   OK
+```
+
+Concurrency tests use two OS processes with independent connections and
+transactions, choreographed through a file barrier. Threads would share
+`frappe.local.db` and therefore share the snapshot under test; a sequential
+simulation passes against the broken code.
+
+The suites live in `hospitality_pms/tests/` rather than in the DocType folders.
+`IntegrationTestCase` infers `cls.doctype` from the folder and then generates
+test records for every link field it reaches; every operational DocType here
+reaches `Property` → `Company`, and importing ERPNext's `Company` test module
+builds its master data at import time, raising `DuplicateEntryError` on a site
+that already has a company. The DocType scaffolding is untouched.
+
+- Migration: patch applied on the upgraded site, index present on both money
+  tables, repeat `bench migrate` a clean no-op. Fresh install is covered by the
+  same idempotent function through `after_install`, because Frappe marks
+  patches executed rather than running them on a new site.
+- Duplicate-key safety proven by test: with duplicates planted and the index
+  dropped, the migration refuses, names the folio and the key, and both rows
+  are still there afterwards.
+- Frontend: `npm run build` clean on Node 24.
+- Python syntax clean across the app; every `services/*` and `api/*` module
+  imports.
+
+### Intentionally still open
+
+- **P1-12 is partially closed.** Concurrent over-refund is fixed: the funds are
+  claimed under the row lock before the provider is called, so a second caller
+  reads the claimed balance and is refused. The claim is not durable against
+  failure — a provider call that succeeds followed by a rollback still leaves
+  money moved with no local record. That is the same external-side-effect
+  problem as P1-13 and P1-14 and needs one mechanism chosen for all three.
+- A legitimate *second* partial refund is still refused, because the first
+  moves the transaction to `Partially Refunded` and only `Captured` is
+  refundable. Pre-existing, and part of P2-2.
+- `stays._log_note` still appends after `doc.save()` and is never persisted
+  (N3). The overbooking override on a stay extension is therefore written to
+  the Reservation Log instead of relying on it.
+
+Result: PASS
+
+---
+
+## 16.6.1 — Onboarding Integrity Hardening, Wave 2: ERP posting, tax, payment allocation and reconciliation
+
+Three verified findings, each promoted from its Phase-1 reproduction into a
+regression test and watched failing before anything was changed. Every
+assertion reads ERPNext back — `grand_total`, `outstanding_amount`, GL Entries,
+Payment Entry allocations — because the defects are all about what ERPNext ends
+up holding, and a test that asserts on the document we just built only proves
+we can build a document.
+
+### P1-10 — the tax never left the folio
+
+**Reproduced.** `resolve_charge_item()` looked up a tax template and
+`_build_and_submit_invoice()` never used it. A folio of 100 net + 10 tax posted
+an invoice with `net_total = 100`, `total_taxes_and_charges = 0`,
+`grand_total = 100`. No GL credit reached any tax account: ten riyals of output
+VAT did not exist in the ledger. With mixed rates the gap was 21.50 on 251.50.
+
+**Fixed.** The folio's recorded tax is posted as `Actual` Sales Taxes and
+Charges rows, grouped by the account head resolved from each charge type's tax
+template (HPMS-DEC-125).
+
+Why `Actual` rather than applying the template and letting ERPNext calculate:
+the folio is the bill the guest was handed, so ERPNext must record *that*
+number, not a re-derivation that may or may not agree with it. It also solves
+the mixed-rate case in one invoice — a Sales Taxes and Charges Template is
+invoice-level in ERPNext, so 200 at 10% and 30 at 5% cannot both be expressed
+by one template, and the alternative was splitting the folio across invoices.
+`Actual` is a first-class ERPNext charge type and posts to `account_head`
+exactly as a calculated row does, so the GL effect is ordinary. No GL Entry is
+written by this app.
+
+Two refusals rather than guesses (HPMS-DEC-126): a charge that bears tax but
+maps to no template, and a template with more than one head — a folio line
+records one tax figure and no breakdown, so splitting it would invent an
+allocation. And an invoice whose grand total does not equal the batch's net plus
+tax is never submitted (HPMS-DEC-127).
+
+**Also found by these tests:** ERPNext rounds `grand_total` to the nearest whole
+unit by default and drives `outstanding_amount` from the rounded figure, so a
+52.50 folio produced a 52.00 receivable — banker's rounding takes .50 to even.
+Folio invoices now set `disable_rounded_total` (HPMS-DEC-128).
+
+Evidence: simple 100+10 → `net_total 100`, `taxes 10`, `grand_total 110`, GL
+credit 10.00 to the configured tax account. Mixed 200+20 and 30+1.50 →
+`grand_total 251.50`, with 20.00 and 1.50 credited to their own account heads.
+Zero-tax → no tax rows and no tax.
+
+### P1-11 — payments settled nothing
+
+**Reproduced.** The Payment Entry was submitted with `references = []`:
+`paid_amount 110`, `total_allocated_amount 0`, `unallocated_amount 110`, the
+Sales Invoice fully outstanding, and the Payment Ledger holding a guest who had
+paid in full as an unapplied customer advance.
+
+**Fixed.** A receipt allocates against the folio's outstanding invoices in
+posting order, oldest first, never beyond what each still owes
+(HPMS-DEC-130). Outstanding is read with a locking current read, so two
+payments on one folio cannot both allocate the same money. Refunds are left
+unreferenced — money going out settles nothing.
+
+Evidence: 110 paid on a 110 invoice → allocated 110, outstanding 0. 50 then 60
+→ 60 then 0. 120 on a 100 invoice → allocated 100, `unallocated_amount` 20, and
+the surplus returned to the caller so it is a visible decision rather than
+something to discover in the ledger later. A deposit taken before any invoice
+exists stays an advance, which is ERPNext's correct answer.
+
+### P2-4 — late charges could never reach ERPNext
+
+**Reproduced.** The invoice key was `folio-invoice:{folio}` for the life of the
+folio. Once one invoice existed, every later call returned it as a duplicate;
+an authorised late charge stayed `is_posted_to_erp = 0` and `sales_invoice`
+NULL permanently.
+
+**Fixed.** The key is a fingerprint of the charge rows being posted
+(HPMS-DEC-129). The same rows always produce the same key — from any process,
+at any time — so a retry reuses the invoice, while rows added later form a
+different batch and get a supplementary invoice. Deliberately not a counter: a
+counter has to be allocated, and two concurrent retries could allocate two and
+post the same charges twice.
+
+Nothing left to post is now a no-op returning the existing invoice, not an
+error.
+
+### Reconciliation — it was asking the folio about the folio
+
+The old `reconcile_folio` derived "erp_invoiced" by adding up folio charge rows
+whose `sales_invoice` link pointed at a submitted document. That is circular,
+and it is what masked P1-10: a 110 folio against a 100 invoice reported
+`erp_invoiced 110`, `variance 0`, `is_reconciled True`.
+
+It now reads ERPNext (HPMS-DEC-131): submitted invoice `grand_total` and
+`outstanding_amount`, submitted Payment Entry `paid_amount`, and allocations
+from Payment Entry References. Cancelled and draft documents count for nothing.
+
+The response keeps every field it had and adds `erp_allocated_payments`,
+`unallocated_payments`, `invoice_outstanding`, `settlement_variance`,
+`erp_invoices`, `erp_payment_entries` and `currency_mismatch`.
+
+A folio reconciles only when ERP's outstanding equals what the folio says is
+still owed (HPMS-DEC-132). Charge and payment variance alone cannot see an
+unapplied advance — the money is in ERPNext and both variances are zero while
+the invoice stands unpaid.
+
+### Posting lock sites
+
+Wave 1 deferred both; Wave 2 owns them.
+
+| Site | Decided from | Was | Changed |
+|---|---|---|---|
+| `posting.post_folio_invoice` | the unposted row set, which is now the batch identity | UNSAFE | Yes — `lock_and_get_doc` |
+| `posting.post_folio_payment` | each invoice's outstanding amount | UNSAFE | Yes — `lock_and_get_doc`, plus `lock_and_read` per invoice |
+| `guests.ensure_customer` | the guest's `customer` link | UNSAFE | Yes — `lock_and_read` |
+
+`ensure_customer` is in the posting path and its stale read had a visible
+consequence: ERPNext names a Customer after the guest, so the waiter's second
+insert collided on the primary key and the posting that needed the customer
+failed — for a customer that already existed. Proven with two processes.
+
+### Validation
+
+139 tests, all passing. 88 from Wave 1, unchanged and still green; 51 new.
+
+```
+tests/test_posting.py             24 tests   OK
+tests/test_payment_posting.py     15 tests   OK
+tests/test_erp_reconciliation.py  12 tests   OK
+```
+
+- Migration: no schema change in this wave. `bench migrate` clean and repeat
+  migrate a no-op; the Wave-1 uniqueness index is untouched.
+- No frontend change, so no frontend build.
+- No test accounting data remains: no test properties, accounts, items, tax
+  templates, posting profiles, posting logs, customers or orphan GL Entries.
+  Teardown cancels Payment Entries before Sales Invoices, through the ORM, so
+  ledger entries go with them.
+- `git diff --check` clean; no manual GL Entry creation, no `frappe.db.commit()`
+  in a service, no new `ignore_permissions`.
+
+### Intentionally still open
+
+- **P1-14 remains deferred.** `_mark_failed` still writes inside the caller's
+  transaction, so a rollback takes the Failed row with it. That needs one
+  durability mechanism chosen across every external side effect, with P1-13,
+  and belongs to that wave. Nothing here hides it.
+- **Night Audit reconciliation is not safe yet.** This wave makes per-folio ERP
+  posting and reconciliation correct. Audit sequencing, reopen, exhaustive
+  population and retry figures are P1-7, P1-8, P1-9 and P2-1.
+- A legitimate *second* partial refund is still refused (pre-existing, P2-2).
+
+Result: PASS
+
+---
+
+## 16.6.2 — Onboarding Integrity Hardening, Wave 3: durable external operations and real retry
+
+Four findings, one architecture. P1-13, P1-14 and the residual half of P1-12
+are the same defect wearing three hats: **failure evidence was written inside
+the transaction that was about to be rolled back.** N7 is its companion — a
+queue that grew for ever because nothing ever drained it.
+
+### The architecture, and why this one
+
+A durable operation ledger written on a **second database connection**.
+
+Before any provider, channel or ERPNext call, a row is committed saying what is
+about to be attempted, under what key, for which property. It has its own
+transaction, so the caller's rollback cannot reach it. Afterwards, a second
+write records what came back.
+
+Two alternatives were considered and rejected, and the reasons matter:
+
+* **`frappe.db.commit()` in the service.** Forbidden by the build rules, and
+  wrong regardless — it would commit the caller's half-finished business work
+  along with the evidence, so a failed check-in would leave a real Stay behind.
+* **`frappe.db.after_rollback`.** Fires at the right moment on the right
+  connection, but whatever it writes is itself uncommitted, and in a request
+  that is ending nothing ever commits it.
+
+Both halves of the chosen mechanism are proven by test, not asserted:
+`test_operation_record_survives_caller_rollback` and
+`test_durable_write_does_not_commit_the_callers_work`. The second is the one
+that matters — it is what distinguishes this from a disguised commit.
+
+**The ledger is not the business record.** Payment Transaction and Financial
+Posting Log stay in the caller's transaction on purpose: a log row saying an
+invoice was posted must roll back with the invoice, or it lies. The ledger
+records something different — what an external system was asked to do — and
+that has to survive precisely when the business transaction does not
+(HPMS-DEC-134).
+
+The existing `PMS Integration Failure Queue` carries it, extended with
+`operation_key` (unique), `external_reference`, `claimed_on` and a reference
+pair. `reference_name` is deliberately plain Data rather than a Dynamic Link:
+an outbox row routinely outlives the record it names, and a validating link
+would refuse to save at exactly the moment the evidence matters.
+
+### State machine
+
+```
+Pending ──► Executing ──► Resolved                      (terminal)
+                │
+                ├──► Retrying ──► Executing ...
+                │        └──────► Abandoned             (terminal)
+                │
+                └──► Needs Reconciliation
+                         └──► Resolved / Retrying, once established
+```
+
+`Resolved` and `Abandoned` are terminal, and `Needs Reconciliation` cannot be
+reopened by a new attempt (HPMS-DEC-137). A test caught `begin_operation`
+silently moving an unreconciled operation back to `Executing`, which would have
+let the provider be called a second time for money that may already have moved.
+
+### Transaction boundaries
+
+```
+Transaction A  (durable connection)   begin_operation  -> commit
+               ── external call ──
+Transaction B  (durable connection)   complete / fail / flag -> commit
+
+Caller's own transaction               business state; commits or rolls back
+                                       independently, and cannot affect A or B
+```
+
+`services.retry.dispatch` is the one transaction boundary in the service layer,
+committing per operation so one broken folio in a sweep of twenty cannot undo
+the nineteen that worked (HPMS-DEC-141). No `frappe.db.commit()` was added to
+any domain service.
+
+### P1-12, residual — closed
+
+The provider refunds, the request then dies, everything local rolls back, and
+the next attempt refunds again. Reproduced:
+`test_retry_after_post_provider_failure_does_not_refund_again` failed with *"the
+guest was refunded twice"*.
+
+Now the ledger survives the rollback and says the refund reached the provider,
+so the retry takes a repair path — rebuilding local state — instead of calling
+the provider again. A timeout is classified separately: adapters raise
+`IntegrationAmbiguousError` for transport failures, the operation becomes
+`Needs Reconciliation`, and nothing re-issues it. Reconciliation *asks* the
+provider what it did through an optional adapter capability; an adapter that
+cannot answer leaves the work for a person (HPMS-DEC-135, HPMS-DEC-136).
+
+### P1-13 — closed
+
+Payment initiation now runs behind the same ledger. A refused initiation leaves
+a durable `Retrying` record after the request has rolled back; an ambiguous one
+leaves `Needs Reconciliation` and is not re-sent.
+
+`retry_failed` used to increment `attempts`, set `Retrying`, push the backoff
+out and return — it never called anything. It now claims from the ledger and
+dispatches a registered handler per operation type, classified `Safe Retry`,
+`Reconcile First` or `Manual Only`. An unregistered operation is **abandoned
+loudly**, not silently counted as retried (HPMS-DEC-138).
+
+### P1-14 — closed
+
+A failed posting left no trace, because `_mark_failed` and the re-raise were in
+the same doomed transaction — and Night Audit looks for exactly those rows.
+
+The Financial Posting Log is unchanged. Alongside it, the posting attempt is now
+a durable operation, so the failure survives; and `get_failed_postings` reads
+both sources, because a posting can fail in two ways and an answer that omitted
+the second would be confidently wrong. Retry preserves the Wave-2 batch
+fingerprint, so the same charges cannot produce a second Sales Invoice.
+
+### N7 — closed
+
+Before: `_queue_failure` inserted a row per failed push with no check for one
+already describing the same work, and nothing ever executed them. The site held
+**3,193 open rows describing 96 pieces of work** — 3,096 duplicates.
+
+After: a scheduled push has one standing operation per channel, so a repeated
+failure updates that row. Ten scheduler passes against a dead channel now
+produce one row per push type, asserted directly. The scheduler also honours
+`next_attempt_on`, so a briefly unreachable channel does not burn its whole
+attempt budget in an afternoon, and an abandoned operation is not quietly
+restarted on the next pass.
+
+### The existing backlog
+
+Not deleted, and not touched by any migration. A maintenance command an
+operator runs deliberately (HPMS-DEC-140):
+
+```
+bench --site <site> execute hospitality_pms.setup.queue_maintenance.report
+bench --site <site> execute hospitality_pms.setup.queue_maintenance.adopt
+bench --site <site> execute hospitality_pms.setup.queue_maintenance.adopt --kwargs '{"dry_run": 0}'
+```
+
+`report` reads only. `adopt` defaults to a dry run and, when applied, writes a
+status and a note — no row deleted, no key, payload or error rewritten. Legacy
+channel rows are marked superseded rather than adopted: the old payload holds
+only the pushed rows, not the channel or date range, so no handler could
+execute them. **It has not been run on this site**; the 3,193 rows are exactly
+as they were.
+
+### Validation
+
+181 tests, all passing. 88 from Wave 1 and 51 from Wave 2, both unchanged and
+still green; 42 new.
+
+```
+tests/test_durable_operations.py      17 tests   OK
+tests/test_payment_durability.py      10 tests   OK
+tests/test_financial_posting_retry.py  7 tests   OK
+tests/test_channel_retry.py            8 tests   OK
+```
+
+- Concurrent claiming proven with two OS processes: four due operations, two
+  schedulers, each operation claimed exactly once.
+- Migration clean and repeat migrate a no-op; `operation_key` carries a unique
+  index and every legacy row's is NULL, so nothing collided and nothing was
+  rewritten.
+- No network: payment adapters are the recording fake, the channel adapter a
+  stub.
+- No test residue; the legacy rows are untouched.
+- `git diff --check` clean; no `frappe.db.commit()` in a domain service; every
+  provider and channel call sits inside a durable operation.
+
+### Intentionally still open
+
+- **Night Audit is not redesigned.** This wave makes failed postings visible and
+  retryable; audit sequencing, reopen and exhaustive population remain P1-7,
+  P1-8, P1-9 and P2-1.
+- **An abandoned operation needs a person.** After max attempts an operation
+  stops and the scheduler does not recreate it, which is the bounded terminal
+  state the brief asked for — but nothing brings a recovered channel back
+  automatically. Visible through `operations_needing_attention` and the Desk
+  list.
+- **Adapters without a status lookup cannot self-reconcile.** Fatora and Stripe
+  declare `supports_idempotent_replay = False` until their lookup APIs are
+  wired, so an ambiguous outcome on those parks for manual reconciliation. That
+  is the correct answer, not a gap: guessing would risk a double refund.
+
+Result: PASS
+
+---
+
+## 16.6.3 — Onboarding Integrity Hardening, Wave 4: Night Audit and business-date integrity
+
+Four findings, all of them variations on one theme: **the audit trusted its own
+paperwork.** A workflow status stood in for the accounting behind it, a counter
+of zero stood in for work that had been done, and a row cap stood in for a
+population.
+
+### Target state machine and durable completion
+
+The statuses are unchanged - `Open → Reviewing → Posting → Ready to Close →
+Closed`, with `Closed → Reviewing` on reopen. No cosmetic states were added,
+because the missing thing was never a state; it was evidence.
+
+Each mandatory step now records that it finished:
+
+| Marker | Written by |
+|---|---|
+| `review_completed_on` / `_by` | `review()` |
+| `posting_completed_on` / `_by` | `post_room_charges()` |
+| `reconciliation_completed_on` / `_by` | `reconcile()` |
+| `reconciliation_population`, `reconciliation_variances` | `reconcile()` |
+| `reconciled_row_count`, `reconciled_row_total` | `reconcile()` — the staleness fingerprint |
+
+A count of zero variances is now interpretable, because the population it was
+counted over is recorded beside it (HPMS-DEC-142).
+
+### P1-7 — close on trust
+
+**Reproduced.** `review()` then `close()` advanced the business date with
+`charges_posted = 0`, `room_revenue = 0` and no room charge on any folio.
+
+`close()` now locks the audit and the property, reads both from those locking
+reads, and refuses unless: review, posting and reconciliation are all marked;
+the reconciliation is not older than the posting; the audit-date fingerprint
+still matches; no blocking exception is unresolved; and Wave 3's durable ledger
+holds no unfinished posting operation for the property. Only then does the date
+move, and the date and the status move together.
+
+**Staleness** is detected by fingerprint rather than by a flag (HPMS-DEC-143).
+A late charge on the audit date changes the count and total of that date's
+monetary rows, so the reconciliation is invalidated automatically - whatever
+path posted the charge, and without that path having to know an audit exists.
+
+### P1-9 — the 200-row blind spot
+
+**Reproduced.** 205 settled folios, a variance beyond the first 200,
+`variances = 0`, and the day closed.
+
+The cap is gone. The population (HPMS-DEC-144) is folios settled since the
+previous closed audit, **plus** any settled folio still carrying a charge that
+has not reached ERPNext — the safety net that stops a variance falling out of
+the window and becoming permanently invisible. It is read to exhaustion,
+paginated on `name` rather than `modified`, so a folio changing mid-run cannot
+shuffle past the cursor and be skipped.
+
+In-house folios are deliberately excluded. A guest still in the hotel
+accumulates charges that reach ERPNext at checkout; treating those as
+unreconciled would make it impossible to close a day at an occupied hotel. That
+was found by a test, not by inspection — the first implementation was too broad
+and blocked every close.
+
+### P2-1 — figures that were a diff, and two audits for one day
+
+**Reproduced.** A second `post_room_charges` posted nothing, correctly, and
+overwrote `room_revenue` with the nothing it had posted. ADR and RevPAR were
+computed from `doc.room_revenue` in review and reconcile but never after
+posting, so they lagged a step behind.
+
+Figures are now read back off the folios (HPMS-DEC-145) and computed after room
+revenue is resolved. Two runs produce identical rows, revenue, ADR and RevPAR.
+
+`(property, business_date)` is unique in the database (HPMS-DEC-146), applied by
+patch and by the install hooks. Two concurrent `start()` calls now produce one
+audit and hand both callers the same name rather than one of them a duplicate-key
+error.
+
+### P1-8 — the three-day rewind
+
+**Reproduced.** With the 8th, 9th and 10th closed and the property on the 11th,
+reopening the 8th moved the property to the 8th and left the chain unfinishable.
+
+A reopen is now only the undo of the last close (HPMS-DEC-147): the audit must
+be the newest closed one and the property must sit exactly one day past it.
+Reopen clears the close and the reconciliation, and leaves posting marked — the
+charges are already on the folios and are idempotent, so re-closing must not
+post them again. Verified: reopen, re-reconcile, re-close returns the property
+to exactly where it was, with the same number of room charges.
+
+### `block_posting_after_close`
+
+Wired (HPMS-DEC-148). With the setting on, an ordinary charge or receipt dated
+into a closed business date is refused, per property. Adjustments, discounts and
+refunds are exempt: corrections must stay possible, and each of those already
+demands an elevated role and a reason. With the setting off, behaviour is
+unchanged.
+
+### Authorization and document integrity
+
+Every Night Audit endpoint naming an audit now goes through Wave 1's
+`authorise_document`, which brings the property boundary with it; the service
+keeps its `require_role`. A Finance Manager holds Night Audit write by the
+approved matrix and still cannot close the day.
+
+The controller refuses direct edits to the workflow status, the completion
+markers, the business date and the figures (HPMS-DEC-149). `read_only` hides a
+field in a form and stops nothing else, and the people who hold Night Audit
+write are exactly the people the gate constrains.
+
+### Business date versus calendar date
+
+Every `now_datetime()` in the Night Audit is an audit-trail timestamp —
+`started_on`, the three `*_completed_on`, `resolved_on`, `closed_on`,
+`reopened_on` — and correctly wall-clock. There is no `nowdate()` or `today()`
+anywhere in the service or its API: `start()` takes the date from the property
+under lock, and `close()` advances by exactly one day from the audit's own date.
+No scheduled task closes a day automatically.
+
+### Validation
+
+222 tests, all passing. 181 from Waves 1–3, unchanged and still green; 41 new.
+
+```
+tests/test_night_audit.py             16 tests   OK
+tests/test_night_audit_concurrency.py  9 tests   OK
+tests/test_business_date.py           16 tests   OK
+```
+
+- Concurrency with two OS processes: one audit from two simultaneous starts,
+  one day's advance from two simultaneous closes.
+- Migration clean and repeat migrate a no-op; the composite unique index is
+  present and no duplicate audits existed to block it. Duplicates would have
+  stopped the migration with a report, never a deletion.
+- Reconciliation of 206 folios: 1,275 SQL statements (~6.2 per folio), 1.71s.
+  Linear and bounded — the per-folio cost is Wave 2's `reconcile_folio`. Batching
+  it is P2-7's job and is not a release gate here.
+- No test residue. A teardown bug found during this run — a failed delete could
+  strand a global PMS Setting — is fixed: settings now restore in a `finally`.
+
+### Intentionally still open
+
+- **Inventory is untouched.** P1-5, P1-6, P2-5 and N8 remain for the inventory
+  wave; nothing here changes stay extension, multi-room check-in or assignable
+  rooms.
+- **P2-2** (payment callback precedence) and **P2-7** (performance) are not
+  addressed beyond removing the 200-row correctness cap.
+- **Remaining calendar-date defaults** outside the Night Audit —
+  `api.reservations.arrivals` / `departures` / `calendar`, and the two Vue
+  screens defaulting to the browser's date — are unchanged and remain
+  documented for Wave 6. None is reachable from the audit path.
+
+Result: PASS
+
+## 16.6.4 — Onboarding Integrity Hardening, Wave 5: inventory, stay dates, multi-room and deposits
+
+Findings closed: **P1-5**, **P1-6**, **P2-5**, **N8**, **N3**.
+
+### One interval, and it is the one availability counts
+
+`Reservation Room` is the authoritative sellable interval; `Stay` is
+operational and is never counted (HPMS-DEC-150). Both records held the dates
+and only one was counted, so `extend_stay` moved the one nobody asked: the Stay
+said the 15th, the room line still said the 12th, and availability offered the
+only room in the property to a second booking that then confirmed against an
+in-house guest (P1-5). Shortening was the mirror image — four released nights
+stayed unsellable (P2-5).
+
+Making `Stay` a second inventory holder would have double-counted every
+checked-in guest. Both operations now move the room line under a documented
+lock order (reservation → room line → room type → room), re-check availability
+before extending, and re-derive the header from its children. The Stay Note
+each one writes is appended *before* the save, not after it, so the change
+finally leaves a trace (N3).
+
+### Three rooms are three rows
+
+A booked quantity is normalised at confirmation into one row per physical room
+(HPMS-DEC-151). A row is the unit everything operational hangs off — one
+assigned room, one Stay, one folio, one share of the deposit — and a row saying
+three could do exactly one of each, so rooms two and three could never be
+checked in and the booking read fully Checked In as soon as the first guest
+arrived (P1-6). Drafts may still ask for a quantity; that is a way to book three
+rooms, not to run them.
+
+Capacity is now checked in aggregate per room type per night (HPMS-DEC-152):
+splitting the request into rows must not split the capacity question with it.
+
+### One deposit, credited once
+
+The whole deposit was posted to every folio the booking opened — 300 became 900
+— because the idempotency key named only the reservation and uniqueness is
+scoped per folio. The deposit is now split in proportion to room value, keyed
+per room line, and capped by what remains uncredited (HPMS-DEC-153). Shares
+round with the last row taking the remainder, so 100 across three rooms is
+33.33 / 33.33 / 33.34 and not 99.99.
+
+### The room picker stops offering rooms it has already promised
+
+`get_assignable_rooms` filtered on the room's own state and never asked whether
+it was already promised, so it offered the room an in-house guest was sleeping
+in (N8). It now excludes overlapping holding assignments, and `assign_room`
+re-checks the same rule under lock with a **current** read — `lock_document` on
+the room serialises two agents without refreshing either snapshot, so a plain
+read let both take it. That is the Wave-1 N1 pattern, and a two-process test
+proves it.
+
+Occupancy blocks an assignment only when it starts on or before the business
+date (HPMS-DEC-156), so a full house can still pre-assign next week's arrivals.
+
+### Direct document mutation
+
+Stay dates and the locked `Reservation Room` fields — dates, `assigned_room`,
+`rooms`, `room_type` — are refused by a document save (HPMS-DEC-157). Every
+guard in this wave lives in a service, and all of it was bypassable by
+`frappe.get_doc(...).save()`. The services write with `frappe.db.set_value`, so
+they are unaffected by design rather than by exemption. Drafts stay freely
+editable and `special_requests` and stay notes stay editable throughout.
+
+`block_assignment_for_out_of_order` was inspected and is descriptive, not dead:
+the field is `read_only` with a default of 1 and Out of Order is unconditionally
+blocking in `assert_assignable`. A test now proves the setting cannot permit an
+Out of Order assignment even when turned off.
+
+### Validation
+
+285 tests, all passing. 222 from Waves 1–4, unchanged and still green; 63 new.
+
+```
+tests/test_stay_dates.py         23 tests   OK
+tests/test_multi_room.py         13 tests   OK
+tests/test_room_assignment.py    17 tests   OK
+tests/test_deposit_allocation.py 10 tests   OK
+```
+
+- Concurrency with two OS processes: two agents clicking the same room (one
+  wins), two rooms of one booking checking in at once (the deposit is not
+  over-credited).
+- Migration audit run against the site: zero `Reservation Room` rows carry a
+  quantity greater than one on a holding status, so nothing needed a decision.
+  The audit reports and never normalises (HPMS-DEC-158).
+- No test residue: no leftover properties, reservations or multi-room lines,
+  and `PMS Settings` sits at its DocType defaults.
+
+### Intentionally still open
+
+- **P2-2** (payment callback precedence) and **P2-7** (performance) remain for
+  Wave 6/7; neither is touched here.
+- **Remaining business-date defaults** in `api.reservations.arrivals` /
+  `departures` / `calendar` and the two Vue screens are unchanged.
+- **`reservation_hold_minutes`** is confirmed unread: nothing expires a hold, so
+  it affects neither availability nor assignability today. Documented for Wave 6
+  rather than wired here, because implementing hold expiry is a new behaviour,
+  not a fix.
+- **Pre-assignment and occupancy.** A room in House Use may be promised to a
+  future arrival. The interval check still applies; the status check does not.
+
+Result: PASS
+
+## 16.6.5 — Onboarding Integrity Hardening, Wave 6: payment state, business date, final integrity
+
+Findings closed: **P2-2**, **N6**, and the remaining business-date defects.
+This is the last required functional hardening wave before onboarding review.
+
+### P2-2 — terminal is not the same as final
+
+The original claim was that Captured could regress to Failed. It cannot, and
+did not reproduce. Two other defects did, and they are the same mistake seen
+from two sides: `TERMINAL_STATES` was being used to answer "may this change?",
+which is a different question from "will anything follow?".
+
+**Failed then Captured.** A provider fails one attempt and captures the retry.
+`Failed` was terminal, so the capture was discarded as a duplicate: the gateway
+held the guest's money and the folio was never credited.
+
+**Partially Refunded then Failed.** That state was not in the terminal list at
+all, so a stale failure overwrote it while `refunded_amount` stayed populated —
+a transaction that had failed and yet refunded money.
+
+Replaced by an explicit allowed-transition graph (HPMS-DEC-159). Numeric
+priorities were rejected: payment states have no total order, and each allowed
+pair needs its own justification. Economic settlement outranks a preliminary
+failure — `Failed`/`Cancelled` → `Captured` is allowed. Nothing outranks
+settlement afterwards except a refund (HPMS-DEC-160). `sync_status` writes the
+same field and now goes through the same model (HPMS-DEC-162).
+
+A conclusive callback also resolves its durable operation through the Wave-3
+service, so a ledger row does not sit in Needs Reconciliation after the answer
+it was waiting for has arrived (HPMS-DEC-161). A callback the model refused
+resolves nothing.
+
+### The operational day, everywhere
+
+One resolver — `property.resolve_operational_date` — now decides every default
+(HPMS-DEC-163). `front_office.resolve_business_date` delegates to it, so the
+two public endpoint families can no longer disagree.
+
+| Surface | Before | Now |
+|---|---|---|
+| `Availability.vue` | browser `new Date()` | property business date |
+| `ReservationNew.vue` | browser `new Date()` | property business date |
+| `api.reservations.arrivals` | `nowdate()` | property business date |
+| `api.reservations.departures` | `nowdate()` | property business date |
+| `api.reservations.calendar` | `nowdate()` | property business date |
+| `rates.get_applicable_rate_plans` | `nowdate()` | service date, else business date |
+| `channel.sync_all` | `nowdate()` | property business date |
+| `corporate.assert_contract_valid` | `nowdate()` | service date, else business date |
+| `corporate.get_negotiated_rate` | `nowdate()` | service date, else business date |
+| `guests.get_active_alerts` | calendar date | business date where property context exists |
+
+The last two were the open design decisions. Contract and rate validity are
+evaluated on the date being priced when the caller supplies one, because
+pricing a March stay asks what the contract says about March (HPMS-DEC-164).
+Guest alerts were decided from the schema, not the name: `valid_upto` is a
+Date, so it names a day and is answered on the business day; a Guest belongs to
+no single property, so without context the calendar date is the honest fallback
+(HPMS-DEC-165).
+
+Only defaults changed. An explicit future date is still honoured everywhere,
+and audit and provider timestamps remain wall-clock. The four kinds of date and
+when each applies are now written down in `CLAUDE.md`.
+
+### N6 — every setting has a disposition
+
+Three of the five original dead settings were real defects and are wired
+(`enable_overbooking` Wave 1, `block_posting_after_close` Wave 4,
+`block_assignment_for_out_of_order` verified descriptive in Wave 5). The
+remaining two are **not** defects, and neither is wired here.
+
+`reservation_hold_minutes` would expire a hold, but `Tentative` is outside
+`HOLDING_RESERVATION_STATES` and holds no inventory — there is nothing to
+release. `cancellation_grace_hours` would waive a charge inside a grace period,
+which `Rate Policy.free_cancellation_hours` already decides per policy; a
+second global rule would create an ambiguity, not a control. Wiring either
+would be inventing a feature (HPMS-DEC-166).
+
+Three further unread settings were found beyond the original five —
+`enable_realtime_updates`, `night_audit_run_time`, `default_reservation_source`
+— and classified the same way. Every placeholder's description now says it is
+not yet in effect, and `tests/test_settings_integrity.py` enforces that a WIRED
+setting is really read, a PLACEHOLDER really is not, and no new setting can be
+added without a disposition (HPMS-DEC-167).
+
+### Cross-wave integrity
+
+`tests/test_final_integrity.py` parses the source and fails on *new* uses of
+the patterns each wave removed: lock-then-stale-read, random financial
+identity, unguarded mutating endpoints, calendar-date operational defaults,
+Stay counted in availability, header dates no longer child-derived. Existing
+occurrences are allow-listed individually with a reason (HPMS-DEC-168).
+
+Twenty-five pre-Wave-1 lock-then-read sites were catalogued this way, in
+`guest_services`, `housekeeping`, `kitchen`, `maintenance`, `regulatory`,
+`hardware` and `rooms.set_status`. All are on operational rather than financial
+state, none was in any wave's scope, and none is a regression. **Recommended
+for Wave 7.**
+
+One suspected financial instance was investigated and **is not a defect**.
+`checkout._settle_folio` reads the folio balance plainly after locking it. A
+two-process race — with a probe first proving the harness can observe a stale
+snapshot at all — showed both checkout paths refuse correctly: the
+authoritative guard is in `FolioService.transition`, which every route to
+Settled passes through. No change made.
+
+### Validation
+
+354 tests, all passing. 285 from Waves 1–5, unchanged and still green; 69 new.
+
+```
+tests/test_payment_callback_state.py  27 tests   OK
+tests/test_business_date.py           36 tests   OK  (16 from Wave 4, 20 new)
+tests/test_final_integrity.py         15 tests   OK
+tests/test_settings_integrity.py       7 tests   OK
+frontend  yarn test                    7 checks  OK
+```
+
+- Concurrency with two OS processes: simultaneous failure and capture converge
+  on the capture and credit the folio once; two simultaneous captures credit it
+  once.
+- Frontend builds clean. The date rule is a pure module with its own Node
+  checks, because there is no test runner configured and adding one is not this
+  wave's business.
+- Migration clean; the settings description change applied.
+- No test residue: no leftover properties or transactions, and `PMS Settings`
+  at its DocType defaults. The one durable operation in Needs Reconciliation is
+  a pre-existing legacy `import_reservation` row from 2026-08-08.
+
+### P2-7 remeasured, not optimised
+
+| Hazard | Measurement | Verdict |
+|---|---|---|
+| Assignable-room N+1 | 500 rooms → **534 queries, 386 ms** | **STILL NEEDS WAVE 7.** Wave 5 added two queries and one field; the per-room lookup is untouched. |
+| Reconciliation volume | **13.8 queries, 19 ms per folio** (13 folios) | **STILL NEEDS WAVE 7.** Linear and bounded; per-folio cost is Wave 2's `reconcile_folio`. |
+| Unbounded availability horizon | 1,825 nights accepted: 3 queries, 39 ms, **972 KiB payload** | **STILL NEEDS WAVE 7.** Cheap in queries, unbounded in response size. |
+
+None is a correctness defect and none blocks onboarding.
+
 Result: PASS

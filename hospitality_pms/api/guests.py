@@ -8,6 +8,7 @@ import frappe
 from frappe import _
 
 from hospitality_pms.services.base import require_permission
+from hospitality_pms.services.property import get_default_property
 from hospitality_pms.services.guests import (
 	find_duplicates,
 	get_active_alerts,
@@ -207,7 +208,10 @@ def get_guest(guest: str) -> dict:
 		"dietary_requirements": doc.dietary_requirements,
 		"allergies": doc.allergies,
 		"accessibility_requirements": doc.accessibility_requirements,
-		"alerts": get_active_alerts(guest),
+		# A guest belongs to no single property, so the alert window is
+		# resolved against the property this user is working in - and falls
+		# back to the calendar date for a user who has none.
+		"alerts": get_active_alerts(guest, property_name=get_default_property()),
 	}
 
 	# Identification is permlevel 1; blacklist status is permlevel 2. Each is

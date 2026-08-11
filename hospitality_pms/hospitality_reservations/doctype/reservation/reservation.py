@@ -42,6 +42,17 @@ TERMINAL_STATES = ("Checked Out", "Closed", CANCELLED, "No Show")
 CREATABLE_STATUSES = (DRAFT, TENTATIVE)
 
 
+#: Room line fields a document save may not touch once the line holds
+#: inventory. Each has a service that owns it and re-checks under lock.
+LOCKED_ROOM_LINE_FIELDS = (
+	"arrival_date",
+	"departure_date",
+	"assigned_room",
+	"rooms",
+	"room_type",
+)
+
+
 class Reservation(Document):
 	def before_insert(self):
 		self.booked_on = now_datetime()
@@ -88,6 +99,8 @@ class Reservation(Document):
 
 	def _validate_dates(self):
 		"""SAS 3.4 mandatory control: arrival < departure, at both levels."""
+		self._derive_dates_from_room_lines()
+
 		if getdate(self.arrival_date) >= getdate(self.departure_date):
 			frappe.throw(
 				_("Arrival date {0} must be before departure date {1}.").format(
@@ -113,6 +126,33 @@ class Reservation(Document):
 					),
 					exc=HospitalityPMSError,
 				)
+
+	def _derive_dates_from_room_lines(self):
+		"""The header summarises its rooms; it does not constrain them.
+
+		A booking's dates are the span of the rooms it holds - the earliest
+		arrival and the latest departure. Treating the header as the authority
+		instead made it lie as soon as the rooms diverged: one room extended to
+		the 15th and the header still read the 12th, and a room shortened by a
+		guest leaving early would have dragged the whole booking's dates back
+		with it (Wave 5, Part 10).
+
+		Room lines that carry no dates of their own inherit the header's, so
+		the ordinary single-room booking is unaffected: it derives back exactly
+		what was typed in.
+		"""
+		if not self.rooms:
+			return
+
+		for line in self.rooms:
+			line.arrival_date = line.arrival_date or self.arrival_date
+			line.departure_date = line.departure_date or self.departure_date
+
+		if not all(line.arrival_date and line.departure_date for line in self.rooms):
+			return
+
+		self.arrival_date = min(getdate(line.arrival_date) for line in self.rooms)
+		self.departure_date = max(getdate(line.departure_date) for line in self.rooms)
 
 	# ------------------------------------------------------------------
 	# Room lines
@@ -284,5 +324,51 @@ class Reservation(Document):
 					_(
 						"{0} cannot be changed once a reservation is {1}; cancel and rebook instead."
 					).format(_(self.meta.get_label(fieldname)), _(self.reservation_status)),
+					exc=InvalidStateTransitionError,
+				)
+
+		self._guard_room_line_immutability()
+
+	def _guard_room_line_immutability(self):
+		"""The same protection, one level down, where the inventory actually is.
+
+		`Reservation Room` is what availability counts and what a room is
+		promised on, so every service that touches it re-checks under lock:
+		`extend_stay` asks availability again, `shorten_stay` releases the
+		nights, `assign_room` locks the room and refuses one already given
+		away. A `frappe.get_doc(...).save()` does none of that, and until this
+		guard existed it was the easy way round all of them - move a departure
+		out by three nights and the hotel oversells without a single check
+		having run.
+
+		Those services write with `frappe.db.set_value`, which does not run
+		validation, so the supported paths are unaffected by design rather
+		than by exemption.
+		"""
+		before = self.get_doc_before_save()
+		if not before:
+			return
+
+		previous = {row.name: row for row in before.rooms}
+
+		if {row.name for row in self.rooms} != set(previous):
+			frappe.throw(
+				_(
+					"Room lines cannot be added or removed once a reservation is {0}; cancel and rebook instead."
+				).format(_(self.reservation_status)),
+				exc=InvalidStateTransitionError,
+			)
+
+		for row in self.rooms:
+			old = previous[row.name]
+
+			for fieldname in LOCKED_ROOM_LINE_FIELDS:
+				if str(old.get(fieldname) or "") == str(row.get(fieldname) or ""):
+					continue
+
+				frappe.throw(
+					_(
+						"{0} on room line {1} cannot be changed by editing the reservation; use the front office operation instead."
+					).format(_(row.meta.get_label(fieldname)), row.idx),
 					exc=InvalidStateTransitionError,
 				)

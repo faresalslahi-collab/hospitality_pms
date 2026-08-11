@@ -17,7 +17,7 @@ import requests
 from frappe import _
 
 from hospitality_pms.integrations.payments.base import PaymentProvider, PaymentResult
-from hospitality_pms.services.exceptions import IntegrationError
+from hospitality_pms.services.exceptions import IntegrationAmbiguousError, IntegrationError
 
 #: Published Fatora API host. Fatora documents a single host for both test and
 #: live API keys (the key itself determines the mode), so sandbox and
@@ -122,6 +122,26 @@ class FatoraAdapter(PaymentProvider):
 			status_code = response.status_code
 			response.raise_for_status()
 			response_body = response.json()
+		except (requests.Timeout, requests.ConnectionError) as exc:
+			# The request left and nothing came back, so the provider may well
+			# have acted on it. Reported as ambiguous rather than as a refusal,
+			# so a refund whose reply was lost is reconciled instead of retried.
+			error_message = str(exc)
+			self.log_request(
+				direction="Outbound",
+				endpoint=url,
+				method=method,
+				request_payload=json_body,
+				response_payload=None,
+				status_code=None,
+				is_success=False,
+				error_message=error_message,
+				idempotency_key=idempotency_key,
+				duration_ms=int((time.monotonic() - started) * 1000),
+			)
+			raise IntegrationAmbiguousError(
+				_("No reply from Fatora for {0}; the outcome is unknown: {1}").format(path, error_message)
+			) from exc
 		except (requests.RequestException, ValueError) as exc:
 			error_message = str(exc)
 			duration_ms = int((time.monotonic() - started) * 1000)

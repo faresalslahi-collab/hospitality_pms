@@ -23,7 +23,7 @@ from frappe.utils import flt, getdate, nowdate
 
 from hospitality_pms.services.availability import nights_between
 from hospitality_pms.services.exceptions import RateError, throw
-from hospitality_pms.services.property import get_property
+from hospitality_pms.services.property import get_property, resolve_operational_date
 
 RATE_PLAN_DOCTYPE = "Rate Plan"
 DAILY_RATE_DOCTYPE = "Daily Rate"
@@ -43,8 +43,14 @@ WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", 
 
 
 def get_applicable_rate_plans(property_name: str, room_type: str, on_date=None) -> list[dict]:
-	"""Active rate plans that cover this room type on this date."""
-	on_date = getdate(on_date or nowdate())
+	"""Active rate plans that cover this room type on this date.
+
+	`on_date` is the night being priced, and pricing always supplies it. The
+	fallback is the property's operating day rather than the calendar's, for
+	the same reason contract validity is: a hotel still working yesterday must
+	not have a rate plan expire on it a day early.
+	"""
+	on_date = resolve_operational_date(property_name, on_date)
 
 	plans = frappe.get_all(
 		RATE_PLAN_DOCTYPE,

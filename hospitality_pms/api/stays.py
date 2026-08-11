@@ -3,7 +3,7 @@
 import frappe
 
 from hospitality_pms.services import stays as service
-from hospitality_pms.services.base import require_permission
+from hospitality_pms.services.base import authorise_document, require_permission
 from hospitality_pms.services.property import resolve_property
 
 STAY_DOCTYPE = "Stay"
@@ -32,10 +32,7 @@ def in_house(property: str | None = None) -> dict:
 @frappe.whitelist(methods=["GET"])
 def get_stay(stay: str) -> dict:
 	"""One stay with its companions, notes and room history."""
-	require_permission(STAY_DOCTYPE, "read")
-
-	doc = frappe.get_doc(STAY_DOCTYPE, stay)
-	doc.check_permission("read")
+	doc = authorise_document(STAY_DOCTYPE, stay, "read")
 
 	return {
 		"stay": {
@@ -91,8 +88,15 @@ def check_in(
 	readiness_reason: str | None = None,
 	billing_instructions: str | None = None,
 ) -> dict:
-	"""Check a reservation room line into a room."""
-	require_permission("Reservation", "write")
+	"""Check a reservation room line into a room.
+
+	Both permissions are asserted, matching `api.walk_in.create_walk_in`: a
+	check-in edits the Reservation *and* creates a Stay, and a role that may do
+	only the first has no authority to put a guest in a room. The service
+	re-asserts `Stay.create` for callers that do not come through here.
+	"""
+	authorise_document("Reservation", reservation, "write")
+	require_permission(STAY_DOCTYPE, "create")
 
 	return service.check_in(
 		reservation,
@@ -106,7 +110,7 @@ def check_in(
 
 @frappe.whitelist(methods=["POST"])
 def change_room(stay: str, new_room: str, reason: str, allow_unready: int = 0) -> dict:
-	require_permission(STAY_DOCTYPE, "write")
+	authorise_document(STAY_DOCTYPE, stay, "write")
 
 	return service.change_room(
 		stay, new_room, reason, allow_unready=bool(int(allow_unready or 0))
@@ -114,24 +118,30 @@ def change_room(stay: str, new_room: str, reason: str, allow_unready: int = 0) -
 
 
 @frappe.whitelist(methods=["POST"])
-def extend_stay(stay: str, new_departure: str, allow_overbooking: int = 0) -> dict:
-	require_permission(STAY_DOCTYPE, "write")
+def extend_stay(
+	stay: str, new_departure: str, allow_overbooking: int = 0, reason: str | None = None
+) -> dict:
+	"""Extend a stay. Overbooking, if requested, needs authority and a reason."""
+	authorise_document(STAY_DOCTYPE, stay, "write")
 
 	return service.extend_stay(
-		stay, new_departure, allow_overbooking=bool(int(allow_overbooking or 0))
+		stay,
+		new_departure,
+		allow_overbooking=bool(int(allow_overbooking or 0)),
+		reason=reason,
 	)
 
 
 @frappe.whitelist(methods=["POST"])
 def shorten_stay(stay: str, new_departure: str, reason: str) -> dict:
-	require_permission(STAY_DOCTYPE, "write")
+	authorise_document(STAY_DOCTYPE, stay, "write")
 
 	return service.shorten_stay(stay, new_departure, reason)
 
 
 @frappe.whitelist(methods=["POST"])
 def add_note(stay: str, note: str, note_type: str = "Operational") -> dict:
-	require_permission(STAY_DOCTYPE, "write")
+	authorise_document(STAY_DOCTYPE, stay, "write")
 
 	service.add_note(stay, note, note_type)
 

@@ -7,6 +7,7 @@ from frappe.model.document import Document
 from frappe.utils import flt
 
 from hospitality_pms.services import folio as folio_service
+from hospitality_pms.services.base import FINANCIAL_POSTING, assert_service_context
 from hospitality_pms.services.exceptions import FolioError, InvalidStateTransitionError
 
 #: Statuses a brand-new folio may be saved as directly. Every other status is
@@ -33,6 +34,7 @@ class GuestFolio(Document):
 		# that is simply not allowed is reported as such rather than as a
 		# knock-on total that no longer balances.
 		self._guard_status_change()
+		self._guard_new_financial_rows()
 		self._guard_posted_rows_immutable()
 
 		self._validate_credit_limit()
@@ -89,6 +91,69 @@ class GuestFolio(Document):
 				_("Folio status is changed only through a folio transition, not by editing the document directly."),
 				exc=InvalidStateTransitionError,
 			)
+
+	# ------------------------------------------------------------------
+	# Money is created by the financial services, not by saving a document
+	# ------------------------------------------------------------------
+
+	def _guard_new_financial_rows(self):
+		"""Refuse a charge or payment row that no financial service posted.
+
+		Write permission on the folio is not authority to invent money. The
+		front desk holds it legitimately, and the sweep showed what that meant
+		in practice: through a plain `Document.save()` an agent created a
+		+500 room charge, a -500 room charge, a -250 adjustment, a +999
+		discount that *increased* the balance, a 10 000 payment and a -7 777
+		refund - all back-dated into a closed business date, all with
+		`posted_by` NULL, all with duplicate idempotency keys, and none of them
+		producing a single Folio Log row.
+
+		Every one of those controls lives in `services/folio.py`, and none of
+		them can run if the row does not come through it. Rather than restate
+		the rules here - a second, drifting copy of the ones that matter most -
+		this refuses the row outright unless an approved service is posting it,
+		which leaves exactly one way for money to reach a folio.
+
+		Deliberately narrow: only *new* rows in the two monetary tables. Edits
+		to `billing_instructions`, `credit_limit` or any other operational
+		field are untouched, and a folio with no new money saves normally.
+		"""
+		if not self._has_new_financial_rows():
+			return
+
+		assert_service_context(
+			FINANCIAL_POSTING,
+			_(
+				"Charges and payments are posted through the folio service, which records "
+				"the actor, the business date and the audit trail. They cannot be added by "
+				"editing the folio directly."
+			),
+		)
+
+	def _has_new_financial_rows(self) -> bool:
+		"""Whether this save introduces a charge or payment row.
+
+		On insert every row is new. On update, `get_doc_before_save()` holds
+		the folio as it was, so a row whose name is absent from it is one this
+		save is adding.
+		"""
+		if self.is_new():
+			return bool(self.charges or self.payments)
+
+		before = self.get_doc_before_save()
+
+		if not before:
+			# No before-image means Frappe could not read the prior state; the
+			# safe reading of "cannot tell" is "assume rows may be new".
+			return bool(self.charges or self.payments)
+
+		for table, before_rows in (("charges", before.charges), ("payments", before.payments)):
+			known = {row.name for row in before_rows}
+
+			if any(row.name not in known for row in self.get(table)):
+				return True
+
+		return False
 
 	# ------------------------------------------------------------------
 	# Posted charges and payments are immutable

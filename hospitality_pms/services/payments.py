@@ -21,8 +21,10 @@ from frappe import _
 from frappe.utils import flt, now_datetime
 
 from hospitality_pms.integrations.payments import get_provider, get_provider_config
+from hospitality_pms.integrations.payments.base import PaymentResult
+from hospitality_pms.services import durability
 from hospitality_pms.services import folio as folio_service
-from hospitality_pms.services.base import lock_document
+from hospitality_pms.services.base import lock_and_find, lock_and_read, lock_document
 from hospitality_pms.services.exceptions import IntegrationError, throw
 
 TRANSACTION_DOCTYPE = "Payment Transaction"
@@ -31,8 +33,98 @@ FAILURE_QUEUE = "PMS Integration Failure Queue"
 #: Transaction states in which the money is the hotel's and belongs on the folio.
 SETTLED_STATES = ("Captured",)
 
-#: States from which nothing further will happen.
-TERMINAL_STATES = ("Captured", "Failed", "Cancelled", "Refunded")
+#: States after which the provider has finished with the original attempt, and
+#: `completed_on` is stamped. Not the same question as "may this change" - see
+#: `ALLOWED_TRANSITIONS`.
+COMPLETING_STATES = ("Captured", "Failed", "Cancelled", "Refunded", "Partially Refunded")
+
+#: Every status the DocType defines. A callback naming anything else is not a
+#: state this system knows how to be in, and is refused rather than stored.
+TRANSACTION_STATES = (
+	"Initiated",
+	"Pending",
+	"Authorised",
+	"Captured",
+	"Failed",
+	"Cancelled",
+	"Refunded",
+	"Partially Refunded",
+)
+
+#: States that settle the question the durable ledger was left holding: the
+#: provider has told us, conclusively, what became of the operation.
+CONCLUSIVE_STATES = (
+	"Authorised",
+	"Captured",
+	"Failed",
+	"Cancelled",
+	"Refunded",
+	"Partially Refunded",
+)
+
+#: What a transaction in each state may become.
+#:
+#: This replaces "if the current state is terminal, ignore the callback", which
+#: conflated two different questions and got both of them wrong (P2-2).
+#:
+#: `Failed` was treated as final, so a provider that failed one attempt and
+#: captured the retry had its capture discarded: the gateway held the guest's
+#: money and the folio was never credited. A failure is not final - it is the
+#: absence of settlement so far, and later evidence of settlement outranks it.
+#:
+#: `Partially Refunded` was not in the list at all, so a stale failure could
+#: overwrite it while `refunded_amount` stayed populated: a transaction that had
+#: failed and yet refunded money.
+#:
+#: What is genuinely final is economic: once the hotel has the money, nothing a
+#: gateway says later takes it back except a refund. Once it has been given
+#: back, nothing at all follows.
+#:
+#: A repeat of the current status is not a transition and is not listed; it is
+#: handled as an idempotent replay.
+ALLOWED_TRANSITIONS = {
+	"Initiated": ("Pending", "Authorised", "Captured", "Failed", "Cancelled"),
+	"Pending": ("Authorised", "Captured", "Failed", "Cancelled"),
+	# An authorisation is a promise, not money. It can still fall through.
+	"Authorised": ("Captured", "Failed", "Cancelled"),
+	# Not final: the retry that worked arrives after the attempt that did not.
+	"Failed": ("Authorised", "Captured"),
+	# Likewise - a guest who abandoned checkout and then completed it.
+	"Cancelled": ("Authorised", "Captured"),
+	# Settled. The only way out is giving the money back.
+	"Captured": ("Partially Refunded", "Refunded"),
+	"Partially Refunded": ("Refunded",),
+	# Nothing follows a full refund.
+	"Refunded": (),
+}
+
+#: What `_classify_transition` decides about an incoming status.
+APPLY = "apply"
+REPEAT = "repeat"
+REFUSE = "refuse"
+UNKNOWN = "unknown"
+
+
+def _classify_transition(current: str, incoming: str) -> str:
+	"""Decide what an inbound status means for a transaction already in `current`.
+
+	Deliberately not a numeric priority comparison. Priorities encode a total
+	order that payment states do not have - `Cancelled` and `Failed` are not
+	ranked against each other in any meaningful way, and `Partially Refunded`
+	is both "more settled" and "less settled" than `Captured` depending on
+	which question is being asked. The allowed pairs are written out instead,
+	so each one can be justified on its own.
+	"""
+	if incoming not in TRANSACTION_STATES:
+		return UNKNOWN
+
+	if current == incoming:
+		return REPEAT
+
+	if incoming in ALLOWED_TRANSITIONS.get(current, ()):
+		return APPLY
+
+	return REFUSE
 
 
 def initiate_payment(
@@ -88,8 +180,21 @@ def initiate_payment(
 
 	adapter = get_provider(folio_doc.property, config)
 
-	try:
-		result = adapter.initiate_payment(
+	# The provider call sits behind the durable ledger, so the record of having
+	# contacted them survives the rollback that follows a failure. Before, the
+	# Payment Transaction's Failed state and the queue row were both written in
+	# this transaction and both vanished with it, leaving no evidence the
+	# gateway had ever been asked for anything (P1-13).
+	durable = durability.run_durably(
+		property_name=folio_doc.property,
+		integration_type="Payment",
+		operation="initiate_payment",
+		operation_key=idempotency_key,
+		provider=config,
+		reference_doctype=TRANSACTION_DOCTYPE,
+		reference_name=transaction.name,
+		payload={"folio": folio, "amount": amount, "transaction": transaction.name},
+		call=lambda: adapter.initiate_payment(
 			amount,
 			folio_doc.currency,
 			idempotency_key,
@@ -97,17 +202,21 @@ def initiate_payment(
 			description=description or _("Folio {0}").format(folio),
 			return_url=return_url,
 			metadata={"folio": folio, "transaction": transaction.name},
-		)
-	except Exception as exc:  # noqa: BLE001
-		_fail_transaction(transaction.name, str(exc))
-		_queue_failure(
-			folio_doc.property,
-			"initiate_payment",
-			idempotency_key,
-			{"folio": folio, "amount": amount, "transaction": transaction.name},
-			str(exc),
-		)
-		raise
+		),
+		reference_of=lambda result: result.provider_reference,
+	)
+
+	if not durable.performed:
+		# Already initiated at the gateway under this key on an earlier attempt.
+		return {
+			"name": transaction.name,
+			"transaction_status": "Pending",
+			"payment_url": None,
+			"provider_reference": durable.external_reference,
+			"duplicate": True,
+		}
+
+	result = durable.result
 
 	frappe.db.set_value(
 		TRANSACTION_DOCTYPE,
@@ -173,43 +282,124 @@ def handle_callback(
 		)
 		return {"matched": False, "provider_reference": reference}
 
-	lock_document(TRANSACTION_DOCTYPE, transaction["name"])
+	# The status was read by the lookup above, before the lock. A replayed
+	# callback that waited behind the original would otherwise still see the
+	# pre-lock status and apply the payment a second time, so the duplicate
+	# guard is re-evaluated against the locked, current row (N1).
+	transaction["transaction_status"] = lock_and_read(
+		TRANSACTION_DOCTYPE, transaction["name"], "transaction_status"
+	)["transaction_status"]
 
-	if transaction["transaction_status"] in TERMINAL_STATES:
-		# A replayed callback for a transaction already in its final state.
+	current = transaction["transaction_status"]
+	status = normalised.get("status") or "Pending"
+	verdict = _classify_transition(current, status)
+
+	if verdict in (REFUSE, UNKNOWN):
+		# Stale or unintelligible. The row is left exactly as it is, and the
+		# event is recorded rather than swallowed: a provider telling us
+		# something we cannot act on is worth a human's attention, and a
+		# refused regression is the system working, not an error.
+		_log_refused_callback(transaction["name"], current, status, verdict, normalised)
+
 		return {
 			"matched": True,
 			"transaction": transaction["name"],
-			"transaction_status": transaction["transaction_status"],
-			"duplicate": True,
+			"transaction_status": current,
+			"duplicate": verdict == REFUSE,
+			"ignored": True,
+			"applied": False,
+			"reason": _("A {0} callback cannot move a transaction that is {1}.").format(
+				status, current
+			),
 		}
 
-	status = normalised.get("status") or "Pending"
+	if verdict == APPLY:
+		frappe.db.set_value(
+			TRANSACTION_DOCTYPE,
+			transaction["name"],
+			{
+				"transaction_status": status,
+				"provider_status": normalised.get("provider_status"),
+				"response_payload": json.dumps(normalised, default=str),
+				"completed_on": now_datetime() if status in COMPLETING_STATES else None,
+				"failure_reason": normalised.get("failure_reason"),
+			},
+			update_modified=True,
+		)
 
-	frappe.db.set_value(
-		TRANSACTION_DOCTYPE,
-		transaction["name"],
-		{
-			"transaction_status": status,
-			"provider_status": normalised.get("provider_status"),
-			"response_payload": json.dumps(normalised, default=str),
-			"completed_on": now_datetime() if status in TERMINAL_STATES else None,
-			"failure_reason": normalised.get("failure_reason"),
-		},
-		update_modified=True,
-	)
-
+	# Reached for a repeat as well as a first application. `_apply_to_folio`
+	# is keyed on the transaction, so a replay credits nothing twice - and a
+	# capture whose folio posting was lost to a rollback is repaired by the
+	# next delivery rather than staying uncredited forever.
 	applied = None
 	if status in SETTLED_STATES:
 		applied = _apply_to_folio(transaction["name"])
+
+	_resolve_durable_operation(transaction["name"], status, reference)
 
 	return {
 		"matched": True,
 		"transaction": transaction["name"],
 		"transaction_status": status,
 		"folio_payment": applied,
-		"duplicate": False,
+		"duplicate": verdict == REPEAT,
+		"applied": verdict == APPLY,
 	}
+
+
+def _log_refused_callback(transaction: str, current: str, status: str, verdict: str, normalised: dict):
+	"""Keep the evidence of a callback that was not acted on.
+
+	An unknown status is a provider contract change or a bad integration and
+	somebody needs to see it. A refused regression is routine - the model
+	working as designed - so it is noted at a lower level and not raised as an
+	alert.
+	"""
+	frappe.log_error(
+		title=f"Payment callback refused: {current} -> {status}",
+		message=json.dumps(
+			{
+				"transaction": transaction,
+				"current_status": current,
+				"callback_status": status,
+				"verdict": verdict,
+				"payload": normalised,
+			},
+			default=str,
+			indent=2,
+		),
+	)
+
+
+def _resolve_durable_operation(transaction: str, status: str, reference: str | None):
+	"""Let a conclusive callback close the durable operation it belongs to.
+
+	Wave 3 parks an operation in `Needs Reconciliation` when the provider's
+	answer was lost, so that nobody re-issues it. A callback that then proves
+	what happened *is* that answer, arriving late. Leaving the ledger waiting
+	for a human afterwards is not caution; it is a queue that never drains.
+
+	Resolved through the Wave-3 service rather than by writing the ledger here,
+	so there is still one implementation of what resolution means. Only
+	`Needs Reconciliation` is this path's business: an operation still
+	Executing is being handled by the call that opened it.
+	"""
+	if status not in CONCLUSIVE_STATES:
+		return
+
+	key = frappe.db.get_value(TRANSACTION_DOCTYPE, transaction, "idempotency_key")
+	if not key:
+		return
+
+	record = durability.get_operation(key)
+	if not record or record["queue_status"] != durability.NEEDS_RECONCILIATION:
+		return
+
+	durability.complete_operation(
+		key,
+		external_reference=reference,
+		note=_("Resolved by a provider callback reporting {0}.").format(status),
+	)
 
 
 def _apply_to_folio(transaction: str) -> str | None:
@@ -258,71 +448,204 @@ def sync_status(transaction: str) -> dict:
 	adapter = get_provider(doc.property, doc.provider)
 	result = adapter.get_status(doc.provider_reference)
 
-	lock_document(TRANSACTION_DOCTYPE, transaction)
+	# Current read under the lock: the status was loaded before the provider
+	# was asked, and asking takes network time during which a callback may
+	# have moved it.
+	current = lock_and_read(TRANSACTION_DOCTYPE, transaction, "transaction_status")[
+		"transaction_status"
+	]
 
-	frappe.db.set_value(
-		TRANSACTION_DOCTYPE,
-		transaction,
-		{
-			"transaction_status": result.status,
-			"provider_status": result.provider_status,
-			"response_payload": json.dumps(result.raw, default=str),
-		},
-		update_modified=True,
-	)
+	# The provider is authoritative about its own capture and knows nothing
+	# about a refund the hotel issued afterwards, so its answer goes through
+	# the same transition model as a callback rather than straight over the
+	# top of local state.
+	verdict = _classify_transition(current, result.status)
+
+	if verdict in (REFUSE, UNKNOWN):
+		_log_refused_callback(transaction, current, result.status, verdict, result.raw or {})
+
+		return {
+			"transaction": transaction,
+			"transaction_status": current,
+			"folio_payment": None,
+			"ignored": True,
+			"reason": _("The provider reports {0}; the transaction is {1}.").format(
+				result.status, current
+			),
+		}
+
+	if verdict == APPLY:
+		frappe.db.set_value(
+			TRANSACTION_DOCTYPE,
+			transaction,
+			{
+				"transaction_status": result.status,
+				"provider_status": result.provider_status,
+				"response_payload": json.dumps(result.raw, default=str),
+				"completed_on": now_datetime() if result.status in COMPLETING_STATES else None,
+			},
+			update_modified=True,
+		)
 
 	applied = None
 	if result.status in SETTLED_STATES:
 		applied = _apply_to_folio(transaction)
 
+	_resolve_durable_operation(transaction, result.status, doc.provider_reference)
+
 	return {"transaction": transaction, "transaction_status": result.status, "folio_payment": applied}
 
 
 def refund_payment(transaction: str, amount: float, reason: str, *, idempotency_key: str | None = None) -> dict:
-	"""Refund all or part of a captured transaction."""
+	"""Refund all or part of a captured transaction.
+
+	The order of operations here is the whole of the fix for P1-12, and it is
+	the reverse of what it was:
+
+	    read current state under the lock
+	    -> claim the funds, durably, in this transaction
+	    -> only then call the provider
+
+	It used to read the transaction *before* locking it, validate the
+	refundable balance against that pre-lock snapshot, and call the provider
+	before changing anything. Two concurrent refunds therefore both saw
+	`refunded_amount = 0`, both believed the whole capture was available, and
+	the provider refunded 200 against a 100 capture - with the loser's
+	transaction then failing on an unrelated conflict, so the second 100 left
+	the merchant account with no record here at all.
+
+	Because the claim is written while the row lock is held, a second caller
+	blocks at `lock_and_read` below, and by the time it is let through it reads
+	the *claimed* balance and is refused before it can reach the provider.
+
+	The other half of the problem has nothing to do with concurrency: the
+	provider refunds, and the request then fails. Everything local rolls back -
+	the claim, the balance, the failure record - and the next attempt sees a
+	fully refundable transaction and refunds it again. That is closed by
+	routing the provider call through the durable operation ledger, which is
+	committed on a connection of its own and therefore still says "this refund
+	reached the provider" after the rollback has taken everything else.
+	"""
 	if not reason or not reason.strip():
 		throw(_("A reason is required to refund a payment."), exc=IntegrationError)
 
-	doc = frappe.get_doc(TRANSACTION_DOCTYPE, transaction)
+	amount = flt(amount)
 
-	if doc.transaction_status not in SETTLED_STATES:
+	if amount <= 0:
+		throw(_("A refund amount must be greater than zero."), exc=IntegrationError)
+
+	key = idempotency_key or f"refund:{transaction}:{flt(amount, 2)}"
+
+	# --- current state, under the lock ----------------------------------
+	current = lock_and_read(
+		TRANSACTION_DOCTYPE,
+		transaction,
+		["transaction_status", "amount", "refunded_amount", "property", "provider", "provider_reference", "folio"],
+	)
+
+	# --- has this operation already been performed? ---------------------
+	# A locking read, so a claim another transaction committed while this one
+	# waited is visible. A plain read here would answer from the pre-lock
+	# snapshot and let the same key reach the provider twice.
+	claimed = lock_and_find(
+		TRANSACTION_DOCTYPE, {"idempotency_key": key}, ["name", "amount", "transaction_status"]
+	)
+
+	if claimed:
+		return {
+			"transaction": transaction,
+			"refund_transaction": claimed["name"],
+			"refunded_amount": flt(current["refunded_amount"]),
+			"reason": reason.strip(),
+			"duplicate": True,
+		}
+
+	if current["transaction_status"] not in SETTLED_STATES:
 		throw(
-			_("Transaction {0} is {1} and cannot be refunded.").format(transaction, _(doc.transaction_status)),
+			_("Transaction {0} is {1} and cannot be refunded.").format(
+				transaction, _(current["transaction_status"])
+			),
 			exc=IntegrationError,
 		)
 
-	amount = flt(amount)
-	refundable = flt(doc.amount) - flt(doc.refunded_amount)
+	refundable = flt(current["amount"]) - flt(current["refunded_amount"])
 
-	if amount <= 0 or amount > refundable + 0.005:
+	if amount > refundable + 0.005:
 		throw(
 			_("Refund amount must be between 0 and {0}.").format(flt(refundable, 2)),
 			exc=IntegrationError,
 		)
 
-	key = idempotency_key or f"refund:{transaction}:{flt(amount, 2)}"
+	# --- claim the funds before spending them ---------------------------
+	refunded = flt(current["refunded_amount"]) + amount
 
-	lock_document(TRANSACTION_DOCTYPE, transaction)
-
-	adapter = get_provider(doc.property, doc.provider)
-	result = adapter.refund(doc.provider_reference, amount, key, reason=reason.strip())
-
-	refunded = flt(doc.refunded_amount) + amount
+	refund_transaction = _claim_refund(transaction, current, amount, key)
 
 	frappe.db.set_value(
 		TRANSACTION_DOCTYPE,
 		transaction,
 		{
 			"refunded_amount": refunded,
-			"transaction_status": "Refunded" if refunded >= flt(doc.amount) - 0.005 else "Partially Refunded",
-			"provider_status": result.provider_status,
+			"transaction_status": "Refunded"
+			if refunded >= flt(current["amount"]) - 0.005
+			else "Partially Refunded",
 		},
 		update_modified=True,
 	)
 
-	if doc.folio:
+	# --- and only now, the provider, behind a durable record -------------
+	adapter = get_provider(current["property"], current["provider"])
+
+	durable = durability.run_durably(
+		property_name=current["property"],
+		integration_type="Payment",
+		operation="refund_payment",
+		operation_key=key,
+		provider=current["provider"],
+		reference_doctype=TRANSACTION_DOCTYPE,
+		reference_name=transaction,
+		payload={"transaction": transaction, "amount": amount, "reason": reason.strip()},
+		call=lambda: adapter.refund(
+			current["provider_reference"], amount, key, reason=reason.strip()
+		),
+		reference_of=lambda result: result.provider_reference,
+	)
+
+	if durable.performed:
+		result = durable.result
+	else:
+		# The ledger says this refund already reached the provider on an
+		# earlier attempt whose transaction then died. The money has moved;
+		# what is missing is the local record of it. Rebuilding that - rather
+		# than asking the provider again - is the whole point of the ledger.
+		result = PaymentResult(
+			success=True,
+			status="Refunded",
+			provider_reference=durable.external_reference,
+			amount=amount,
+			provider_status="recovered",
+		)
+
+	frappe.db.set_value(
+		TRANSACTION_DOCTYPE,
+		refund_transaction,
+		{
+			"transaction_status": result.status,
+			"provider_reference": result.provider_reference,
+			"provider_status": result.provider_status,
+			"completed_on": now_datetime(),
+			"response_payload": json.dumps(result.raw, default=str),
+		},
+		update_modified=True,
+	)
+
+	frappe.db.set_value(
+		TRANSACTION_DOCTYPE, transaction, "provider_status", result.provider_status, update_modified=False
+	)
+
+	if current["folio"]:
 		folio_service.post_payment(
-			doc.folio,
+			current["folio"],
 			amount,
 			"Online Gateway",
 			payment_type="Refund",
@@ -331,7 +654,43 @@ def refund_payment(transaction: str, amount: float, reason: str, *, idempotency_
 			provider_reference=result.provider_reference,
 		)
 
-	return {"transaction": transaction, "refunded_amount": refunded, "reason": reason.strip()}
+	return {
+		"transaction": transaction,
+		"refund_transaction": refund_transaction,
+		"refunded_amount": refunded,
+		"reason": reason.strip(),
+		"duplicate": False,
+	}
+
+
+def _claim_refund(transaction: str, current: dict, amount: float, key: str) -> str:
+	"""Record the intent to refund, before the provider is asked to do it.
+
+	A Payment Transaction of type Refund, which the model already provides for.
+	Its `idempotency_key` column is unique, so the claim is enforced by the
+	database and not only by the check above - two callers that somehow got
+	past the lock could still not both create it.
+
+	It is written before the provider call so that the row exists, and the
+	funds are visibly spoken for, at the moment the external side effect
+	happens rather than after it.
+	"""
+	doc = frappe.get_doc(
+		{
+			"doctype": TRANSACTION_DOCTYPE,
+			"property": current["property"],
+			"provider": current["provider"],
+			"transaction_status": "Initiated",
+			"transaction_type": "Refund",
+			"idempotency_key": key,
+			"folio": current["folio"],
+			"amount": amount,
+			"initiated_on": now_datetime(),
+			"request_payload": json.dumps({"refund_of": transaction, "amount": amount}, default=str),
+		}
+	).insert(ignore_permissions=True)
+
+	return doc.name
 
 
 # ---------------------------------------------------------------------------
@@ -351,62 +710,103 @@ def _fail_transaction(transaction: str, error: str):
 def _queue_failure(
 	property_name: str, operation: str, idempotency_key: str, payload: dict, error: str
 ):
-	"""Park failed integration work for retry rather than losing it.
+	"""Park work that needs a human, durably.
 
-	Written in its own transaction-independent way: the caller usually re-raises
-	straight after, and the queue entry has to survive that.
+	The only caller left is the unmatched callback: a provider told us about a
+	transaction this system has no record of, which nothing can safely retry
+	its way out of. It is recorded for reconciliation rather than for retry.
 	"""
-	frappe.get_doc(
-		{
-			"doctype": FAILURE_QUEUE,
-			"property": property_name,
-			"integration_type": "Payment",
-			"operation": operation,
-			"idempotency_key": idempotency_key,
-			"payload": json.dumps(payload, default=str),
-			"queue_status": "Pending",
-			"attempts": 0,
-			"last_error": error[:2000],
-			"next_attempt_on": frappe.utils.add_to_date(now_datetime(), minutes=5),
+	durability.begin_operation(
+		property_name=property_name,
+		integration_type="Payment",
+		operation=operation,
+		operation_key=f"{operation}:{idempotency_key}",
+		payload=payload,
+	)
+	durability.flag_for_reconciliation(f"{operation}:{idempotency_key}", error=error)
+
+
+def reconcile_operation(operation_key: str) -> dict:
+	"""Establish what the provider actually did, and finish the job locally.
+
+	The way out of `Needs Reconciliation`. An operation lands there when the
+	answer was lost, and the one thing that must not happen next is issuing it
+	again - so the provider is *asked*, never re-instructed.
+
+	Three answers:
+
+	* the provider has a record of it - the money moved, so the ledger is
+	  resolved and local state is rebuilt to match;
+	* the provider has no record - it never arrived, so the operation becomes
+	  ordinarily retryable again;
+	* the adapter cannot be asked - it stays where it is, waiting for someone
+	  to look at the provider's dashboard. Guessing here is how a guest gets
+	  refunded twice.
+	"""
+	record = durability.get_operation(operation_key)
+
+	if not record:
+		throw(_("No durable operation is recorded under {0}.").format(operation_key), exc=IntegrationError)
+
+	if record["queue_status"] != durability.NEEDS_RECONCILIATION:
+		return {"operation": operation_key, "status": record["queue_status"], "reconciled": False}
+
+	adapter = get_provider(record["property"], record["provider"])
+
+	if not adapter.supports_idempotent_replay:
+		return {
+			"operation": operation_key,
+			"status": durability.NEEDS_RECONCILIATION,
+			"reconciled": False,
+			"reason": _("This provider cannot be queried; reconcile it by hand."),
 		}
-	).insert(ignore_permissions=True)
+
+	outcome = adapter.get_operation_status(operation_key)
+
+	if outcome is None:
+		# It never reached them, so nothing happened and the ordinary retry
+		# path is safe again.
+		durability.fail_operation(
+			operation_key,
+			error=_("The provider has no record of this operation; it never arrived."),
+			retry_in_minutes=0,
+		)
+
+		return {"operation": operation_key, "status": durability.RETRYING, "reconciled": True, "applied": False}
+
+	durability.complete_operation(operation_key, external_reference=outcome.provider_reference)
+
+	_rebuild_local_state(record)
+
+	return {"operation": operation_key, "status": durability.RESOLVED, "reconciled": True, "applied": True}
+
+
+def _rebuild_local_state(record: dict):
+	"""Bring the PMS into line with an operation the provider did perform.
+
+	Re-enters the ordinary service call. It cannot repeat the side effect: the
+	ledger is Resolved by now, so `run_durably` reports the operation as
+	already performed and the service takes its repair path instead of calling
+	the provider.
+	"""
+	payload = durability.get_operation_payload(record)
+
+	if record["operation"] == "refund_payment" and payload.get("transaction"):
+		refund_payment(
+			payload["transaction"],
+			flt(payload.get("amount")),
+			payload.get("reason") or _("Reconciled from provider"),
+			idempotency_key=record["operation_key"],
+		)
 
 
 def retry_failed(property_name: str, limit: int = 20) -> list[dict]:
-	"""Work the failure queue. Called by the scheduler."""
-	due = frappe.get_all(
-		FAILURE_QUEUE,
-		filters={
-			"property": property_name,
-			"queue_status": ("in", ("Pending", "Retrying")),
-			"next_attempt_on": ("<=", now_datetime()),
-		},
-		fields=["name", "operation", "idempotency_key", "payload", "attempts", "max_attempts"],
-		limit=limit,
-	)
+	"""Work the durable operation ledger. Called by the scheduler.
 
-	results = []
+	Kept here as the scheduler's entry point; the dispatch itself lives in
+	`services.retry`, which knows which operations may be re-run automatically
+	and which must not.
+	"""
+	from hospitality_pms.services.retry import retry_due_operations
 
-	for entry in due:
-		attempts = int(entry["attempts"] or 0) + 1
-
-		if attempts > int(entry["max_attempts"] or 5):
-			frappe.db.set_value(FAILURE_QUEUE, entry["name"], "queue_status", "Abandoned")
-			results.append({"entry": entry["name"], "status": "Abandoned"})
-			continue
-
-		# Backoff grows with each attempt so a provider outage is not hammered.
-		frappe.db.set_value(
-			FAILURE_QUEUE,
-			entry["name"],
-			{
-				"attempts": attempts,
-				"queue_status": "Retrying",
-				"next_attempt_on": frappe.utils.add_to_date(now_datetime(), minutes=5 * (2 ** (attempts - 1))),
-			},
-			update_modified=True,
-		)
-
-		results.append({"entry": entry["name"], "status": "Retrying", "attempts": attempts})
-
-	return results
+	return retry_due_operations(property_name, limit=limit)

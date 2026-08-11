@@ -14,7 +14,7 @@ from collections.abc import Iterable
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import getdate, now_datetime
 
 from hospitality_pms.services.base import lock_document, require_role
 from hospitality_pms.services.exceptions import (
@@ -196,12 +196,41 @@ def get_room_state(room: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def assert_assignable(room: str, *, allow_unready_housekeeping: bool = False, state: dict | None = None):
-	"""Raise unless the room can take a guest right now.
+def _occupancy_applies(room: str, arrival=None) -> bool:
+	"""Whether "somebody is in it now" is a reason to refuse this assignment.
+
+	It is, unless the assignment starts after today: a room occupied this
+	morning is a perfectly good room to promise to next Tuesday's arrival.
+	"""
+	if arrival is None:
+		return True
+
+	property_name = frappe.db.get_value(ROOM_DOCTYPE, room, "property")
+	business_date = frappe.db.get_value("Property", property_name, "business_date")
+
+	return getdate(arrival) <= getdate(business_date)
+
+
+def assert_assignable(
+	room: str,
+	*,
+	allow_unready_housekeeping: bool = False,
+	state: dict | None = None,
+	arrival=None,
+):
+	"""Raise unless the room can take a guest.
 
 	`allow_unready_housekeeping` is the controlled Vacant Dirty override. It
 	relaxes only the housekeeping dimension - never maintenance, inventory,
 	occupancy or the active flag, none of which a front desk override may skip.
+
+	`arrival` scopes the occupancy question to when the guest actually needs
+	the room. Without it the check means "right now", which is correct for
+	check-in and a room change and is the default. Pre-assigning a room for
+	next Tuesday is a different question: today's occupant is irrelevant, and
+	whether they will still be there on Tuesday is answered by their own
+	inventory interval, not by a status field. A full house must still be able
+	to pre-assign next week's arrivals.
 	"""
 	state = state or get_room_state(room)
 	label = state.get("room_number") or room
@@ -221,7 +250,7 @@ def assert_assignable(room: str, *, allow_unready_housekeeping: bool = False, st
 			exc=RoomNotAssignableError,
 		)
 
-	if state.get("occupancy_status") in OCCUPIED_STATES:
+	if _occupancy_applies(room, arrival) and state.get("occupancy_status") in OCCUPIED_STATES:
 		throw(
 			_("Room {0} is already {1}.").format(label, _(state["occupancy_status"])),
 			exc=RoomNotAssignableError,

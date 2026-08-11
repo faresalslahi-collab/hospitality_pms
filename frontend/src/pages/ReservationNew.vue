@@ -182,7 +182,8 @@ import { createReservationResource, quoteResource } from '@/resources/reservatio
 import { listResource } from '@/resources'
 import { property } from '@/stores/property'
 import { normaliseError } from '@/utils/errors'
-import { formatCurrency, formatDate, toServerDate } from '@/utils/format'
+import { formatCurrency, formatDate } from '@/utils/format'
+import { defaultStayRange } from '@/utils/operationalDate'
 import { t } from '@/utils/i18n'
 
 const router = useRouter()
@@ -193,8 +194,8 @@ const guestSearch = searchGuestsResource()
 const createReservation = createReservationResource()
 const ratePlans = listResource('Rate Plan', { fields: ['name', 'rate_plan_name'] })
 
-const today = new Date()
-const tomorrow = new Date(today.getTime() + 86400000)
+// The property's operating day, not the browser's - see Availability.vue.
+let derived = defaultStayRange(property.businessDate.value)
 
 const guestMode = ref('existing')
 const guestOption = ref(null)
@@ -203,8 +204,8 @@ const saving = ref('')
 let queryTimer = null
 
 const form = reactive({
-  arrival: toServerDate(today),
-  departure: toServerDate(tomorrow),
+  arrival: derived.arrival,
+  departure: derived.departure,
   rooms: 1,
   adults: 2,
   children: 0,
@@ -299,6 +300,19 @@ function runQuote() {
 watch(() => form.rate_plan, () => {
   if (form.room_type) runQuote()
 })
+
+// Re-derive once the property context lands, unless the agent has already
+// chosen dates of their own.
+watch(
+  () => property.businessDate.value,
+  (businessDate) => {
+    if (form.arrival !== derived.arrival || form.departure !== derived.departure) return
+
+    derived = defaultStayRange(businessDate)
+    form.arrival = derived.arrival
+    form.departure = derived.departure
+  },
+)
 
 watch(
   () => property.activeName.value,

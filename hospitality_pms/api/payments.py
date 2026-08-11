@@ -9,7 +9,11 @@ import frappe
 from frappe import _
 
 from hospitality_pms.services import payments as service
-from hospitality_pms.services.base import require_permission, require_role
+from hospitality_pms.services.base import (
+	authorise_document,
+	require_operation_key,
+	require_role,
+)
 
 FOLIO_DOCTYPE = "Guest Folio"
 TRANSACTION_DOCTYPE = "Payment Transaction"
@@ -28,18 +32,23 @@ REFUND_ROLES = (
 def initiate(
 	folio: str,
 	amount: float,
+	idempotency_key: str,
 	provider: str | None = None,
 	description: str | None = None,
 	return_url: str | None = None,
-	idempotency_key: str | None = None,
 ) -> dict:
-	"""Start a gateway payment against a folio."""
-	require_permission(FOLIO_DOCTYPE, "write")
+	"""Start a gateway payment against a folio.
+
+	The operation key is the caller's, and required: a key minted here would be
+	new on every retry, which for a gateway payment means charging the guest's
+	card a second time (P2-3).
+	"""
+	authorise_document(FOLIO_DOCTYPE, folio, "write")
 
 	return service.initiate_payment(
 		folio,
 		float(amount),
-		idempotency_key=idempotency_key or f"folio-pay:{folio}:{frappe.generate_hash(length=12)}",
+		idempotency_key=require_operation_key(idempotency_key, "Starting a payment"),
 		provider=provider,
 		description=description,
 		return_url=return_url,
@@ -48,10 +57,7 @@ def initiate(
 
 @frappe.whitelist(methods=["GET"])
 def get_transaction(transaction: str) -> dict:
-	require_permission(TRANSACTION_DOCTYPE, "read")
-
-	doc = frappe.get_doc(TRANSACTION_DOCTYPE, transaction)
-	doc.check_permission("read")
+	doc = authorise_document(TRANSACTION_DOCTYPE, transaction, "read")
 
 	return {
 		"name": doc.name,
@@ -70,7 +76,7 @@ def get_transaction(transaction: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def sync_status(transaction: str) -> dict:
 	"""Ask the provider what happened. The reconciliation path for a lost callback."""
-	require_permission(TRANSACTION_DOCTYPE, "write")
+	authorise_document(TRANSACTION_DOCTYPE, transaction, "write")
 
 	return service.sync_status(transaction)
 
@@ -78,6 +84,7 @@ def sync_status(transaction: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def refund(transaction: str, amount: float, reason: str) -> dict:
 	require_role(REFUND_ROLES)
+	authorise_document(TRANSACTION_DOCTYPE, transaction, "write")
 
 	return service.refund_payment(transaction, float(amount), reason)
 

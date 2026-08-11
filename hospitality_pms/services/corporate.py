@@ -10,8 +10,9 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, now_datetime, nowdate
 
-from hospitality_pms.services.base import lock_document, require_role
+from hospitality_pms.services.base import lock_and_read, require_role
 from hospitality_pms.services.exceptions import HospitalityPMSError, throw
+from hospitality_pms.services.property import resolve_operational_date
 
 ACCOUNT_DOCTYPE = "Corporate Account"
 CREDIT_LOG_DOCTYPE = "Corporate Credit Log"
@@ -45,9 +46,16 @@ COMPANY_PAID_CHARGES = {
 
 
 def get_negotiated_rate(account: str, room_type: str, on_date=None) -> dict | None:
-	"""The contracted rate for a room type, if one is in force."""
+	"""The contracted rate for a room type, if one is in force on a date.
+
+	`on_date` is the date being priced - the night of the stay, not the day
+	the booking is made. Pricing a stay in March asks what the contract says
+	about March. Without one, the question is operational rather than
+	forward-looking and the answer is the property's business date; the
+	calendar date is never the right fallback for either.
+	"""
 	doc = frappe.get_cached_doc(ACCOUNT_DOCTYPE, account)
-	on_date = getdate(on_date or nowdate())
+	on_date = _contract_date(doc, on_date)
 
 	for row in doc.negotiated_rates:
 		if row.room_type != room_type or not row.is_active:
@@ -62,10 +70,28 @@ def get_negotiated_rate(account: str, room_type: str, on_date=None) -> dict | No
 	return None
 
 
+def _contract_date(doc, on_date=None):
+	"""Which date a contract question is being asked about.
+
+	An explicit service date wins: a reservation for the 20th is checked
+	against the 20th, whether or not the contract also covers today. Without
+	one the question is about trading now, and "now" for a hotel is its
+	business date - a property still working yesterday must not have its
+	contracts expire a day early because the calendar has moved on.
+	"""
+	if on_date:
+		return getdate(on_date)
+
+	if doc.property:
+		return resolve_operational_date(doc.property)
+
+	return getdate(nowdate())
+
+
 def assert_contract_valid(account: str, on_date=None):
-	"""Refuse to trade on an expired contract."""
+	"""Refuse to trade on an expired contract, as at the relevant date."""
 	doc = frappe.get_cached_doc(ACCOUNT_DOCTYPE, account)
-	on_date = getdate(on_date or nowdate())
+	on_date = _contract_date(doc, on_date)
 
 	if not doc.is_active:
 		throw(_("Corporate account {0} is not active.").format(account), exc=HospitalityPMSError)
@@ -140,13 +166,20 @@ def consume_credit(
 	Locked, because two bookings confirmed at the same instant must not both
 	read the same remaining credit and both fit inside it.
 	"""
-	lock_document(ACCOUNT_DOCTYPE, account)
+	# The balance this decision is made from must be the committed balance at
+	# the moment the lock was granted, not the one this transaction saw before
+	# it started waiting. Locking and then reading separately is what let two
+	# concurrent bookings both record `credit_before = 0` and both fit inside
+	# the same remaining credit (P1-4, root cause N1).
+	current = lock_and_read(
+		ACCOUNT_DOCTYPE, account, ["credit_used", "credit_limit", "property"]
+	)
 
 	assert_contract_valid(account)
 
-	doc = frappe.get_doc(ACCOUNT_DOCTYPE, account)
-	before = flt(doc.credit_used)
-	limit = flt(doc.credit_limit)
+	before = flt(current["credit_used"])
+	limit = flt(current["credit_limit"])
+	property_name = current["property"]
 	after = before + flt(amount)
 
 	exceeded = limit > 0 and after > limit + 0.005
@@ -154,7 +187,7 @@ def consume_credit(
 	if exceeded and not allow_exception:
 		_log_credit(
 			account,
-			doc.property,
+			property_name,
 			"Credit exceeded",
 			amount=amount,
 			before=before,
@@ -186,7 +219,7 @@ def consume_credit(
 
 	_log_credit(
 		account,
-		doc.property,
+		property_name,
 		"Credit consumed" + (" (exception approved)" if exceeded else ""),
 		amount=amount,
 		before=before,
@@ -201,12 +234,14 @@ def consume_credit(
 
 def release_credit(account: str, amount: float, *, reason: str | None = None, folio: str | None = None) -> dict:
 	"""Return credit when a booking is cancelled or an invoice is settled."""
-	lock_document(ACCOUNT_DOCTYPE, account)
+	# Current under lock, for the same reason as consume_credit: releasing
+	# against a stale balance loses whichever movement committed while this
+	# transaction was waiting.
+	current = lock_and_read(ACCOUNT_DOCTYPE, account, ["credit_used", "credit_limit", "property"])
 
-	doc = frappe.get_doc(ACCOUNT_DOCTYPE, account)
-	before = flt(doc.credit_used)
+	before = flt(current["credit_used"])
 	after = max(before - flt(amount), 0.0)
-	limit = flt(doc.credit_limit)
+	limit = flt(current["credit_limit"])
 
 	frappe.db.set_value(
 		ACCOUNT_DOCTYPE,
@@ -216,7 +251,7 @@ def release_credit(account: str, amount: float, *, reason: str | None = None, fo
 	)
 
 	_log_credit(
-		account, doc.property, "Credit released", amount=amount, before=before, after=after,
+		account, current["property"], "Credit released", amount=amount, before=before, after=after,
 		folio=folio, reason=reason,
 	)
 
@@ -234,14 +269,16 @@ def set_credit_status(account: str, status: str, reason: str) -> str:
 	if status == ACTIVE:
 		require_role(CREDIT_APPROVAL_ROLES + CREDIT_ESCALATION_ROLES)
 
-	lock_document(ACCOUNT_DOCTYPE, account)
-	doc = frappe.get_doc(ACCOUNT_DOCTYPE, account)
-	previous = doc.credit_status
+	# `previous` goes into the audit trail, so it has to be the status this
+	# change actually moved away from - not the one this transaction happened
+	# to read before it acquired the lock.
+	current = lock_and_read(ACCOUNT_DOCTYPE, account, ["credit_status", "property"])
+	previous = current["credit_status"]
 
 	frappe.db.set_value(ACCOUNT_DOCTYPE, account, "credit_status", status, update_modified=True)
 
 	_log_credit(
-		account, doc.property, "Credit status changed", from_status=previous, to_status=status,
+		account, current["property"], "Credit status changed", from_status=previous, to_status=status,
 		reason=reason.strip(), approved_by=frappe.session.user,
 	)
 

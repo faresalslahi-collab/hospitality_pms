@@ -12,6 +12,7 @@ def after_install():
 	sync_module_defs()
 	sync_roles()
 	sync_desktop_presence()
+	sync_schema_constraints()
 
 
 def after_migrate():
@@ -25,6 +26,23 @@ def after_migrate():
 	sync_module_defs()
 	sync_roles()
 	sync_desktop_presence()
+	sync_schema_constraints()
+
+
+def sync_schema_constraints():
+	"""Apply the database constraints the DocType JSON cannot express.
+
+	Runs from both hooks on purpose. The `patches.txt` entry is what upgrades a
+	site from 16.5.3, but Frappe marks every patch as already executed when an
+	app is installed fresh rather than running it - so a brand-new site would
+	otherwise never get the index. Calling the same idempotent function here
+	makes fresh install, upgrade and repeated migrate converge on the same
+	schema.
+	"""
+	from hospitality_pms.setup.schema import apply_all_constraints
+
+	apply_all_constraints()
+	frappe.db.commit()
 
 
 def sync_desktop_presence():

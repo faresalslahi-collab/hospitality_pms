@@ -50,6 +50,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { PAYER_OPTIONS, PAYMENT_METHOD_OPTIONS, PAYMENT_TYPE_OPTIONS, postPaymentResource } from '@/resources/folio'
 import { normaliseError } from '@/utils/errors'
 import { t } from '@/utils/i18n'
+import { useOperationKey } from '@/utils/operationKey'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -64,6 +65,10 @@ const open = computed({
 })
 
 const postPayment = postPaymentResource()
+
+// Money in the other direction, same rule: a retried submission must be the
+// same payment, not a second one.
+const operation = useOperationKey('payment')
 
 const saving = ref(false)
 const errorMessage = ref('')
@@ -86,6 +91,7 @@ watch(
     if (!isOpen) return
     errorMessage.value = ''
     Object.assign(form, blankForm())
+    operation.reset()
   },
 )
 
@@ -101,8 +107,10 @@ async function submit() {
       payment_type: form.payment_type,
       reference: form.reference.trim() || undefined,
       payer: form.payer,
+      idempotency_key: operation.current(),
     })
 
+    operation.done()
     emit('posted')
     open.value = false
   } catch (error) {
