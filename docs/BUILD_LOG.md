@@ -1,6 +1,6 @@
 # Hospitality PMS — Build Acceptance Log
 
-**Current application version:** 16.6.0 (branch `version-16`)
+**Current application version:** 16.6.1 (branch `version-16`)
 
 One record per completed build, in the format required by
 `09_Hospitality_PMS_Build_Test_and_Acceptance_Standard_v1.2_APPROVED.md` section 4.
@@ -1954,5 +1954,158 @@ that already has a company. The DocType scaffolding is untouched.
 - `stays._log_note` still appends after `doc.save()` and is never persisted
   (N3). The overbooking override on a stay extension is therefore written to
   the Reservation Log instead of relying on it.
+
+Result: PASS
+
+---
+
+## 16.6.1 — Onboarding Integrity Hardening, Wave 2: ERP posting, tax, payment allocation and reconciliation
+
+Three verified findings, each promoted from its Phase-1 reproduction into a
+regression test and watched failing before anything was changed. Every
+assertion reads ERPNext back — `grand_total`, `outstanding_amount`, GL Entries,
+Payment Entry allocations — because the defects are all about what ERPNext ends
+up holding, and a test that asserts on the document we just built only proves
+we can build a document.
+
+### P1-10 — the tax never left the folio
+
+**Reproduced.** `resolve_charge_item()` looked up a tax template and
+`_build_and_submit_invoice()` never used it. A folio of 100 net + 10 tax posted
+an invoice with `net_total = 100`, `total_taxes_and_charges = 0`,
+`grand_total = 100`. No GL credit reached any tax account: ten riyals of output
+VAT did not exist in the ledger. With mixed rates the gap was 21.50 on 251.50.
+
+**Fixed.** The folio's recorded tax is posted as `Actual` Sales Taxes and
+Charges rows, grouped by the account head resolved from each charge type's tax
+template (HPMS-DEC-125).
+
+Why `Actual` rather than applying the template and letting ERPNext calculate:
+the folio is the bill the guest was handed, so ERPNext must record *that*
+number, not a re-derivation that may or may not agree with it. It also solves
+the mixed-rate case in one invoice — a Sales Taxes and Charges Template is
+invoice-level in ERPNext, so 200 at 10% and 30 at 5% cannot both be expressed
+by one template, and the alternative was splitting the folio across invoices.
+`Actual` is a first-class ERPNext charge type and posts to `account_head`
+exactly as a calculated row does, so the GL effect is ordinary. No GL Entry is
+written by this app.
+
+Two refusals rather than guesses (HPMS-DEC-126): a charge that bears tax but
+maps to no template, and a template with more than one head — a folio line
+records one tax figure and no breakdown, so splitting it would invent an
+allocation. And an invoice whose grand total does not equal the batch's net plus
+tax is never submitted (HPMS-DEC-127).
+
+**Also found by these tests:** ERPNext rounds `grand_total` to the nearest whole
+unit by default and drives `outstanding_amount` from the rounded figure, so a
+52.50 folio produced a 52.00 receivable — banker's rounding takes .50 to even.
+Folio invoices now set `disable_rounded_total` (HPMS-DEC-128).
+
+Evidence: simple 100+10 → `net_total 100`, `taxes 10`, `grand_total 110`, GL
+credit 10.00 to the configured tax account. Mixed 200+20 and 30+1.50 →
+`grand_total 251.50`, with 20.00 and 1.50 credited to their own account heads.
+Zero-tax → no tax rows and no tax.
+
+### P1-11 — payments settled nothing
+
+**Reproduced.** The Payment Entry was submitted with `references = []`:
+`paid_amount 110`, `total_allocated_amount 0`, `unallocated_amount 110`, the
+Sales Invoice fully outstanding, and the Payment Ledger holding a guest who had
+paid in full as an unapplied customer advance.
+
+**Fixed.** A receipt allocates against the folio's outstanding invoices in
+posting order, oldest first, never beyond what each still owes
+(HPMS-DEC-130). Outstanding is read with a locking current read, so two
+payments on one folio cannot both allocate the same money. Refunds are left
+unreferenced — money going out settles nothing.
+
+Evidence: 110 paid on a 110 invoice → allocated 110, outstanding 0. 50 then 60
+→ 60 then 0. 120 on a 100 invoice → allocated 100, `unallocated_amount` 20, and
+the surplus returned to the caller so it is a visible decision rather than
+something to discover in the ledger later. A deposit taken before any invoice
+exists stays an advance, which is ERPNext's correct answer.
+
+### P2-4 — late charges could never reach ERPNext
+
+**Reproduced.** The invoice key was `folio-invoice:{folio}` for the life of the
+folio. Once one invoice existed, every later call returned it as a duplicate;
+an authorised late charge stayed `is_posted_to_erp = 0` and `sales_invoice`
+NULL permanently.
+
+**Fixed.** The key is a fingerprint of the charge rows being posted
+(HPMS-DEC-129). The same rows always produce the same key — from any process,
+at any time — so a retry reuses the invoice, while rows added later form a
+different batch and get a supplementary invoice. Deliberately not a counter: a
+counter has to be allocated, and two concurrent retries could allocate two and
+post the same charges twice.
+
+Nothing left to post is now a no-op returning the existing invoice, not an
+error.
+
+### Reconciliation — it was asking the folio about the folio
+
+The old `reconcile_folio` derived "erp_invoiced" by adding up folio charge rows
+whose `sales_invoice` link pointed at a submitted document. That is circular,
+and it is what masked P1-10: a 110 folio against a 100 invoice reported
+`erp_invoiced 110`, `variance 0`, `is_reconciled True`.
+
+It now reads ERPNext (HPMS-DEC-131): submitted invoice `grand_total` and
+`outstanding_amount`, submitted Payment Entry `paid_amount`, and allocations
+from Payment Entry References. Cancelled and draft documents count for nothing.
+
+The response keeps every field it had and adds `erp_allocated_payments`,
+`unallocated_payments`, `invoice_outstanding`, `settlement_variance`,
+`erp_invoices`, `erp_payment_entries` and `currency_mismatch`.
+
+A folio reconciles only when ERP's outstanding equals what the folio says is
+still owed (HPMS-DEC-132). Charge and payment variance alone cannot see an
+unapplied advance — the money is in ERPNext and both variances are zero while
+the invoice stands unpaid.
+
+### Posting lock sites
+
+Wave 1 deferred both; Wave 2 owns them.
+
+| Site | Decided from | Was | Changed |
+|---|---|---|---|
+| `posting.post_folio_invoice` | the unposted row set, which is now the batch identity | UNSAFE | Yes — `lock_and_get_doc` |
+| `posting.post_folio_payment` | each invoice's outstanding amount | UNSAFE | Yes — `lock_and_get_doc`, plus `lock_and_read` per invoice |
+| `guests.ensure_customer` | the guest's `customer` link | UNSAFE | Yes — `lock_and_read` |
+
+`ensure_customer` is in the posting path and its stale read had a visible
+consequence: ERPNext names a Customer after the guest, so the waiter's second
+insert collided on the primary key and the posting that needed the customer
+failed — for a customer that already existed. Proven with two processes.
+
+### Validation
+
+139 tests, all passing. 88 from Wave 1, unchanged and still green; 51 new.
+
+```
+tests/test_posting.py             24 tests   OK
+tests/test_payment_posting.py     15 tests   OK
+tests/test_erp_reconciliation.py  12 tests   OK
+```
+
+- Migration: no schema change in this wave. `bench migrate` clean and repeat
+  migrate a no-op; the Wave-1 uniqueness index is untouched.
+- No frontend change, so no frontend build.
+- No test accounting data remains: no test properties, accounts, items, tax
+  templates, posting profiles, posting logs, customers or orphan GL Entries.
+  Teardown cancels Payment Entries before Sales Invoices, through the ORM, so
+  ledger entries go with them.
+- `git diff --check` clean; no manual GL Entry creation, no `frappe.db.commit()`
+  in a service, no new `ignore_permissions`.
+
+### Intentionally still open
+
+- **P1-14 remains deferred.** `_mark_failed` still writes inside the caller's
+  transaction, so a rollback takes the Failed row with it. That needs one
+  durability mechanism chosen across every external side effect, with P1-13,
+  and belongs to that wave. Nothing here hides it.
+- **Night Audit reconciliation is not safe yet.** This wave makes per-folio ERP
+  posting and reconciliation correct. Audit sequencing, reopen, exhaustive
+  population and retry figures are P1-7, P1-8, P1-9 and P2-1.
+- A legitimate *second* partial refund is still refused (pre-existing, P2-2).
 
 Result: PASS

@@ -38,6 +38,10 @@ TEARDOWN_ORDER = (
 	"Room Type",
 	"Guest",
 	"User",
+	"Posting Profile",
+	"Sales Taxes and Charges Template",
+	"Account",
+	"Item",
 	"Property",
 )
 
@@ -143,6 +147,12 @@ class Fixtures:
 		frappe.set_user("Administrator")
 		frappe.db.rollback()
 
+		# Real ERPNext documents first, and through the ORM, because a
+		# submitted invoice owns GL Entries that only cancel-and-delete
+		# removes. Deleting the posting log underneath them would leave the
+		# ledger holding test money with nothing pointing at it.
+		self._teardown_erp_documents()
+
 		# Everything a service created under one of this suite's properties,
 		# before the properties themselves go.
 		for doctype, name in self.created:
@@ -171,6 +181,34 @@ class Fixtures:
 		self._settings.clear()
 		self.created.clear()
 		frappe.db.commit()
+
+	def _teardown_erp_documents(self):
+		"""Cancel and delete every ERPNext document this suite's postings made.
+
+		Payment Entries before Sales Invoices, because an allocated payment
+		holds a reference to the invoice and ERPNext will not let the invoice
+		go first. Customers last, once nothing bills them.
+		"""
+		properties = [name for doctype, name in self.created if doctype == "Property"]
+
+		if not properties:
+			return
+
+		erp_docs = frappe.get_all(
+			"Financial Posting Log",
+			filters={"property": ("in", properties), "erp_document": ("is", "set")},
+			fields=["erp_doctype", "erp_document"],
+		)
+
+		# Payment Entry before Sales Invoice.
+		order = {"Payment Entry": 0, "Sales Invoice": 1}
+		for row in sorted(erp_docs, key=lambda r: order.get(r["erp_doctype"], 2)):
+			_cancel_and_delete(row["erp_doctype"], row["erp_document"])
+
+		for guest in [name for doctype, name in self.created if doctype == "Guest"]:
+			customer = frappe.db.get_value("Guest", guest, "customer")
+			if customer:
+				_cancel_and_delete("Customer", customer)
 
 	# -- setup ----------------------------------------------------------
 
@@ -404,6 +442,167 @@ class Fixtures:
 
 		return self.track("Payment Transaction", doc.name)
 
+	# -- ERP posting setup ----------------------------------------------
+	#
+	# Wave 2 posts real Sales Invoices and Payment Entries, so a suite needs a
+	# real chart of accounts behind it. These build the minimum: a tax account,
+	# a Sales Taxes and Charges Template, an item, and a Posting Profile that
+	# maps charge types onto them.
+
+	def tax_account(self, company: str, label: str, *, rate: float = 0) -> str:
+		"""A tax account under the company's Duties and Taxes group."""
+		parent = frappe.db.get_value(
+			"Account", {"company": company, "is_group": 1, "account_name": "Duties and Taxes"}, "name"
+		)
+
+		if not parent:
+			raise RuntimeError(f"{company} has no Duties and Taxes group to hang a tax account off")
+
+		account_name = f"WV2 {label} {self.tag}"
+		existing = frappe.db.get_value(
+			"Account", {"company": company, "account_name": account_name}, "name"
+		)
+
+		if existing:
+			return self.track("Account", existing)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Account",
+				"account_name": account_name,
+				"parent_account": parent,
+				"company": company,
+				"account_type": "Tax",
+				"root_type": "Liability",
+				"tax_rate": rate,
+				"is_group": 0,
+			}
+		).insert(ignore_permissions=True)
+
+		return self.track("Account", doc.name)
+
+	def tax_template(self, company: str, label: str, account: str, rate: float) -> str:
+		"""A single-row `On Net Total` Sales Taxes and Charges Template.
+
+		One row on purpose: the folio records one tax figure per charge line, so
+		a template that split tax across several heads could not be reproduced
+		from it without inventing an apportionment. Posting refuses such a
+		template rather than guessing, and this fixture builds the shape the
+		product actually supports.
+		"""
+		title = f"WV2 {label} {self.tag}"
+		existing = frappe.db.get_value(
+			"Sales Taxes and Charges Template", {"company": company, "title": title}, "name"
+		)
+
+		if existing:
+			return self.track("Sales Taxes and Charges Template", existing)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Sales Taxes and Charges Template",
+				"title": title,
+				"company": company,
+				"taxes": [
+					{
+						"charge_type": "On Net Total",
+						"account_head": account,
+						"description": title,
+						"rate": rate,
+					}
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		return self.track("Sales Taxes and Charges Template", doc.name)
+
+	def multi_row_tax_template(self, company: str, label: str, accounts: list[str]) -> str:
+		"""A template with more than one tax head, which posting must refuse."""
+		title = f"WV2 {label} {self.tag}"
+		existing = frappe.db.get_value(
+			"Sales Taxes and Charges Template", {"company": company, "title": title}, "name"
+		)
+
+		if existing:
+			return self.track("Sales Taxes and Charges Template", existing)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Sales Taxes and Charges Template",
+				"title": title,
+				"company": company,
+				"taxes": [
+					{
+						"charge_type": "On Net Total",
+						"account_head": account,
+						"description": f"{title} {index}",
+						"rate": 5,
+					}
+					for index, account in enumerate(accounts, start=1)
+				],
+			}
+		).insert(ignore_permissions=True)
+
+		return self.track("Sales Taxes and Charges Template", doc.name)
+
+	def erp_item(self, code: str) -> str:
+		name = f"WV2-{code}-{self.tag}"
+
+		if not frappe.db.exists("Item", name):
+			frappe.get_doc(
+				{
+					"doctype": "Item",
+					"item_code": name,
+					"item_name": f"Wave 2 {code}",
+					"item_group": frappe.db.get_value("Item Group", {"is_group": 0}, "name"),
+					"stock_uom": "Nos",
+					"is_stock_item": 0,
+					"is_sales_item": 1,
+				}
+			).insert(ignore_permissions=True)
+
+		return self.track("Item", name)
+
+	def posting_profile(
+		self,
+		property_name: str,
+		company: str,
+		*,
+		charge_map: list[dict],
+		default_item: str,
+		default_tax_template: str | None = None,
+	) -> str:
+		"""An active Posting Profile mapping charge types onto items and taxes."""
+		name = f"WV2-{property_name}"[:20]
+
+		if frappe.db.exists("Posting Profile", name):
+			return self.track("Posting Profile", name)
+
+		doc = frappe.get_doc(
+			{
+				"doctype": "Posting Profile",
+				"profile_code": name,
+				"profile_name": f"Wave 2 profile for {property_name}",
+				"property": property_name,
+				"company": company,
+				"is_active": 1,
+				"default_item": default_item,
+				"default_tax_template": default_tax_template,
+				"default_income_account": frappe.db.get_value(
+					"Account", {"company": company, "is_group": 0, "root_type": "Income"}, "name"
+				),
+				"default_cost_center": frappe.db.get_value(
+					"Cost Center", {"company": company, "is_group": 0}, "name"
+				),
+				"default_receivable_account": frappe.get_cached_value(
+					"Company", company, "default_receivable_account"
+				),
+				"charge_items": [{**row, "is_active": 1} for row in charge_map],
+			}
+		).insert(ignore_permissions=True)
+
+		return self.track("Posting Profile", doc.name)
+
 	def user(self, handle: str, roles: list[str], *, properties: list[str] | None = None) -> str:
 		"""An operational user with real roles and real User Permissions.
 
@@ -475,6 +674,27 @@ def _purge(doctype: str, filters: dict):
 		frappe.db.delete(table.options, {"parent": ("in", names), "parenttype": doctype})
 
 	frappe.db.delete(doctype, {"name": ("in", names)})
+
+
+def _cancel_and_delete(doctype: str, name: str):
+	"""Take a submitted ERPNext document out, ledger entries and all."""
+	if not frappe.db.exists(doctype, name):
+		return
+
+	try:
+		doc = frappe.get_doc(doctype, name)
+
+		if doc.docstatus == 1:
+			doc.flags.ignore_permissions = True
+			doc.cancel()
+
+		frappe.delete_doc(doctype, name, force=True, ignore_permissions=True, delete_permanently=True)
+	except Exception:
+		# Left behind rather than forced: an ERPNext document that will not
+		# cancel usually has a real link still pointing at it, and tearing it
+		# out underneath the ORM would leave the ledger inconsistent - which is
+		# worse than a stray test row a human can see and remove.
+		frappe.db.rollback()
 
 
 def _force_delete(doctype: str, name: str):

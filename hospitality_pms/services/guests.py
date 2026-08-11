@@ -11,7 +11,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-from hospitality_pms.services.base import lock_document, require_role
+from hospitality_pms.services.base import lock_and_read, lock_document, require_role
 from hospitality_pms.services.exceptions import ConfigurationError, HospitalityPMSError, throw
 
 GUEST_DOCTYPE = "Guest"
@@ -143,9 +143,14 @@ def ensure_customer(guest: str, company: str | None = None) -> str:
 	Customer for every walk-in would pollute the receivables ledger with
 	records that never carry a balance.
 	"""
-	lock_document(GUEST_DOCTYPE, guest)
+	# Locked and read in one operation. Locking and then re-reading with a
+	# plain `get_value` answered from the pre-lock snapshot (N1): the waiter
+	# still saw no customer after the winner had committed one, and tried to
+	# create a second. ERPNext names a Customer after the guest, so that second
+	# insert collides on the primary key - and the posting that needed the
+	# customer fails, for a customer that exists.
+	existing = lock_and_read(GUEST_DOCTYPE, guest, "customer")["customer"]
 
-	existing = frappe.db.get_value(GUEST_DOCTYPE, guest, "customer")
 	if existing:
 		return existing
 
