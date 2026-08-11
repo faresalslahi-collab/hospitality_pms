@@ -24,6 +24,7 @@ from frappe.utils import add_days, cint, flt, getdate
 from hospitality_pms.services import checkout as checkout_service
 from hospitality_pms.services import folio as folio_service
 from hospitality_pms.services import guest_services as guest_service
+from hospitality_pms.services import guests as guest_identity_service
 from hospitality_pms.services import housekeeping as housekeeping_service
 from hospitality_pms.services import maintenance as maintenance_service
 from hospitality_pms.services import reservations as reservation_service
@@ -69,6 +70,12 @@ ARRIVAL_STATES = (
 #: Stay statuses that put a guest on the departures board, including the ones
 #: that already left today, for the same reason.
 DEPARTURE_STATES = (stay_service.IN_HOUSE, stay_service.DUE_OUT, stay_service.CHECKED_OUT)
+
+#: Stay statuses that mean "this guest is in the house right now". The same pair
+#: `stays.get_in_house` selects on, and the pair the dashboard's in-house tiles
+#: are counted from: a guest who has checked out is no longer in the house, and a
+#: guest still Expected is not in it yet.
+IN_HOUSE_STATES = (stay_service.IN_HOUSE, stay_service.DUE_OUT)
 
 #: Reservations that hold inventory, and so count as demand on the calendar.
 CALENDAR_RESERVATION_STATES = (*reservation_service.HOLDING_STATES, reservation_service.TENTATIVE)
@@ -128,23 +135,161 @@ def get_room_states(property_name: str, rooms: list[str] | None = None) -> dict[
 
 
 def get_guest_flags(guests: list[str]) -> dict[str, dict]:
-	"""VIP standing and blacklist state for a set of guests, in one query.
+	"""Guest standing for a set of guests, in one query, filtered by clearance.
 
 	The desk needs to know before the guest reaches the counter, and it is the
-	same two fields on every board.
+	same handful of fields on every board. `vip_status` and `guest_type` are
+	permlevel 0 and travel unconditionally.
+
+	`is_blacklisted` does not. It is permlevel 2 with a deliberately narrow
+	reader set (`setup.permissions.BLACKLIST_READERS`), and this is a
+	`frappe.get_all`, which applies neither DocType permission nor permlevel
+	filtering. The boards gate on their own DocType - arrivals on
+	`Reservation.read`, whose readers are OPERATIONAL + AUDITOR - so until 16.7.1
+	housekeeping, maintenance, kitchen, revenue, corporate sales, finance and
+	accounts all received a permlevel-2 field simply by opening a board. The
+	column is therefore selected only when `guests.may_see_blacklist()` says the
+	caller is cleared for it, which is the one place that question is answered.
+
+	For a caller who is not cleared the key is *absent*, never `False`: `False` is
+	a claim about the guest that the caller is not entitled to and that may be
+	untrue. `blacklist_reason` (permlevel 3) is never read here at all, by any
+	caller - a reason has no business on an operational board.
+
+	Still one query, whoever asks. Only the column list changes.
 	"""
 	guests = [g for g in set(guests or []) if g]
 	if not guests:
 		return {}
 
+	fields = ["name", "vip_status", "guest_type"]
+
+	if guest_identity_service.may_see_blacklist():
+		fields.append("is_blacklisted")
+
 	records = frappe.get_all(
 		GUEST_DOCTYPE,
 		filters={"name": ("in", guests)},
-		fields=["name", "vip_status", "is_blacklisted", "guest_type"],
+		fields=fields,
 		limit_page_length=0,
 	)
 
 	return {row["name"]: row for row in records}
+
+
+def _blacklist_flag(flags: dict) -> dict:
+	"""The blacklist flag for a board row, as a fragment to splice in — or nothing.
+
+	Spliced rather than assigned, so a row built for an uncleared caller carries
+	no `is_blacklisted` key at all rather than a `False` one. Every board that
+	shows the flag builds it this way, so the rule is applied identically on
+	arrivals, departures and the in-house board (see `get_guest_flags`).
+
+	The frontend already reads absence as "not disclosed" rather than as "no"
+	(`resources/guests.js: hasField`), so an omitted key degrades to no badge
+	instead of to a false clearance.
+	"""
+	if "is_blacklisted" not in flags:
+		return {}
+
+	return {"is_blacklisted": bool(flags["is_blacklisted"])}
+
+
+def _board_disclosure() -> dict:
+	"""What this caller may be told beyond the board's own DocType.
+
+	A board is one row assembled from several DocTypes, and its endpoint gates on
+	only one of them: the arrivals board on Reservation, the departures and
+	in-house boards on Stay. Everything else on the row — the guest's standing,
+	the folio's money — is read with `frappe.get_all`, which applies no permission
+	at all, so the row would otherwise hand a caller data whose DocType they
+	cannot open.
+
+	That is exactly the defect 16.7.0's review found in `get_guest_flags` for
+	`is_blacklisted`, and the fix for that one field left the same hole open for
+	the rest. On this site ten roles hold Stay read and neither Guest nor Guest
+	Folio read — Room Attendant, Housekeeping Manager and Supervisor, Maintenance
+	Manager and Technician, Kitchen Manager and User, Food and Beverage Manager,
+	Revenue Manager, Corporate Sales Manager — and the Command Center is their
+	landing page, because the navigation entry for it carries no role filter.
+
+	Asked once per board, not once per row: the answer cannot differ between rows
+	of a single request.
+	"""
+	return {
+		"guest": frappe.has_permission(guest_identity_service.GUEST_DOCTYPE, "read"),
+		"folio": frappe.has_permission(folio_service.FOLIO_DOCTYPE, "read"),
+	}
+
+
+def _guest_standing(flags: dict, may_read_guest: bool) -> dict:
+	"""The guest's standing on a board row — for a caller who may read Guest.
+
+	`vip_status` and `guest_type` are permlevel 0, so any *Guest reader* may have
+	them. They are still withheld from a caller who cannot read Guest at all:
+	permlevel 0 means "not privileged among people entitled to the record", not
+	"public". A room attendant does not need to know which guest is a VIP, and
+	accumulated over a season "which guests are VIPs" is precisely the profile the
+	permission was drawn around.
+	"""
+	if not may_read_guest:
+		return {}
+
+	return {
+		"vip_status": flags.get("vip_status") or "",
+		"guest_type": flags.get("guest_type") or "",
+	}
+
+
+def _folio_position(payload: dict, may_read_folio: bool) -> dict:
+	"""A row's folio money — for a caller who may read Guest Folio.
+
+	The balance, the folio's name and status, the split-folio figures and the
+	checkout verdict all come from Guest Folio, which the board's own endpoint
+	never checks. The blockers are the sharpest case: `get_departure_blockers`
+	words them with the amounts inside the sentence ("The folio has an outstanding
+	balance of 400.0"), so passing the strings through discloses the money even if
+	the numeric fields were withheld.
+
+	Withholding the whole group rather than blanking it keeps the frontend honest:
+	`hasField` reads an absent key as "not disclosed to you", where a `0.00`
+	balance would read as "settled" and a `can_check_out: true` would read as
+	"this guest may leave" — both untrue, and the second dangerously so.
+	"""
+	if not may_read_folio:
+		return {}
+
+	return payload
+
+
+def _alert_position(summary: dict, may_read_guest: bool) -> dict:
+	"""How many active alerts a guest carries, and how bad the worst is.
+
+	Both, or neither. The first draft of this gave the count to every board reader
+	and gated only the grade, on the theory that "there is something to ask about"
+	is not a disclosure. The security review took that apart, correctly: both
+	numbers are read out of `Guest Alert`, which is a child table with no
+	permissions of its own, so its reader set *is* Guest's — and the argument for
+	the count named the front desk, which holds Guest read and was therefore never
+	the audience in question. A room attendant learns that the guest in 412
+	carries two alerts, acts on none of it, and over a season accumulates exactly
+	the profile the permission was drawn around.
+
+	A caller who may read Guest can already open that guest and read the alert
+	bodies through the endpoint that authorises them, so neither number tells them
+	anything new.
+
+	Spliced rather than assigned, for the same reason as `_blacklist_flag`: an
+	absent key is "not disclosed to you", where a `0` would read as "no alerts"
+	and be untrue.
+	"""
+	if not may_read_guest:
+		return {}
+
+	return {
+		"alert_count": cint((summary or {}).get("count")),
+		"alert_severity": (summary or {}).get("severity") or "",
+	}
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +340,7 @@ def _room_counts(rooms: list[dict]) -> dict:
 		"vacant": 0,
 		"vacant_clean": 0,
 		"vacant_dirty": 0,
+		"vacant_not_ready": 0,
 		"ready": 0,
 		"dirty": 0,
 		"out_of_order": 0,
@@ -219,8 +365,19 @@ def _room_counts(rooms: list[dict]) -> dict:
 
 			if housekeeping in room_service.READY_HOUSEKEEPING:
 				counts["vacant_clean"] += 1
-			elif housekeeping == "Dirty":
-				counts["vacant_dirty"] += 1
+			else:
+				# Every vacant room housekeeping has not released, not just the
+				# ones marked Dirty: In Progress, Inspection Pending, DND and
+				# Service Refused are all rooms the desk cannot give away yet.
+				# `vacant_dirty` stays a strict count of Dirty because the rack
+				# legend uses it; this is the one the desk's "not ready" counter
+				# needs, and the room attention queue lists exactly these rooms,
+				# so a tile reading lower than the list beneath it was the
+				# alternative.
+				counts["vacant_not_ready"] += 1
+
+				if housekeeping == "Dirty":
+					counts["vacant_dirty"] += 1
 
 		if housekeeping in room_service.READY_HOUSEKEEPING:
 			counts["ready"] += 1
@@ -261,6 +418,21 @@ def _front_office_counts(property_name: str, business_date, in_house: list[dict]
 		},
 	)
 
+	# Rooms sold for today that still have nobody's room chosen. The desk's most
+	# time-critical queue: an unassigned line cannot be made ready, cannot be
+	# keyed and cannot be checked in. Counted on the same room lines and the same
+	# states as `arrivals_expected`, so the two tiles cannot disagree.
+	arrivals_unassigned = frappe.db.count(
+		RESERVATION_ROOM_DOCTYPE,
+		{
+			"parenttype": reservation_service.RESERVATION_DOCTYPE,
+			"property": property_name,
+			"arrival_date": business_date,
+			"reservation_status": ("in", ARRIVAL_STATES),
+			"assigned_room": ("is", "not set"),
+		},
+	)
+
 	arrivals_completed = frappe.db.count(
 		stay_service.STAY_DOCTYPE,
 		{
@@ -293,6 +465,7 @@ def _front_office_counts(property_name: str, business_date, in_house: list[dict]
 		"arrivals_expected": arrivals_expected,
 		"arrivals_pending": max(arrivals_expected - arrivals_completed, 0),
 		"arrivals_completed": arrivals_completed,
+		"arrivals_unassigned": arrivals_unassigned,
 		"departures_expected": departures_pending + departures_completed,
 		"departures_pending": departures_pending,
 		"departures_completed": departures_completed,
@@ -509,6 +682,7 @@ def get_arrivals_board(property_name: str, on_date=None) -> dict:
 
 	room_states = get_room_states(property_name, [l["assigned_room"] for l in lines if l["assigned_room"]])
 	guest_flags = get_guest_flags([row["guest"] for row in reservations])
+	may_read = _board_disclosure()
 	room_type_names = _room_type_names(property_name)
 	checked_in_lines = _checked_in_lines(property_name, list(by_name))
 
@@ -528,11 +702,28 @@ def get_arrivals_board(property_name: str, on_date=None) -> dict:
 				"reservation_status": reservation["reservation_status"],
 				"reservation_type": reservation["reservation_type"],
 				"booking_source": reservation["booking_source"],
+				# This board is one row per *room line*, but cancelling and
+				# marking a no-show act on the whole booking and stamp every
+				# line. A screen offering either verb has to be able to say so,
+				# so the room count travels with the row - it was already being
+				# fetched and simply was not exposed.
+				"total_rooms": cint(reservation["total_rooms"]),
+				# The state machine's answer, not a copy of it. `TRANSITIONS` is
+				# a pure status->set lookup, so this costs nothing per row and
+				# keeps Vue from re-deriving which verbs are legal. It is what to
+				# *offer*, never what will succeed: the board is fetched once and
+				# never polled, and `_transition` re-reads the status under a lock,
+				# so a stale offer fails cleanly instead of corrupting anything.
+				# It also says nothing about roles or policy - those are separate
+				# checks the caller still has to make.
+				"allowed_transitions": sorted(
+					reservation_service.TRANSITIONS.get(reservation["reservation_status"], set())
+				),
 				"guest": reservation["guest"],
 				"guest_name": reservation["guest_name"],
 				"guest_mobile": reservation["guest_mobile"],
-				"vip_status": guest.get("vip_status") or "",
-				"is_blacklisted": bool(guest.get("is_blacklisted")),
+				**_guest_standing(guest, may_read["guest"]),
+				**_blacklist_flag(guest),
 				"arrival_date": str(line["arrival_date"] or reservation["arrival_date"]),
 				"departure_date": str(line["departure_date"] or reservation["departure_date"]),
 				"arrival_time": str(reservation["arrival_time"] or ""),
@@ -573,7 +764,7 @@ def get_arrivals_board(property_name: str, on_date=None) -> dict:
 
 
 def _arrivals_summary(rows: list[dict]) -> dict:
-	return {
+	summary = {
 		"total": len(rows),
 		"pending": sum(1 for r in rows if not r["is_checked_in"]),
 		"checked_in": sum(1 for r in rows if r["is_checked_in"]),
@@ -581,12 +772,19 @@ def _arrivals_summary(rows: list[dict]) -> dict:
 		"unassigned": sum(1 for r in rows if not r["assigned_room"]),
 		"ready": sum(1 for r in rows if r["room_ready"]),
 		"not_ready": sum(1 for r in rows if r["assigned_room"] and not r["room_ready"]),
-		"vip": sum(1 for r in rows if r["vip_status"]),
 		# Counted per booking, not per room line: a deposit is owed once on a
 		# three-room reservation, and counting it three times would send the
 		# desk chasing money that is not owed.
 		"deposit_outstanding": len({r["reservation"] for r in rows if r["deposit_outstanding"] > 0.005}),
 	}
+
+	# Only for a caller who was shown the standing it counts (see
+	# `_guest_standing`); otherwise the count restores in aggregate what the rows
+	# withheld.
+	if any("vip_status" in r for r in rows):
+		summary["vip"] = sum(1 for r in rows if r.get("vip_status"))
+
+	return summary
 
 
 def _checked_in_lines(property_name: str, reservations: list[str]) -> dict[tuple, str]:
@@ -680,6 +878,7 @@ def get_departures_board(property_name: str, on_date=None) -> dict:
 	folios_by_stay = _folios_by_stay(property_name, [s["name"] for s in stays])
 	room_states = get_room_states(property_name, [s["room"] for s in stays if s["room"]])
 	guest_flags = get_guest_flags([s["guest"] for s in stays])
+	may_read = _board_disclosure()
 	room_type_names = _room_type_names(property_name)
 
 	rows = []
@@ -708,7 +907,7 @@ def get_departures_board(property_name: str, on_date=None) -> dict:
 				"reservation": stay["reservation"],
 				"guest": stay["guest"],
 				"guest_name": stay["guest_name"],
-				"vip_status": guest.get("vip_status") or "",
+				**_guest_standing(guest, may_read["guest"]),
 				"room": stay["room"],
 				"room_number": room["room_number"] if room else stay["room"],
 				"room_type": stay["room_type"],
@@ -719,16 +918,21 @@ def get_departures_board(property_name: str, on_date=None) -> dict:
 				"nights": stay["nights"],
 				"adults": stay["adults"],
 				"children": stay["children"],
-				"folio": primary["name"] if primary else None,
-				"folio_status": primary["folio_status"] if primary else None,
-				"balance": balance,
-				"related_folios": len(related),
-				"related_balance": flt(related_balance, 2),
 				"currency": (primary["currency"] if primary else None) or stay["currency"],
 				"checked_out_on": str(stay["checked_out_on"] or ""),
 				"is_checked_out": stay["stay_status"] == stay_service.CHECKED_OUT,
-				"blockers": blockers,
-				"can_check_out": not blockers,
+				**_folio_position(
+					{
+						"folio": primary["name"] if primary else None,
+						"folio_status": primary["folio_status"] if primary else None,
+						"balance": balance,
+						"related_folios": len(related),
+						"related_balance": flt(related_balance, 2),
+						"blockers": blockers,
+						"can_check_out": not blockers,
+					},
+					may_read["folio"],
+				),
 			}
 		)
 
@@ -742,19 +946,44 @@ def get_departures_board(property_name: str, on_date=None) -> dict:
 
 
 def _departures_summary(rows: list[dict]) -> dict:
-	outstanding = sum(r["balance"] + r["related_balance"] for r in rows if not r["is_checked_out"])
+	"""Counts over the rows as they were disclosed, not as they were assembled.
 
-	return {
+	Reads through `_money(row)` so a caller who was not shown the folio position
+	is not handed it back as a total. A summary is a lossy view of the same data,
+	and totalling withheld figures would put the money back on the screen with the
+	rows' names stripped off - which is not a protection, just a different report.
+	"""
+	outstanding = sum(_money(r, "balance") + _money(r, "related_balance") for r in rows)
+	disclosed = any("balance" in r for r in rows)
+
+	summary = {
 		"total": len(rows),
 		"due_out": sum(1 for r in rows if not r["is_checked_out"]),
 		"checked_out": sum(1 for r in rows if r["is_checked_out"]),
-		"ready": sum(1 for r in rows if r["can_check_out"]),
-		"blocked": sum(1 for r in rows if not r["is_checked_out"] and not r["can_check_out"]),
+		"ready": sum(1 for r in rows if r.get("can_check_out")),
+		"blocked": sum(
+			1 for r in rows if not r["is_checked_out"] and "can_check_out" in r and not r["can_check_out"]
+		),
+	}
+
+	if not disclosed:
+		return summary
+
+	return {
+		**summary,
 		"balance_pending": sum(
-			1 for r in rows if not r["is_checked_out"] and abs(r["balance"] + r["related_balance"]) > 0.005
+			1
+			for r in rows
+			if not r["is_checked_out"]
+			and abs(_money(r, "balance") + _money(r, "related_balance")) > 0.005
 		),
 		"outstanding_balance": flt(outstanding, 2),
 	}
+
+
+def _money(row: dict, field: str) -> float:
+	"""A money field from a row that may not have been given one."""
+	return flt(row.get(field) or 0)
 
 
 def _folios_by_stay(property_name: str, stays: list[str]) -> dict[str, list[dict]]:
@@ -774,6 +1003,202 @@ def _folios_by_stay(property_name: str, stays: list[str]) -> dict[str, list[dict
 		grouped.setdefault(row["stay"], []).append(row)
 
 	return grouped
+
+
+# ---------------------------------------------------------------------------
+# In house
+# ---------------------------------------------------------------------------
+
+
+def get_in_house_board(property_name: str) -> dict:
+	"""One row per guest in the house, with what they owe and what blocks the door.
+
+	A sibling of `get_arrivals_board` and `get_departures_board`, built here and
+	not in `stays` for two reasons. `stays.get_in_house` is read by
+	`get_dashboard` and by the night audit, where a wider field list is dead
+	weight and a changed one ripples; and every bulk helper this board needs -
+	room states, folios by stay, guest flags, room type names - already lives
+	here, next to the checkout service's own blocker rule. `services.stays`
+	cannot reach any of it without importing `front_office`, which imports
+	`stays`.
+
+	The row set is the same one `stays.get_in_house` returns: the same property,
+	the same two statuses (`IN_HOUSE_STATES`), the same `room` ordering. It is
+	read here rather than borrowed because the board needs `reservation` and
+	`currency`, which that reader does not select, and a second query over the
+	same table to add two columns is waste, not safety.
+
+	Readiness and blockers are the checkout service's answer, never re-derived:
+	a board that told the desk a guest may leave while the checkout screen
+	refused them would be worse than a board with no badge at all (SAD section 6).
+	"""
+	business_date = resolve_business_date(property_name)
+
+	stays = frappe.get_all(
+		stay_service.STAY_DOCTYPE,
+		filters={"property": property_name, "stay_status": ("in", IN_HOUSE_STATES)},
+		fields=[
+			"name",
+			"stay_status",
+			"guest",
+			"guest_name",
+			"room",
+			"room_type",
+			"reservation",
+			"arrival_date",
+			"departure_date",
+			"nights",
+			"adults",
+			"children",
+			"room_rate",
+			"currency",
+			"folio",
+			# Identity capture is a register/compliance obligation, and `check_in`
+			# can be told to skip it, so the one screen that sees every in-house
+			# guest is where an unverified stay has to be visible before the guest
+			# leaves. Shown as an exception, never as a column of ticks.
+			"id_verified",
+		],
+		order_by="room asc",
+		limit_page_length=0,
+	)
+
+	if not stays:
+		return _empty_board(property_name, business_date, _in_house_summary)
+
+	guests = [s["guest"] for s in stays]
+
+	folios_by_stay = _folios_by_stay(property_name, [s["name"] for s in stays])
+	room_states = get_room_states(property_name, [s["room"] for s in stays if s["room"]])
+	guest_flags = get_guest_flags(guests)
+	room_type_names = _room_type_names(property_name)
+	# A count and a grade, never a body. An alert body is free text about a guest
+	# who may be standing at the counter reading the screen, so a board is told
+	# how many there are and how bad the worst one is; the guest endpoints
+	# authorise reading one. The grade is what stops the count fusing an allergy
+	# with a room preference, which is how staff learn to ignore a number.
+	#
+	# The business date is passed in because it is already resolved above; the
+	# helper would otherwise re-read the same column.
+	alert_summary = guest_identity_service.get_active_alert_summary(
+		guests, property_name, business_date=business_date
+	)
+	may_read = _board_disclosure()
+
+	rows = []
+
+	for stay in stays:
+		folios = folios_by_stay.get(stay["name"], [])
+		primary = next((f for f in folios if f["name"] == stay["folio"]), None) or (
+			folios[0] if folios else None
+		)
+		related = [f for f in folios if not primary or f["name"] != primary["name"]]
+		room = room_states.get(stay["room"]) if stay["room"] else None
+		guest = guest_flags.get(stay["guest"]) or {}
+
+		if primary:
+			blockers = checkout_service.get_departure_blockers(stay["stay_status"], primary, related)
+		else:
+			# No folio at all is itself the blocker; checkout refuses the same way.
+			blockers = [frappe._("Stay {0} has no folio.").format(stay["name"])]
+
+		rows.append(
+			{
+				"key": stay["name"],
+				# `name` as well as `stay`: this board is what `api.stays.in_house`
+				# returns, and its rows have always been identified by `name`.
+				"name": stay["name"],
+				"stay": stay["name"],
+				"stay_status": stay["stay_status"],
+				"reservation": stay["reservation"],
+				"property": property_name,
+				"guest": stay["guest"],
+				"guest_name": stay["guest_name"],
+				**_guest_standing(guest, may_read["guest"]),
+				**_blacklist_flag(guest),
+				# The count travels with the grade: both are read out of Guest
+				# Alert, whose reader set *is* Guest's, and a room attendant who
+				# learns that the guest in 412 carries two alerts has been told
+				# something about that person and nothing that helps them clean.
+				**_alert_position(alert_summary.get(stay["guest"]), may_read["guest"]),
+				"id_verified": bool(stay["id_verified"]),
+				"room": stay["room"],
+				"room_number": room["room_number"] if room else stay["room"],
+				"room_type": stay["room_type"],
+				"room_type_name": room_type_names.get(stay["room_type"], stay["room_type"]),
+				"housekeeping_status": room["housekeeping_status"] if room else None,
+				"arrival_date": str(stay["arrival_date"]),
+				"departure_date": str(stay["departure_date"]),
+				"nights": stay["nights"],
+				"adults": stay["adults"],
+				"children": stay["children"],
+				"room_rate": flt(stay["room_rate"], 2),
+				"currency": (primary["currency"] if primary else None) or stay["currency"],
+				**_folio_position(
+					{
+						"folio": primary["name"] if primary else None,
+						"folio_status": primary["folio_status"] if primary else None,
+						# The balance the folio service maintains, not a sum of
+						# charges recomputed here: one authoritative figure, and
+						# the folio owns it.
+						"balance": flt(primary["balance"], 2) if primary else 0.0,
+						# Split folios stay counted, never folded into the balance
+						# above. A company-pay split is a different payer's debt,
+						# and adding it to the guest's would ask the wrong person
+						# for the money.
+						"related_folios": len(related),
+						"related_balance": flt(sum(flt(f["balance"]) for f in related), 2),
+						"blockers": blockers,
+						"can_check_out": not blockers,
+					},
+					may_read["folio"],
+				),
+			}
+		)
+
+	return {
+		"property": property_name,
+		"business_date": str(business_date),
+		"currency": get_property(property_name).currency,
+		"rows": rows,
+		"summary": _in_house_summary(rows),
+	}
+
+
+def _in_house_summary(rows: list[dict]) -> dict:
+	"""The house at a glance.
+
+	`in_house`, `due_out`, `adults` and `children` keep the names and the meaning
+	they had when `api.stays.in_house` computed them itself; the screen and its
+	tests are built on them.
+
+	The guest and folio counts appear only for a caller who was shown the rows
+	they are counted from — otherwise a summary would hand back, in aggregate,
+	exactly what the rows withheld.
+	"""
+	summary = {
+		"total": len(rows),
+		"in_house": sum(1 for r in rows if r["stay_status"] == stay_service.IN_HOUSE),
+		"due_out": sum(1 for r in rows if r["stay_status"] == stay_service.DUE_OUT),
+		"adults": sum(cint(r["adults"]) for r in rows),
+		"children": sum(cint(r["children"]) for r in rows),
+	}
+
+	if any("vip_status" in r for r in rows):
+		summary["vip"] = sum(1 for r in rows if r.get("vip_status"))
+		summary["with_alerts"] = sum(1 for r in rows if r.get("alert_count"))
+
+	if any("balance" in r for r in rows):
+		outstanding = sum(_money(r, "balance") + _money(r, "related_balance") for r in rows)
+
+		summary["ready_to_check_out"] = sum(1 for r in rows if r.get("can_check_out"))
+		summary["blocked"] = sum(1 for r in rows if not r.get("can_check_out"))
+		summary["balance_pending"] = sum(
+			1 for r in rows if abs(_money(r, "balance") + _money(r, "related_balance")) > 0.005
+		)
+		summary["outstanding_balance"] = flt(outstanding, 2)
+
+	return summary
 
 
 # ---------------------------------------------------------------------------

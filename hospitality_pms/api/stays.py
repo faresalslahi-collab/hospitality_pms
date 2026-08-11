@@ -2,6 +2,7 @@
 
 import frappe
 
+from hospitality_pms.services import front_office as front_office_service
 from hospitality_pms.services import stays as service
 from hospitality_pms.services.base import authorise_document, require_permission
 from hospitality_pms.services.property import resolve_property
@@ -11,21 +12,28 @@ STAY_DOCTYPE = "Stay"
 
 @frappe.whitelist(methods=["GET"])
 def in_house(property: str | None = None) -> dict:
-	"""The in-house board."""
+	"""The in-house board.
+
+	Served by `front_office.get_in_house_board`, which assembles the row from the
+	same bulk helpers the arrivals and departures boards use, so a room, a
+	balance and a checkout blocker mean the same thing on all three screens.
+
+	The response keeps the shape it has always had - `property`, `stays`,
+	`summary`, and `summary` carrying `in_house`, `due_out`, `adults` and
+	`children` - because the 16.7.0 frontend is built on it. `stays` is still the
+	row list; the rows and the summary have grown, and nothing has been taken away.
+	"""
 	require_permission(STAY_DOCTYPE, "read")
 	property_name = resolve_property(property)
 
-	stays = service.get_in_house(property_name)
+	board = front_office_service.get_in_house_board(property_name)
 
 	return {
-		"property": property_name,
-		"stays": stays,
-		"summary": {
-			"in_house": sum(1 for s in stays if s["stay_status"] == service.IN_HOUSE),
-			"due_out": sum(1 for s in stays if s["stay_status"] == service.DUE_OUT),
-			"adults": sum(int(s["adults"] or 0) for s in stays),
-			"children": sum(int(s["children"] or 0) for s in stays),
-		},
+		"property": board["property"],
+		"business_date": board["business_date"],
+		"currency": board["currency"],
+		"stays": board["rows"],
+		"summary": board["summary"],
 	}
 
 

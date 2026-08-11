@@ -133,6 +133,9 @@ def search_guests(query: str | None = None, limit: int = 20) -> list[dict]:
 	parameter that was `undefined` on the client arrives as the literal text
 	"undefined", and matching `%undefined%` would return an empty list on every
 	first load.
+
+	The blacklist flag is not selected and not filtered on — see the note below
+	this function for the two defects that removing it fixed.
 	"""
 	require_permission(GUEST_DOCTYPE, "read")
 
@@ -140,32 +143,57 @@ def search_guests(query: str | None = None, limit: int = 20) -> list[dict]:
 	query = clean_str(query)
 
 	if not query:
-		return frappe.get_list(
+		records = frappe.get_list(
 			GUEST_DOCTYPE,
 			fields=list(SEARCH_FIELDS),
 			order_by="modified desc",
 			limit_page_length=limit,
 		)
+	else:
+		pattern = f"%{query}%"
 
-	pattern = f"%{query}%"
+		records = frappe.get_list(
+			GUEST_DOCTYPE,
+			or_filters={
+				"guest_name": ("like", pattern),
+				"email_id": ("like", pattern),
+				"mobile_no": ("like", pattern),
+			},
+			fields=list(SEARCH_FIELDS),
+			order_by="guest_name asc",
+			limit_page_length=limit,
+		)
 
-	return frappe.get_list(
-		GUEST_DOCTYPE,
-		filters={"is_blacklisted": ("!=", 1)} if not _may_see_blacklist() else None,
-		or_filters={
-			"guest_name": ("like", pattern),
-			"email_id": ("like", pattern),
-			"mobile_no": ("like", pattern),
-		},
-		fields=list(SEARCH_FIELDS),
-		order_by="guest_name asc",
-		limit_page_length=limit,
-	)
+	return records
 
 
-def _may_see_blacklist() -> bool:
-	"""Whether this user may see that a guest is blacklisted."""
-	return 2 in frappe.get_meta(GUEST_DOCTYPE).get_permlevel_access("read")
+# --- the blacklist filter that used to be here -------------------------------
+#
+# `filters={"is_blacklisted": ("!=", 1)}` looked like the right way to keep
+# blacklisted guests off a list for a caller who may not know they are
+# blacklisted. It was two defects at once.
+#
+# First it did not work. Frappe validates *filter* fields against the caller's
+# readable fields, so naming a permlevel-2 column raised
+#
+#     PermissionError: You do not have permission to access field:
+#     Guest.is_blacklisted
+#
+# for exactly the users the filter existed to protect, while working fine for the
+# managers who did not need protecting. Guest search was broken outright for the
+# Guest readers who lack permlevel 2 - on this site, Accounts User and Finance
+# Manager. (The permlevel-2 reader set is `BLACKLIST_READERS`, which does include
+# Night Auditor and Read-Only Auditor, so those two were never affected.)
+#
+# Second, even working, excluding the row would have been wrong. A caller who can
+# reach the guest through `get_guest`, through a board, or through a reservation
+# search learns the flag from the guest's *absence* here - a conclusive one-bit
+# inference where the permlevel only ever intended to withhold a field.
+#
+# So the row is returned and the column simply never selected: `SEARCH_FIELDS`
+# does not contain it. That is the same rule the boards follow
+# (`front_office._blacklist_flag` redacts the column and keeps the row), and it is
+# what `services.search` does too. One field, one rule, every surface.
 
 
 @frappe.whitelist(methods=["GET"])

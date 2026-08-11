@@ -3223,3 +3223,367 @@ recommendations changed the design: the deposit-column treatment, the
 In-House suppressions, and the drawer/dialog layering rule.
 
 Result: **PASS**
+
+---
+
+## 16.7.1 — Front Desk Command Center
+
+Baseline: **`f596eae`** — `version-16` with 16.7.0 merged locally, `--no-ff`,
+history preserved. Pre-merge `version-16` was `b8718b8`; the 16.7.0 head was
+`46f9e1a`; the merge-base equalled `version-16`, so 16.7.0 was exactly one commit
+ahead with **no divergent commits**, and the merged tree is identical to
+`46f9e1a`. Post-merge validation: 320 frontend tests, 7/7 Node checks,
+`test_final_integrity` 15/15, `test_authorization` 20/20. Nothing was pushed,
+pulled or fetched at any point.
+
+This build turns the existing dashboard into a Front Desk Command Center, adds
+the one new backend endpoint 16.7 always intended (global operational search),
+enriches the in-house board, and completes the row actions on the three Front
+Desk boards. It also closes **four security or integrity defects**, three of
+which were pre-existing and none of which was on the original brief beyond the
+first.
+
+### Security and integrity
+
+**1. The blacklist flag leak (the brief's Part 1).** `get_guest_flags` read
+`is_blacklisted` with `frappe.get_all`, which applies neither DocType permission
+nor permlevel filtering, while the arrivals endpoint gates only on Reservation
+read — a far wider reader set than `BLACKLIST_READERS`. The column is now
+selected only when `services.guests.may_see_blacklist()` says the caller is
+cleared, and for anyone else the key is **absent, never `False`**: `False` is a
+claim about the guest that the caller is not entitled to and that may be untrue.
+No `requires_manager_attention` proxy was added — Front Office is inside
+`BLACKLIST_READERS`, so the roles that work the board keep the flag, and a proxy
+would rebuild the leak under a new name.
+
+**2. Board rows disclosed data whose DocType the caller could not open.** Found
+by the security review, and it is defect 1's own mechanism one DocType over. A
+board is one row assembled from several DocTypes while its endpoint gates on
+only one; the fix for `is_blacklisted` left the rest of the row ungated. On this
+site **ten roles hold Stay read and neither Guest nor Guest Folio read** — Room
+Attendant, Housekeeping Manager and Supervisor, Maintenance Manager and
+Technician, Kitchen Manager and User, Food and Beverage Manager, Revenue Manager,
+Corporate Sales Manager — and the Command Center is their landing page, because
+its navigation entry carries no role filter. The enriched in-house board would
+have put a named, balance-sorted list of guest debts in front of all of them.
+
+Three splice helpers now gate by the DocType the data comes from —
+`_guest_standing` (Guest), `_folio_position` (Guest Folio) and `_alert_position`
+(Guest Alert, whose reader set *is* Guest's) — applied on **all three** boards,
+so the amplified pre-existing departures exposure is closed with the new one. The
+blockers matter as much as the numbers: `get_departure_blockers` words them with
+the amount inside the sentence, so passing the strings through would disclose the
+money with every numeric field withheld. The summaries were gated too — totalling
+withheld figures would put the money back on screen with the names stripped off,
+which is a different report, not a protection.
+
+`alert_count` travels with the grade rather than unconditionally. The first draft
+gave the count to every board reader on the theory that "there is something to
+ask about" is not a disclosure; the review took that apart correctly — the
+argument named the front desk, which holds Guest read and was never the audience
+in question, and a room attendant who learns the guest in 412 carries two alerts
+acts on none of it while accumulating exactly the profile the permission protects.
+
+**3. `cancel` and `mark_no_show` could be applied to a partly-arrived booking.**
+`stays.check_in` only promotes a multi-room reservation's header once the whole
+party arrives, so a three-room booking with two guests upstairs still reads
+`Confirmed` — and `TRANSITIONS` allows `Cancelled` and `No Show` from there.
+Neither verb checked for existing Stays, so cancelling left in-house guests
+attached to a Cancelled reservation, folios open, room lines stamped, the lines
+gone from the arrivals board, and `_release_corporate_credit` releasing credit for
+rooms that were slept in. Reachable from `Reservation.vue` before this build, and
+16.7.1 was about to offer the same verbs from a board.
+
+`_assert_no_unfinished_stay` refuses when any Stay of the booking is not `Closed`,
+**inside** the existing row lock and using a locking read — a plain read would be
+answered from the pre-lock snapshot and would miss a check-in that committed while
+we waited. `Closed` alone is history; `Checked Out` still blocks, because a guest
+who slept there makes cancellation a lie about a night that happened.
+
+**4. The guard broke the night-audit no-show sweep, and that was also a finding.**
+`get_unresolved_arrivals` selects on the header status, so it *does* present
+partly-arrived bookings, and `mark_no_shows` called `mark_no_show` bare in a loop:
+one refusal ended the step and every genuine no-show behind it went unmarked.
+Each booking is now contained in its own savepoint. Nothing is hidden by skipping
+one — `review` already raises a **blocking** "Unresolved Arrival" for it, so the
+day cannot close until a human decides whether the rest of the party is coming.
+
+**5. `search_guests` was broken outright for two roles.** `filters={"is_blacklisted": ("!=", 1)}`
+looked like the way to keep blacklisted guests off a list; Frappe validates filter
+fields against the caller's readable fields, so naming a permlevel-2 column raised
+`PermissionError` for exactly the users the filter protected — the Guest readers
+without permlevel 2, on this site Accounts User and Finance Manager.
+
+Fixing it raised the harder question, and the answer changed both search surfaces:
+**redact the column, keep the row.** Removing the guest converts a withheld field
+into a *conclusive* one-bit inference, because the same response labels that
+guest's Reservation, Stay and Folio rows with `guest_name` — absent from the guest
+group while present in the others meant "blacklisted", every time. The module's
+own comment had claimed "absent from both, or from neither", and only the guest
+searcher was ever filtered, so the code never did what it said. Both surfaces now
+match the boards' rule: `_blacklist_flag` redacts the column and keeps the row.
+One field, one rule, every surface — and an Accounts User can find a guest by name
+again.
+
+### Global operational search
+
+One new whitelisted GET endpoint, `api.search.operational_search` →
+`services/search.py`. Five entities only: Guest, Reservation, Stay, Hotel Room,
+Guest Folio.
+
+- **Permission-aware reads throughout.** Every entity goes through
+  `frappe.get_list`, never `get_all`, so DocType permissions *and* the Property
+  User Permissions the product's scoping is built on both apply — plus an explicit
+  `property in (...)` filter on the four property-bearing entities as
+  belt-and-braces. There is no `frappe.get_all` in the module at all.
+- **Guest is estate-wide and says so.** A Guest carries no property; the
+  alternative was joining through stays to fake a scope, which was considered and
+  rejected on the record.
+- **Reviewed columns only.** Each searcher names its own field list and composes
+  its labels from it; nothing returns a document as JSON, so a field added to one
+  of these DocTypes later cannot become visible by accident. Identification,
+  blacklist, alert bodies and folio money are never selected.
+- **No route in the response.** Vue route names are a frontend concern; the API
+  returns `type` and `id` and the client owns the map. `Hotel Room` lands on the
+  rack itself because `RoomRack.vue` holds the opened room in local state and
+  accepts no route parameter — recorded for 16.7.4 rather than inventing a
+  parameter the page ignores.
+
+**Bounded by construction:** two-character minimum (a shorter query, or the
+literal `"undefined"` a client sends for an absent parameter, does **zero**
+queries), five results per entity clamped to ten, one query per entity, and the
+same cost for every caller — so query count cannot be used to infer clearance
+either.
+
+### Command Center
+
+The existing dashboard evolved rather than a second one built. Fixed geography,
+top to bottom: property and business date; a work counter strip **in rooms**
+(including the new `arrivals_unassigned` and `vacant_not_ready`); Arrivals and
+Departures queues at six rows; a new Room Attention queue; a new In-House panel;
+open work; house state; night audit; the rack **below** the queues; a one-row
+money strip; quick actions with Walk-in and Find a guest added.
+
+Panel positions do not change by time of day — a receptionist uses this screen
+forty times a shift and moving a panel would make muscle memory a liability. Only
+the content changes.
+
+**Revenue BI demoted, not deleted.** The booking-source donut and the revenue
+sparkline are gone from this page (kept in the repo; nothing at a counter changes
+because 38% came from an OTA, and the sparkline needs two closed audits to exist
+at all). The ADR/RevPAR block becomes one dated footer line, because 16.7.1 gives
+a duty manager nowhere else to read those figures.
+
+**The In-House panel is not a random sample.** "Top five in-house guests" means
+nothing; the panel shows in-house rows **with a balance**, highest first — money
+still to collect before departure — using the new enriched payload, and collapses
+to one honest line when there is none.
+
+**Room Attention ranks on the server's own order** (`api/rooms._blocking_reason`):
+a room needed today that cannot take its guest, then vacant-and-not-ready, then
+maintenance, then blocking inventory. One leading reason plus secondary chips,
+never a merged status — a room can be vacant, dirty *and* out of service at once,
+and merging them dispatches an attendant to a room the desk still cannot sell.
+Maintenance and inventory rows carry no resolve control: those statuses are
+reserved to manager and maintenance roles.
+
+**Rack bug fixed.** `theme.roomStateKey` claimed to mirror `_blocking_reason` but
+never read `inventory_status`, so a vacant, clean, Stop Sell room rendered solid
+green "Vacant clean" for a room nobody may sell. Inventory is now checked in the
+server's position. The palette was measured as an ordered set and was not
+re-opened: `blocked` reuses the parked appearance, and a separate
+`ROOM_STATE_LABEL_KEY` map gives it its own *word*, because the chip names its
+state in its tooltip and to assistive technology and "Out of service" would have
+been a new inaccuracy introduced by fixing an old one. The legend stays one row
+per distinct appearance.
+
+### In-house endpoint
+
+`front_office.get_in_house_board`, served by `api.stays.in_house`, preserving the
+response shape the 16.7.0 screen and its tests are built on and adding to it.
+`services.stays.get_in_house` was deliberately **not** changed — it still serves
+`get_dashboard` and the night audit. The enrichment lives in `front_office`
+because that module already imports stays (so stays cannot import it back) and
+already owns every bulk helper needed.
+
+Added per row: `room_number` (the real door number — the docname is the room
+*code*, which is why the Room column used to mean something different here than
+on the other two boards), `room_type_name`, `reservation`, `property`, `currency`,
+`id_verified`, and — subject to the gates above — `folio`, `folio_status`,
+`balance`, `related_folios`, `related_balance`, `can_check_out`, `blockers`,
+`vip_status`, `alert_count`, `alert_severity`, `is_blacklisted`.
+
+**Eight queries for twenty rows, constant in row count.** Balance comes from
+`Guest Folio.balance`, never recomputed; split folios stay counted, never folded
+into the guest's balance; readiness comes from `checkout.get_departure_blockers`,
+never re-derived — that function is now the single readiness rule for three
+boards. `id_verified` is shown as an exception only (a chip when identification is
+missing, nothing when it is present), because `check_in` can be told to skip the
+capture and the one screen that sees every in-house guest is where that has to
+surface before they leave.
+
+### Board actions
+
+**Cancel and No-show are drawer-only, never row actions.** The arrivals board is
+one row per room line but both verbs act on the whole reservation and
+`_propagate_status` stamps every line, so a row action would silently cancel all
+three rooms of a three-room booking and the rows would vanish from the board the
+agent is looking at. The drawer states the scope with the room count, which is why
+`total_rooms` is now on the row (it was already being fetched and simply not
+exposed). Visibility combines the server's `allowed_transitions` — also newly on
+the row, a free dict lookup, so Vue re-derives no state machine — with the role and
+the checked-in state; nothing is ever *disabled* on it, because the board is
+fetched once and never polled and `_transition` re-reads status under a lock, so a
+stale offer fails cleanly.
+
+No-show mirrors `NO_SHOW_ROLES`, **not** `FRONT_DESK_ROLES`: the server excludes
+Front Office Agent, and mirroring the wrong list would offer an action the server
+refuses every time. The charge wording says *policy*, never receipt —
+`mark_no_show` computes a figure and posts nothing.
+
+**Take payment is drawer-only and withheld on split folios.** The dialog showed no
+balance, which is how 40 becomes 400, so it now optionally receives and pre-fills
+the balance and is opened where `FolioBalance` is already on screen. On a split
+row it is withheld and the folio link is the route, because
+`get_departure_blockers` blocks on each folio individually while a control bound to
+`row.folio` settles only the primary — pay, blocker survives, pay again. It needs
+no role mirror for the case that matters: a caller who may not read Guest Folio is
+no longer sent `folio` at all, so the control vanishes with the data.
+
+**Service Request prefills its context** from the row (room, guest, reservation,
+stay), which is the operational value — a complaint typed against a mistyped room
+sends someone to the wrong door. `CreateRoomServiceOrderDialog` was **not** wired:
+it fetches the whole in-house board itself and cannot preselect a row (16.7.4).
+
+Preserved unchanged: the deposit stays a *qualified flag*, never a summable money
+column (it is a per-booking figure copied onto every room line); Checkout stays
+visible and enabled on a blocked departure with the server's own wording; the
+drawer always closes before a dialog opens.
+
+### Terminology
+
+Seven labels corrected from the domain review, all of which the Command Center
+puts on one screen for the first time: "Checkout"→"Check out" on In House (a
+button takes the verb); the departures readiness column → "Departure status";
+`page.departures.blocked` → "Cannot check out" (rooms keep "Blocked", which is the
+DocType's own word); arrivals "Ready"/"Not ready" → "Room ready"/"Room not ready"
+(the two subjects now appear together); arrivals "Pending" → "Not checked in" (same
+predicate as the filter); and the panel's "Due" → "Not assigned" ("Due In" and
+"Due Out" are real occupancy values).
+
+### Part 14 — the "duplicate" dashboard endpoint stays
+
+The inventory marked `dashboard.arrivals_today` for deprecation on the strength of
+its name. It is not a duplicate implementation: it has one live caller
+(`fixtures/number_card.json`, a Desk Number Card — the Vue dashboard never calls
+it), it counts **reservations across all permitted properties**, while
+`_front_office_counts` counts **room lines for one property**. Delegating would
+silently change the Desk card's number from bookings to rooms, which is the
+semantic drift the note was trying to avoid. It already delegates where it matters.
+Documented in place, including that retiring it means retiring the fixture.
+
+### Part 15 — navigation
+
+Almost nothing was needed. The Front Desk group already contained Dashboard,
+Arrivals, Walk-in, In-House and Departures in shift order, and Bookings already
+had Reservations, New, Calendar and Availability. Only the label changed
+(`nav.dashboard` → "Command Center") — **the router diff is empty**. Item order was
+left alone deliberately: it follows the order the day happens.
+
+### Validation
+
+- **Frontend:** 13 files, **321 tests**, all passing (188 at 16.7.0).
+- **Existing Node checks:** **7/7**, unmodified.
+- **Backend:** **440 tests**, all passing (389 at 16.6.6, 438 mid-build).
+- **Production build:** passes, no new warnings. The pre-existing >500 kB
+  index-chunk advisory is unchanged.
+- **Bundle:** 1,813,915 → 1,847,832 B (**+33,917, +1.9 %**). `index.js` +16.6 kB
+  (GlobalSearch is in the shell, so it lands in the main chunk), Dashboard +7.3 kB,
+  Arrivals +5.7 kB, In-House +3.7 kB, Departures −0.9 kB.
+- **Non-vacuous privacy tests.** Every gate was proved by reintroducing the defect:
+  ungating the folio and guest splices fails the two new in-house tests, and the
+  16.7.0 blacklist tests fail four ways if `get_guest_flags` reverts. Assertions
+  are on key *absence* plus whole-payload JSON scans, and the cleared case is
+  asserted too, so a fix is distinguishable from an outage.
+- **Generic CRUD:** none. No `frappe.client.*`, `frappe.db.*`,
+  `createDocumentResource` or `/api/resource/` anywhere in `frontend/src`;
+  `createResource` is imported only inside `src/resources/`.
+- **Business date:** unchanged. All three boards still fetch on `{ property }`
+  alone, no `on_date` from the client, no `new Date()` in any changed page, and
+  every board keeps its immediate property watcher.
+- **RTL:** no physical direction utility in any new or changed file, enforced by a
+  source-level spec that also checks every `t()` key exists in **both** catalogues.
+
+### Part 29 — performance (steady state, warmed)
+
+| Endpoint | Queries | Time | Rows |
+|---|---|---|---|
+| `front_office.dashboard` | 16 | 21 ms | — |
+| `front_office.arrivals` | 8 | 7 ms | 12 |
+| `front_office.departures` | 7 | 10 ms | 8 |
+| `stays.in_house` (enriched) | 8 | 13 ms | 20 |
+| `operational_search` | 6 | ~6 ms | 4–20 |
+| query < 2 chars, or `"undefined"` | 0 | 0 ms | 0 |
+
+Command Center initial load: four requests, 39 queries, ~51 ms. **No N+1
+introduced:** in-house is constant in row count, and search costs the same six
+queries whether it returns four results or twenty. First-call figures are three to
+twelve times higher purely from DocType metadata loading, which is once per worker
+and is not the endpoint's cost. No historical path was optimised.
+
+### Deferred
+
+**16.7.2** — reservation editing (dates, room type, rate, deposit, market
+segment); per-room-line cancellation (no `cancel_room_line` exists in the domain
+layer); a `waive_charge` control for cancellation (`CANCEL_OVERRIDE_ROLES`);
+`Reservation.external_reference` and `Guest.email_id` as search identifiers (both
+deliberately not added — the brief enumerated the identifiers, and a match on a
+field the result never displays looks to an agent like a result from nowhere).
+
+**The `toServerDate` defect stays open and is 16.7.2's.** `utils/format.toServerDate`
+parses an ISO date as UTC and reads back local date parts, so at a negative UTC
+offset it can move a business or service date back one day. Its only reach is
+`Calendar.vue:245`, which this build does not migrate; Qatar is UTC+3 so it does
+not reproduce here. **GlobalSearch and the Command Center do not use it** — a
+source-level spec asserts the three boards use neither `toServerDate` nor
+`new Date()` — so nothing in 16.7.1 exposes it. Recorded as
+**16.7.2 RESERVATION/CALENDAR DATE BACKLOG**.
+
+**16.7.3** — Guest 360; making the alert badge a door to the guest rather than a
+dead end (the count has no drill-down on a board today).
+
+**16.7.4** — Services union; wiring room service to a board row; `RoomRack`
+accepting `?room=` so a search result can open the room (the one-line change that
+would improve the search's room result).
+
+**16.7.5** — Cashier expansion; a receipt path behind Take payment.
+
+**Housekeeping backlog:** `vip_status`/`guest_type` reaching non-Guest-readers on
+arrivals and departures is now closed, but `api/guests.search_guests` still returns
+50 rows with email, nationality and stay history to any Guest reader — narrower
+scrutiny than this build applied, and worth a look. `api/guest_services.create_request`
+authorises the property but does not verify the caller-supplied `guest`/`stay`/`room`
+links belong to it (pre-dates 16.7.1; only the prefill is new). Ten older dialogs
+pass `rows="3"` as a string to a Number prop and warn on every mount; the two new
+dialogs do not. `limit_page_length` is deprecated in favour of `limit` in Frappe v16
+across the app.
+
+### Subagent usage
+
+Seven specialist roles under a Lead: a front-desk domain expert; two backend API
+developers (privacy + in-house enrichment; global search); a service developer for
+the cancellation guard; two Vue engineers (Command Center; board actions) plus one
+for GlobalSearch; and a security/authorization reviewer whose sign-off was
+mandatory. File ownership was assigned before any parallel edit — the locale
+catalogues, shared test helpers, this log and cross-cutting integration stayed with
+the Lead, and no two agents held the same file. Every deliverable was read and
+verified by the Lead rather than accepted on report.
+
+Four specialist findings changed the design: the cancel/no-show placement and the
+partial-arrival guard, the In-House readiness suppression, the Command Center's BI
+demotion, and — decisively — the security review's BLOCKER, which stopped the build
+until the board disclosure gates were in place. Two specialist positions were
+overruled with reasons recorded here: the alert grade's original exclusion, and the
+search's row-hiding.
+
+Result: **PASS**

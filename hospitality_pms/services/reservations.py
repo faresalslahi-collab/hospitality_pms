@@ -360,6 +360,69 @@ def waitlist(reservation: str, *, reason: str | None = None) -> str:
 	return _transition(doc, WAITLISTED, reason=reason)
 
 
+def _assert_no_unfinished_stay(reservation: str, target: str):
+	"""Refuse to end a booking that has already been partly consumed.
+
+	`stays.check_in` moves a Reservation to Checked In only once *every* room
+	line is in house - a multi-room booking is not checked in until the whole
+	party arrives - so a three-room booking with two guests upstairs still reads
+	`Confirmed` or `Guaranteed` at the header, and `TRANSITIONS` allows both
+	`Cancelled` and `No Show` from either. The state machine alone therefore
+	permits ending a booking whose guests are in their rooms: their Stays would
+	stay `In House` with their folios open against a cancelled reservation,
+	`_release_corporate_credit` would hand back credit for nights actually
+	consumed, and `_propagate_status` would stamp the ending status onto every
+	room line, so the party vanishes from the arrivals board while the people are
+	still in the hotel.
+
+	**Any Stay that is not `Closed` blocks.** `Expected`, `In House`, `Due Out`
+	and `Checked Out` all mean a room of this booking has been taken up:
+	`In House` and `Due Out` have a guest in the room; `Checked Out` has one who
+	slept there and whose folio is not yet put to bed; `Expected` means a
+	check-in is in flight (`check_in` inserts the Stay as `Expected` and moves it
+	to `In House` in the same transaction), and `check_in` itself already treats
+	anything other than `Closed` as "this room line is already checked in".
+	`Closed` is the one status that is history rather than a live stay - a
+	finished, settled stay - so a booking whose stays are all closed may still be
+	cancelled.
+
+	Read with `lock_and_find`, and called under the Reservation row lock the
+	caller already holds. Both halves matter (see `base.lock_document`, N1): the
+	lock is what stops `stays.check_in` - whose first act is to lock this same
+	Reservation row - from creating a Stay between this check and the transition,
+	and the *locking* read is what makes the answer current instead of answered
+	from a snapshot this transaction opened before a check-in that has since
+	committed. When nothing matches, the locking read holds the gap, so the
+	answer stays true until this transaction ends.
+	"""
+	# Imported here, not at module scope: `services.stays` imports this module,
+	# and an eager import either way round would be circular.
+	from hospitality_pms.services import stays as stay_service
+
+	live = lock_and_find(
+		stay_service.STAY_DOCTYPE,
+		{"reservation": reservation, "stay_status": ("!=", stay_service.CLOSED)},
+		["name"],
+	)
+
+	if not live:
+		return
+
+	message = (
+		_(
+			"Reservation {0} has rooms that are already checked in, so it cannot be recorded "
+			"as a no-show. Check those stays out, or resolve the room lines that arrived, first."
+		)
+		if target == NO_SHOW
+		else _(
+			"Reservation {0} has rooms that are already checked in, so it cannot be cancelled. "
+			"Check those stays out, or resolve the room lines that arrived, first."
+		)
+	)
+
+	throw(message.format(reservation), exc=InvalidStateTransitionError)
+
+
 def cancel(reservation: str, reason: str, *, waive_charge: bool = False) -> dict:
 	"""Cancel a reservation and compute what the policy charges.
 
@@ -375,6 +438,15 @@ def cancel(reservation: str, reason: str, *, waive_charge: bool = False) -> dict
 	# Refused here as well as inside _transition, so a cancellation that has
 	# already lost the race never releases credit it never consumed.
 	assert_transition(doc.reservation_status, CANCELLED, TRANSITIONS, _("Reservation"))
+
+	# Beside the transition guard, and inside the lock `lock_and_get_doc` above
+	# took: a check made before the lock would be decided against a snapshot a
+	# concurrent check-in can commit into, and the room could be occupied by the
+	# time this transaction cancelled the booking. Held here, the check-in waits
+	# on the Reservation row until this transaction ends, so no Stay can appear
+	# between this refusal and `_transition`. Before the credit release, too, so a
+	# refused cancellation moves no money.
+	_assert_no_unfinished_stay(reservation, CANCELLED)
 
 	first_night = _first_night_amount(doc)
 
@@ -434,6 +506,12 @@ def mark_no_show(reservation: str, *, reason: str | None = None) -> dict:
 			),
 			exc=InvalidStateTransitionError,
 		)
+
+	# Under the lock `lock_and_get_doc` above took, for the reason given at the
+	# same call in `cancel`: a guest who has physically arrived is not a no-show,
+	# and only a check made while this transaction holds the Reservation row can
+	# still be true when `_transition` runs.
+	_assert_no_unfinished_stay(reservation, NO_SHOW)
 
 	first_night = _first_night_amount(doc)
 
