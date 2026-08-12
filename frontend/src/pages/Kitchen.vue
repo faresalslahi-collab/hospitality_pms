@@ -57,7 +57,7 @@
             <tr>
               <th class="p-2 text-start">{{ t('page.kitchen.order') }}</th>
               <th class="p-2 text-start">{{ t('page.kitchen.room') }}</th>
-              <th class="p-2 text-start">{{ t('page.kitchen.guest') }}</th>
+              <th v-if="showGuest" class="p-2 text-start">{{ t('page.kitchen.guest') }}</th>
               <th class="p-2 text-start">{{ t('page.kitchen.type') }}</th>
               <th class="p-2 text-start">{{ t('page.kitchen.items') }}</th>
               <th class="p-2 text-start">{{ t('page.kitchen.placed_at') }}</th>
@@ -74,7 +74,7 @@
             >
               <td class="p-2 font-medium text-ink-gray-9">{{ row.name }}</td>
               <td class="p-2">{{ row.room || '—' }}</td>
-              <td class="p-2">{{ row.guest_name || '—' }}</td>
+              <td v-if="showGuest" class="p-2">{{ row.guest_name || '—' }}</td>
               <td class="p-2">{{ row.order_type }}</td>
               <td class="p-2">{{ row.item_count }}</td>
               <td class="p-2 whitespace-nowrap">{{ formatDateTime(row.ordered_on) }}</td>
@@ -141,6 +141,21 @@ const filterOptions = computed(() =>
 
 const orders = computed(() => board.data?.orders || [])
 const visibleOrders = computed(() => orders.value.filter(FILTERS[filter.value] || FILTERS.all))
+
+/**
+ * Whether the server disclosed who the order is for.
+ *
+ * Since 16.7.4 the board omits `guest_name` for a caller who may not read Guest
+ * — every kitchen role, which holds no Guest permission at any permlevel. The
+ * column is dropped rather than filled with a dash, because a dash reads as "no
+ * guest on this order", and a room service order always has one.
+ *
+ * Presence, never truthiness: a guest whose name happens to be blank is still a
+ * disclosed guest.
+ */
+const showGuest = computed(() =>
+  orders.value.some((order) => Object.prototype.hasOwnProperty.call(order, 'guest_name')),
+)
 
 const tiles = computed(() => {
   const s = board.data?.summary || {}

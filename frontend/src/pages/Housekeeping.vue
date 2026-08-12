@@ -13,6 +13,10 @@
           <template #prefix><FeatherIcon name="refresh-cw" class="size-4" /></template>
           {{ t('common.refresh') }}
         </Button>
+        <Button variant="solid" @click="createOpen = true">
+          <template #prefix><FeatherIcon name="plus" class="size-4" /></template>
+          {{ t('page.housekeeping.create_task') }}
+        </Button>
       </template>
     </PageHeader>
 
@@ -75,6 +79,7 @@
     />
     <CompleteHousekeepingTaskDialog v-model="completeOpen" :task="actionTask" @changed="reload" />
     <InspectHousekeepingTaskDialog v-model="inspectOpen" :task="actionTask" @changed="reload" />
+    <CreateHousekeepingTaskDialog v-model="createOpen" @created="reload" />
   </div>
 </template>
 
@@ -83,6 +88,7 @@ import { Badge, Button, FeatherIcon } from 'frappe-ui'
 import { computed, ref, watch } from 'vue'
 
 import CompleteHousekeepingTaskDialog from '@/components/CompleteHousekeepingTaskDialog.vue'
+import CreateHousekeepingTaskDialog from '@/components/CreateHousekeepingTaskDialog.vue'
 import HousekeepingTaskDialog from '@/components/HousekeepingTaskDialog.vue'
 import InspectHousekeepingTaskDialog from '@/components/InspectHousekeepingTaskDialog.vue'
 import EmptyState from '@/components/states/EmptyState.vue'
@@ -94,6 +100,7 @@ import { t } from '@/utils/i18n'
 
 const board = housekeepingBoardResource()
 
+const createOpen = ref(false)
 const detailOpen = ref(false)
 const completeOpen = ref(false)
 const inspectOpen = ref(false)

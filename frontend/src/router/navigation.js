@@ -43,6 +43,14 @@ export const NAVIGATION_GROUPS = [
   { key: 'front_desk', labelKey: 'nav.group.front_desk' },
   { key: 'bookings', labelKey: 'nav.group.bookings' },
   { key: 'rooms', labelKey: 'nav.group.rooms' },
+  // Services (16.7.4): the guest-facing work that is neither a booking nor a
+  // room. Deliberately two entries, not five. Laundry has no model at all -
+  // only an unused folio charge type and an unused warehouse purpose - and
+  // Transport is a Guest Request *category* with no pickup time, vehicle or
+  // destination field, so neither has a screen to point at. Minibar is already
+  // an order type on Room Service Order and lives under Kitchen, where its
+  // folio posting and stock movement already are.
+  { key: 'services', labelKey: 'nav.group.services' },
   { key: 'guests', labelKey: 'nav.group.guests' },
   { key: 'administration', labelKey: 'nav.group.administration' },
 ]
@@ -146,7 +154,7 @@ export const navigation = [
       'Hospitality Administrator',
       'System Manager',
     ],
-    group: 'rooms',
+    group: 'services',
   },
   {
     key: 'guest_services',
@@ -154,7 +162,7 @@ export const navigation = [
     to: { name: 'GuestServices' },
     icon: 'life-buoy',
     roles: GUEST_FACING_ROLES,
-    group: 'guests',
+    group: 'services',
   },
   {
     key: 'night_audit',

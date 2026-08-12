@@ -9,7 +9,7 @@ import frappe
 from frappe import _
 
 from hospitality_pms.services import kitchen as service
-from hospitality_pms.services.base import require_permission
+from hospitality_pms.services.base import authorise_document, require_permission
 from hospitality_pms.services.property import resolve_property
 
 REQUISITION_DOCTYPE = "Kitchen Requisition"
@@ -150,7 +150,7 @@ def create_requisition(
 @frappe.whitelist(methods=["POST"])
 def issue_requisition(requisition: str) -> dict:
 	"""Move the stock: create and submit the requisition's Stock Entry."""
-	require_permission(REQUISITION_DOCTYPE, "write")
+	authorise_document(REQUISITION_DOCTYPE, requisition, "write")
 
 	service.issue_requisition(requisition)
 
@@ -180,6 +180,30 @@ def get_requisition(requisition: str) -> dict:
 			for row in doc.lines
 		],
 	}
+
+
+#: Order fields that belong to a DocType other than the order itself.
+#:
+#: Each is dropped unless the caller may read the source. A kitchen fulfils an
+#: order from the room, the lines and the notes; the guest's identity and the
+#: folio are a different question with a different answer.
+_ORDER_FIELD_SOURCE = {
+	"guest": "Guest",
+	"stay": "Stay",
+	"folio": "Guest Folio",
+	"folio_charge_row": "Guest Folio",
+}
+
+
+def _order_disclosure() -> set[str]:
+	"""The order fields this caller is entitled to, asked once per request."""
+	allowed = {field for field in ORDER_FIELDS if field not in _ORDER_FIELD_SOURCE}
+
+	for field, doctype in _ORDER_FIELD_SOURCE.items():
+		if frappe.has_permission(doctype, "read"):
+			allowed.add(field)
+
+	return allowed
 
 
 # ---------------------------------------------------------------------------
@@ -233,14 +257,23 @@ def create_order(
 
 @frappe.whitelist(methods=["GET"])
 def get_order(order: str) -> dict:
-	"""One order with its priced lines."""
+	"""One order with its priced lines.
+
+	The guest and folio identifiers are dropped for a caller who may not read
+	those DocTypes - the same rule the order board applies. `Room Service Order`
+	read is held by every kitchen role and by none of them does it imply Guest or
+	Guest Folio read, so gating only the order would publish the guest's identity
+	and the folio their money sits on through a second door.
+	"""
 	require_permission(ORDER_DOCTYPE, "read")
 
 	doc = frappe.get_doc(ORDER_DOCTYPE, order)
 	doc.check_permission("read")
 
+	fields = [field for field in ORDER_FIELDS if field in _order_disclosure()]
+
 	return {
-		"order": {field: doc.get(field) for field in ORDER_FIELDS},
+		"order": {field: doc.get(field) for field in fields},
 		"lines": [
 			{
 				"name": row.name,
@@ -265,7 +298,7 @@ def set_order_status(order: str, status: str) -> dict:
 	`deliver_order`, so it charges the folio the same way this endpoint's own
 	`deliver_order` does - once, under one idempotency key.
 	"""
-	require_permission(ORDER_DOCTYPE, "write")
+	authorise_document(ORDER_DOCTYPE, order, "write")
 
 	service.set_order_status(order, status)
 
@@ -275,7 +308,7 @@ def set_order_status(order: str, status: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def deliver_order(order: str) -> dict:
 	"""Deliver the order and charge it to the folio, exactly once."""
-	require_permission(ORDER_DOCTYPE, "write")
+	authorise_document(ORDER_DOCTYPE, order, "write")
 
 	service.deliver_order(order)
 

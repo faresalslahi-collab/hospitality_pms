@@ -10,7 +10,11 @@ from frappe import _
 from frappe.utils import add_to_date, flt, get_datetime, now_datetime
 
 from hospitality_pms.services.base import assert_transition, lock_document, require_role
-from hospitality_pms.services.exceptions import HospitalityPMSError, throw
+from hospitality_pms.services.exceptions import (
+	HospitalityPMSError,
+	PermissionDeniedError,
+	throw,
+)
 
 REQUEST_DOCTYPE = "Guest Request"
 LOG_DOCTYPE = "Guest Request Log"
@@ -59,6 +63,45 @@ RECOVERY_ROLES = (
 )
 
 
+def _assert_context_belongs(
+	property_name: str,
+	*,
+	stay: str | None = None,
+	room: str | None = None,
+	reservation: str | None = None,
+):
+	"""Prove the records a request points at belong to the property it is raised in.
+
+	The caller authorises the *property* - `api.guest_services.create_request`
+	calls `resolve_property` - but until 16.7.4 nothing authorised the records
+	named alongside it, and the insert runs with `ignore_permissions=True`, which
+	switches off even Frappe's own link permission check. So a user permitted in
+	one property could raise a request there while attaching another property's
+	stay, room or reservation, and every screen that renders a request would then
+	display that record's context to a caller with no access to it. Recorded
+	against 16.7.1 and still open until now.
+
+	The guest is deliberately **not** checked: a Guest carries no property and is
+	a global master record shared across the estate - the same person stays in
+	Doha this year and Dubai next - so there is nothing to compare it against.
+	That is the same reasoning `services.search` and the Guest 360 workspace use.
+	"""
+	for doctype, name in (("Stay", stay), ("Reservation", reservation), ("Hotel Room", room)):
+		if not name:
+			continue
+
+		owner = frappe.db.get_value(doctype, name, "property")
+
+		if not owner:
+			throw(_("{0} {1} does not exist.").format(_(doctype), name), exc=HospitalityPMSError)
+
+		if owner != property_name:
+			throw(
+				_("{0} {1} belongs to another property.").format(_(doctype), name),
+				exc=PermissionDeniedError,
+			)
+
+
 def create_request(
 	property_name: str,
 	*,
@@ -77,6 +120,8 @@ def create_request(
 	"""Raise a guest request or complaint, with its SLA clock started."""
 	if not subject or not description:
 		throw(_("A request needs a subject and a description."), exc=HospitalityPMSError)
+
+	_assert_context_belongs(property_name, stay=stay, room=room, reservation=reservation)
 
 	sla = int(sla_minutes or DEFAULT_SLA_MINUTES.get(priority, 120))
 	raised_at = now_datetime()

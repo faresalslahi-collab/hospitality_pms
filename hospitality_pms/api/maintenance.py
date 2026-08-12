@@ -3,7 +3,7 @@
 import frappe
 
 from hospitality_pms.services import maintenance as service
-from hospitality_pms.services.base import require_permission
+from hospitality_pms.services.base import authorise_document, require_permission
 from hospitality_pms.services.property import resolve_property
 
 TICKET_DOCTYPE = "Maintenance Ticket"
@@ -126,7 +126,7 @@ def create_ticket(
 @frappe.whitelist(methods=["POST"])
 def assign(ticket: str, technician: str) -> dict:
 	"""Assign a ticket to a technician."""
-	require_permission(TICKET_DOCTYPE, "write")
+	authorise_document(TICKET_DOCTYPE, ticket, "write")
 
 	service.assign(ticket, technician)
 
@@ -136,7 +136,7 @@ def assign(ticket: str, technician: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def start_work(ticket: str) -> dict:
 	"""Start work on a ticket."""
-	require_permission(TICKET_DOCTYPE, "write")
+	authorise_document(TICKET_DOCTYPE, ticket, "write")
 
 	service.start_work(ticket)
 
@@ -146,7 +146,7 @@ def start_work(ticket: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def log_work(ticket: str, work_done: str, minutes: int | None = None, parts: str | None = None) -> dict:
 	"""Append an entry to a ticket's work log."""
-	require_permission(TICKET_DOCTYPE, "write")
+	authorise_document(TICKET_DOCTYPE, ticket, "write")
 
 	service.log_work(
 		ticket,
@@ -161,7 +161,7 @@ def log_work(ticket: str, work_done: str, minutes: int | None = None, parts: str
 @frappe.whitelist(methods=["POST"])
 def take_out_of_service(ticket: str, status: str, reason: str, until_date: str | None = None) -> dict:
 	"""Remove a room from sale for maintenance."""
-	require_permission(TICKET_DOCTYPE, "write")
+	authorise_document(TICKET_DOCTYPE, ticket, "write")
 
 	service.take_out_of_service(ticket, status, reason, until_date=until_date)
 
@@ -171,7 +171,7 @@ def take_out_of_service(ticket: str, status: str, reason: str, until_date: str |
 @frappe.whitelist(methods=["POST"])
 def complete_work(ticket: str, notes: str | None = None) -> dict:
 	"""Technician finishes work; the room still awaits verification."""
-	require_permission(TICKET_DOCTYPE, "write")
+	authorise_document(TICKET_DOCTYPE, ticket, "write")
 
 	service.complete_work(ticket, notes=notes)
 
@@ -181,7 +181,7 @@ def complete_work(ticket: str, notes: str | None = None) -> dict:
 @frappe.whitelist(methods=["POST"])
 def verify_and_release(ticket: str, passed: int, notes: str | None = None) -> dict:
 	"""Verify completed work and, if it passed, release the room back to sale."""
-	require_permission(TICKET_DOCTYPE, "write")
+	authorise_document(TICKET_DOCTYPE, ticket, "write")
 
 	service.verify_and_release(ticket, passed=bool(int(passed)), notes=notes)
 

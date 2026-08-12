@@ -18,13 +18,24 @@ from frappe import _
 from frappe.utils import flt, getdate, now_datetime, nowdate
 
 from hospitality_pms.services.base import lock_document, require_role
-from hospitality_pms.services.exceptions import ConfigurationError, HospitalityPMSError, throw
+from hospitality_pms.services.exceptions import (
+	ConfigurationError,
+	HospitalityPMSError,
+	PermissionDeniedError,
+	throw,
+)
 from hospitality_pms.services.property import get_business_date, get_company, get_warehouse
 
 REQUISITION_DOCTYPE = "Kitchen Requisition"
 ORDER_DOCTYPE = "Room Service Order"
 WASTAGE_DOCTYPE = "Wastage Entry"
 MENU_DOCTYPE = "Menu Item"
+
+#: Sources the order board may only disclose to callers entitled to them. The
+#: kitchen roles hold neither, which is the whole point of asking.
+GUEST_DOCTYPE = "Guest"
+FOLIO_DOCTYPE = "Guest Folio"
+STAY_DOCTYPE = "Stay"
 
 #: Writing off stock is a management decision, not a line cook's
 #: (Roles Matrix section 3).
@@ -162,6 +173,42 @@ def create_order(
 
 	from hospitality_pms.services import folio as folio_service
 
+	stay_doc = (
+		frappe.db.get_value("Stay", stay, ["room", "guest", "property"], as_dict=True)
+		if stay
+		else None
+	)
+
+	# The stay is proved to belong to the authorised property *before* its folio
+	# is looked up (16.7.4). `resolve_property` authorises the property the order
+	# is stamped with, and `get_folio_for_stay` is a permission-free read, so a
+	# caller permitted in one property could pass another property's stay and
+	# have `deliver_order` post a Room Service charge onto that guest's folio -
+	# a cross-property financial write reached through an operational endpoint.
+	# Checked here rather than in the API because `property_name` arrives already
+	# authorised and the stay is this function's own input.
+	if stay:
+		if not stay_doc:
+			throw(_("Stay {0} does not exist.").format(stay), exc=HospitalityPMSError)
+
+		if stay_doc.get("property") != property_name:
+			throw(
+				_("Stay {0} belongs to another property.").format(stay),
+				exc=PermissionDeniedError,
+			)
+
+	if room:
+		room_property = frappe.db.get_value("Hotel Room", room, "property")
+
+		if not room_property:
+			throw(_("Room {0} does not exist.").format(room), exc=HospitalityPMSError)
+
+		if room_property != property_name:
+			throw(
+				_("Room {0} belongs to another property.").format(room),
+				exc=PermissionDeniedError,
+			)
+
 	folio = folio_service.get_folio_for_stay(stay) if stay else None
 
 	if not folio:
@@ -169,10 +216,6 @@ def create_order(
 			_("This order has no open folio to charge. The guest must be in house."),
 			exc=HospitalityPMSError,
 		)
-
-	stay_doc = frappe.db.get_value(
-		"Stay", stay, ["room", "guest", "property"], as_dict=True
-	)
 
 	priced = []
 	subtotal = 0.0
@@ -501,9 +544,25 @@ def get_order_board(property_name: str, *, include_closed: bool = False) -> dict
 			bucket["lines"] += 1
 			bucket["items"] += flt(row["quantity"])
 
-		# The order carries the guest link but not their name; one lookup for
-		# the whole board rather than one per row.
-		guests = {g for g in (o["guest"] for o in orders) if g}
+		# Who this caller may be told about, asked once for the board rather than
+		# once per row.
+		#
+		# The board gates on `Room Service Order.read`, which the kitchen roles
+		# hold - and they hold no read on Guest or Guest Folio at any permlevel.
+		# Until 16.7.4 the guest's name was read with a permission-free
+		# `frappe.get_all` and the folio identifier came straight off the order,
+		# so a Kitchen User opened the board onto a named list of guests and the
+		# folios their money sits on. Exactly the defect `test_in_house_board`
+		# was written to close for the in-house board, never applied here.
+		#
+		# A kitchen needs a room, an order and its lines to fulfil it. The name
+		# is a courtesy for the roles entitled to it, and the folio is nobody's
+		# business on this screen unless they may open one.
+		may_read_guest = frappe.has_permission(GUEST_DOCTYPE, "read")
+		may_read_folio = frappe.has_permission(FOLIO_DOCTYPE, "read")
+		may_read_stay = frappe.has_permission(STAY_DOCTYPE, "read")
+
+		guests = {g for g in (o["guest"] for o in orders) if g} if may_read_guest else set()
 		names = (
 			dict(
 				frappe.get_all(
@@ -522,7 +581,22 @@ def get_order_board(property_name: str, *, include_closed: bool = False) -> dict
 			row = by_order.get(order["name"]) or {}
 			order["line_count"] = int(row.get("lines") or 0)
 			order["item_count"] = flt(row.get("items") or 0)
-			order["guest_name"] = names.get(order["guest"], "")
+
+			# Absent, never blank: an empty string reads as "no guest on this
+			# order", which for a room service order is never true.
+			if may_read_guest:
+				order["guest_name"] = names.get(order["guest"], "")
+			else:
+				order.pop("guest", None)
+
+			if not may_read_folio:
+				order.pop("folio", None)
+				order.pop("folio_charge_row", None)
+
+			# The stay is a Stay identifier like any other, and follows the same
+			# rule as the guest and the folio beside it.
+			if not may_read_stay:
+				order.pop("stay", None)
 
 	return {
 		"property": property_name,

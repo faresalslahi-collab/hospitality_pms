@@ -16,7 +16,11 @@ from frappe.utils import getdate, now_datetime
 
 from hospitality_pms.services import rooms as room_service
 from hospitality_pms.services.base import assert_transition, lock_document, require_role
-from hospitality_pms.services.exceptions import HospitalityPMSError, throw
+from hospitality_pms.services.exceptions import (
+	HospitalityPMSError,
+	PermissionDeniedError,
+	throw,
+)
 from hospitality_pms.services.property import get_business_date
 
 TASK_DOCTYPE = "Housekeeping Task"
@@ -80,6 +84,20 @@ def create_task(
 
 	Returns the existing open task when one already covers this room, type and
 	date, so a checkout retried twice does not queue the same room twice.
+
+	The room is proved to belong to the property before anything is written
+	(16.7.4). The caller authorises the *property* - `api.housekeeping.create_task`
+	calls `resolve_property` - but nothing authorised the *room*, so a user
+	permitted in one property could raise a task naming another property's room.
+	That is not merely an untidy row: every later lifecycle call on the task
+	reaches `room_service.set_status`, so it becomes a write onto a room in a
+	property the caller has no access to, and a `Room Status Log` entry there.
+
+	The check lives here rather than in the API because the automation paths -
+	`checkout._raise_housekeeping_task` and the night audit - pass a stay's own
+	property and room, which already agree, so it costs them nothing and closes
+	the client path at the same time. Same shape as `walk_in.py`,
+	`reservations.assign_room` and `stays.change_room`, which all ask it.
 	"""
 	scheduled_date = getdate(scheduled_date or get_business_date(property_name))
 
@@ -99,8 +117,17 @@ def create_task(
 		return existing
 
 	room_details = frappe.db.get_value(
-		"Hotel Room", room, ["room_type", "zone", "housekeeping_credits"], as_dict=True
+		"Hotel Room", room, ["property", "room_type", "zone", "housekeeping_credits"], as_dict=True
 	) or {}
+
+	if not room_details:
+		throw(_("Room {0} does not exist.").format(room), exc=HospitalityPMSError)
+
+	if room_details.get("property") != property_name:
+		throw(
+			_("Room {0} belongs to another property.").format(room),
+			exc=PermissionDeniedError,
+		)
 
 	if requires_inspection is None:
 		requires_inspection = bool(
