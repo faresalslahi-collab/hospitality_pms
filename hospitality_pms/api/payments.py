@@ -18,11 +18,21 @@ from hospitality_pms.services.base import (
 FOLIO_DOCTYPE = "Guest Folio"
 TRANSACTION_DOCTYPE = "Payment Transaction"
 
+#: Roles that may return money to a guest.
+#:
+#: Aligned in 16.7.5 to the roles that actually hold `write` on Payment
+#: Transaction. `General Manager` and `Hotel Manager` were listed here but are
+#: deliberately *readers only* in the permissions matrix
+#: (`setup/permissions.py`: `writers=["Front Office Manager", *FINANCE, *ADMIN]`),
+#: so `require_role` admitted them and `authorise_document(..., "write")` then
+#: refused them - the endpoint advertised a capability it would not honour.
+#: Widening the matrix instead was rejected: excluding management from executing
+#: payment operations while keeping their oversight read is a deliberate
+#: separation, and a cashier build is the wrong place to reverse it.
 REFUND_ROLES = (
 	"Finance Manager",
+	"Accounts User",
 	"Front Office Manager",
-	"Hotel Manager",
-	"General Manager",
 	"Hospitality Administrator",
 	"System Manager",
 )
@@ -82,11 +92,31 @@ def sync_status(transaction: str) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def refund(transaction: str, amount: float, reason: str) -> dict:
+def refund(
+	transaction: str,
+	amount: float,
+	reason: str,
+	idempotency_key: str | None = None,
+) -> dict:
+	"""Return money to a guest, once per operator decision.
+
+	The key is the caller's to supply, for exactly the reason
+	`require_operation_key` gives: without one the service falls back to
+	`refund:{transaction}:{amount}`, which is a content hash - and a content
+	hash cannot tell two goodwill refunds of fifty from one refund of fifty
+	sent twice. A desk issuing a second fifty against the same capture had the
+	first one returned to it as a duplicate and refunded nothing, while
+	reporting success (16.7.5).
+	"""
 	require_role(REFUND_ROLES)
 	authorise_document(TRANSACTION_DOCTYPE, transaction, "write")
 
-	return service.refund_payment(transaction, float(amount), reason)
+	return service.refund_payment(
+		transaction,
+		float(amount),
+		reason,
+		idempotency_key=require_operation_key(idempotency_key, "Refunding a payment"),
+	)
 
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])

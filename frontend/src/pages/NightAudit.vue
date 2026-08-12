@@ -161,6 +161,7 @@ import NightAuditReopenDialog from '@/components/NightAuditReopenDialog.vue'
 import EmptyState from '@/components/states/EmptyState.vue'
 import ErrorState from '@/components/states/ErrorState.vue'
 import LoadingState from '@/components/states/LoadingState.vue'
+import { hasField } from '@/resources/guests'
 import {
   auditStatusTheme,
   markDueOutsResource,
@@ -217,13 +218,28 @@ const figureTiles = computed(() => {
       value: c.postings_failed ?? 0,
       class: c.postings_failed ? 'text-ink-red-3' : 'text-ink-gray-9',
     },
-    { key: 'room_revenue', label: t('page.night_audit.room_revenue'), value: formatCurrency(f.room_revenue ?? 0, currency) },
-    { key: 'payments_received', label: t('page.night_audit.payments_received'), value: formatCurrency(f.payments_received ?? 0, currency) },
-    {
-      key: 'outstanding_balance',
-      label: t('page.night_audit.outstanding_balance'),
-      value: formatCurrency(f.outstanding_balance ?? 0, currency),
-    },
+    // The three folio-derived totals are omitted by the server for a caller
+    // without Guest Folio read (16.7.5-R1B), so they are spliced in only when
+    // disclosed. `?? 0` here would print "Outstanding balance QAR 0.00" and read
+    // as "nothing is owed" — the same lie `Dashboard.vue` and `Checkout.vue`
+    // guard against. Only six roles reach this screen today and all six hold
+    // Guest Folio read, so this is defence against the next nav change rather
+    // than a live leak.
+    ...(hasField(f, 'room_revenue')
+      ? [{ key: 'room_revenue', label: t('page.night_audit.room_revenue'), value: formatCurrency(f.room_revenue, currency) }]
+      : []),
+    ...(hasField(f, 'payments_received')
+      ? [{ key: 'payments_received', label: t('page.night_audit.payments_received'), value: formatCurrency(f.payments_received, currency) }]
+      : []),
+    ...(hasField(f, 'outstanding_balance')
+      ? [
+          {
+            key: 'outstanding_balance',
+            label: t('page.night_audit.outstanding_balance'),
+            value: formatCurrency(f.outstanding_balance, currency),
+          },
+        ]
+      : []),
     { key: 'occupancy', label: t('page.night_audit.occupancy'), value: `${formatNumber(f.occupancy_percentage ?? 0, 1)}%` },
     { key: 'adr', label: t('page.night_audit.adr'), value: formatCurrency(f.adr ?? 0, currency) },
     { key: 'revpar', label: t('page.night_audit.revpar'), value: formatCurrency(f.revpar ?? 0, currency) },

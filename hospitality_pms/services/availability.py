@@ -617,6 +617,7 @@ def get_assignable_rooms(
 	*,
 	allow_unready_housekeeping: bool = False,
 	exclude_line: str | None = None,
+	exclude_stay: str | None = None,
 ) -> list[dict]:
 	"""Specific rooms that can be assigned for the whole stay.
 
@@ -636,8 +637,15 @@ def get_assignable_rooms(
 
 	`exclude_line` is the line being assigned: a line must not be treated as
 	its own rival when it is re-picking a room it already holds.
+
+	`exclude_stay` is the stay being moved, for a room change: a guest must not
+	be refused their own room as a destination-side rival.
 	"""
-	from hospitality_pms.services.rooms import OCCUPIED_STATES, READY_HOUSEKEEPING
+	from hospitality_pms.services.rooms import (
+		OCCUPIED_STATES,
+		READY_HOUSEKEEPING,
+		rooms_with_active_stays,
+	)
 
 	nights = nights_between(arrival, departure)
 	rooms = _physical_rooms(property_name, room_type)
@@ -648,6 +656,43 @@ def get_assignable_rooms(
 	# their own inventory interval already covers.
 	business_date = getdate(get_property(property_name).business_date)
 	occupancy_matters = getdate(arrival) <= business_date
+
+	# Who is *actually* in a room, which neither of the two filters above can
+	# answer (HPMS-UAT-16.7.5-B01).
+	#
+	# `promised` asks the inventory table, whose overlap test is
+	# departure-exclusive so that a same-day turnover is not a clash. Correct for
+	# selling nights, and blind to the guest whose departure date is today: their
+	# line does not overlap an assignment arriving today, so they raise no clash
+	# while they are still in the room. `occupancy_status` asks the room's own
+	# flag, which `mark_due_out` moves to `Due Out` from the Night Audit every
+	# morning - a state that is deliberately not in `OCCUPIED_STATES`, because a
+	# Due Out room *is* re-lettable once its guest has gone. Neither notices that
+	# they have not gone.
+	#
+	# So the Stay is asked directly, and it is asked with the same date rule the
+	# occupancy flag already uses rather than a new one:
+	#
+	# * **Arrival today or earlier** - an immediate assignment, check-in or room
+	#   move. Physical occupancy wins outright: whoever is in the room is in it
+	#   now, whatever their dates say and whatever the flag says. This is the
+	#   case that was broken, and it covers the Due Out guest, the overdue guest
+	#   and room 402's persisted state alike.
+	# * **Arrival in the future** - today's occupant is irrelevant. A guest
+	#   departing today must not sterilise the room for next Tuesday, and a room
+	#   that is full all week is held back by the *inventory* interval, which is
+	#   the authority for future nights and needs no help here. Suppressing this
+	#   filter for future dates is therefore not a relaxation; it is declining to
+	#   answer a question with the wrong record.
+	#
+	# The list stays advisory either way. The mutations re-ask under the room's
+	# lock through `rooms.assert_room_unoccupied`, because a room can be taken
+	# between rendering this list and clicking it.
+	occupied_now = (
+		rooms_with_active_stays(property_name, exclude_stay=exclude_stay)
+		if occupancy_matters
+		else set()
+	)
 
 	blocks = _blocks(property_name, arrival, departure, room_type)
 	rooms_blocked, _quantity = _blocked_by_night(blocks, nights, {r["name"]: r for r in rooms})
@@ -662,7 +707,7 @@ def get_assignable_rooms(
 		if not _is_sellable(room) or room["name"] in blocked_any_night:
 			continue
 
-		if room["name"] in promised:
+		if room["name"] in promised or room["name"] in occupied_now:
 			continue
 
 		details = frappe.db.get_value(

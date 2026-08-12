@@ -19,6 +19,7 @@ import frappe
 from frappe import _
 
 from hospitality_pms.api.rooms import _blocking_reason
+from hospitality_pms.services.rooms import rooms_with_active_stays
 
 
 def execute(filters=None):
@@ -81,8 +82,18 @@ def get_data(filters):
 
 	data = []
 
+	# The same active-Stay authority the rack uses, in one query for the whole
+	# report (16.7.5-R1B).
+	#
+	# This report imports `_blocking_reason` from the rack API precisely so the two
+	# can never disagree about why a room is blocked. When that function gained an
+	# active-Stay branch, a caller that passed no `occupied_rooms` silently opted
+	# out of it - so room 402, with a guest in it and a stale `Vacant` flag, would
+	# have read "Assignable: Yes" here while the rack beside it read "Occupied".
+	occupied_now = rooms_with_active_stays(filters.property)
+
 	for room in rooms:
-		reason = _blocking_reason(room)
+		reason = _blocking_reason(room, occupied_rooms=occupied_now)
 		data.append(
 			{
 				"name": room["name"],

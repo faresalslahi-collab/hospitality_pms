@@ -53,7 +53,11 @@ from hospitality_pms.services.rates import (
 	get_rate_breakdown,
 	validate_restrictions,
 )
-from hospitality_pms.services.rooms import assert_assignable
+from hospitality_pms.services.rooms import (
+	assert_assignable,
+	assert_room_unoccupied,
+	occupancy_applies,
+)
 
 RESERVATION_DOCTYPE = "Reservation"
 RESERVATION_LOG_DOCTYPE = "Reservation Log"
@@ -818,6 +822,31 @@ def assign_room(reservation: str, room_line: str, room: str, *, allow_unready: b
 
 	_assert_room_free(room, line.arrival_date, line.departure_date, exclude_line=room_line)
 	assert_assignable(room, allow_unready_housekeeping=allow_unready, arrival=line.arrival_date)
+
+	# And whether anybody is actually *in* it, which neither of the two lines
+	# above can answer (HPMS-UAT-16.7.5-B01).
+	#
+	# `_assert_room_free` asks the inventory table, whose overlap test is
+	# departure-exclusive, so the guest whose departure date is today raises no
+	# clash against an assignment arriving today. `assert_assignable` asks the
+	# room's own flag, which the Night Audit moves to `Due Out` for every
+	# departing guest and which a later guest's checkout can leave saying
+	# `Vacant`. Both were satisfied for room 402 while a guest was asleep in it.
+	#
+	# Asked last, and asked under the Hotel Room lock taken above, so the answer
+	# cannot go stale between this check and the write below. A **current** read
+	# for the same reason `_assert_room_free` uses one: the lock serialises this
+	# against a rival assignment but does not refresh what this transaction can
+	# see, and a plain read here would be answered from the view opened before
+	# the rival committed its check-in (N1).
+	#
+	# Scoped to `arrival` the same way `assert_assignable` is. Pre-assigning next
+	# Tuesday's arrival to a room that is full tonight is ordinary front-office
+	# work; whether tonight's guest will still be there on Tuesday is answered by
+	# their own inventory interval, and a full house must still be able to
+	# pre-assign.
+	if occupancy_applies(room, line.arrival_date):
+		assert_room_unoccupied(room, property_name=doc.property)
 
 	frappe.db.set_value("Reservation Room", room_line, "assigned_room", room, update_modified=False)
 

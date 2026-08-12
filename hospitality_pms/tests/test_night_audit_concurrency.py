@@ -82,8 +82,21 @@ class NightAuditChainTestCase(IntegrationTestCase):
 		frappe.db.rollback()
 
 	def _reset_chain(self):
-		frappe.db.delete("Night Audit Exception", {"parenttype": AUDIT})
-		frappe.db.delete(AUDIT, {"property": self.world.property})
+		# Property-scoped, via the helper that already gets this right (16.7.5-R1C).
+		#
+		# This used to be `frappe.db.delete("Night Audit Exception", {"parenttype": AUDIT})`
+		# followed by a property-scoped delete of the audits themselves. The second
+		# line was scoped; the first was not - `parenttype` is "Night Audit" for every
+		# exception row on the site - and it committed. So running this suite deleted
+		# the exception rows of every audit belonging to every property, including a
+		# live-like open audit on the site the suite happens to run against. It did:
+		# mysite.localhost's open audit HPMS-NA-2026-00004 has `reconciliation_variances = 1`
+		# on the parent and zero exception rows to explain it, and no Version row after
+		# the delete, because `frappe.db.delete` writes none.
+		#
+		# `reset_property_records` routes through `_purge`, which resolves the parent
+		# names for the filter first and only then deletes child rows for those parents.
+		self.world.fixtures.reset_property_records(self.world.property, (AUDIT,))
 		self.world.set_business_date(self.start_date)
 		frappe.db.commit()
 

@@ -178,7 +178,17 @@
         posted room revenue, which reads zero for most of the day by design and
         carries the sentence that says so.
       -->
+      <!--
+        Hidden outright when the server did not disclose `revenue`.
+
+        The block is omitted for a caller who may not read Guest Folio, and
+        `hasField` is the test rather than truthiness: rendering it anyway would
+        print "Outstanding 0.00", which reads as "everybody has paid" and is a
+        claim about the hotel's money that this caller was specifically not told.
+        Ten roles land on this screen without Guest Folio read.
+      -->
       <section
+        v-if="revenueDisclosed"
         aria-labelledby="command-center-money"
         class="flex flex-wrap items-baseline gap-x-8 gap-y-2 rounded-xl border border-outline-gray-1
           bg-surface-white px-4 py-3 shadow-card"
@@ -260,6 +270,7 @@ import RoomDetailDialog from '@/components/RoomDetailDialog.vue'
 import EmptyState from '@/components/states/EmptyState.vue'
 import ErrorState from '@/components/states/ErrorState.vue'
 import LoadingState from '@/components/states/LoadingState.vue'
+import { hasField } from '@/resources/guests'
 import {
   arrivalsBoardResource,
   dashboardResource,
@@ -288,6 +299,16 @@ const nightAudit = nightAuditCurrentResource()
 const rooms = computed(() => dashboard.data?.rooms || {})
 const frontOffice = computed(() => dashboard.data?.front_office || {})
 const revenue = computed(() => dashboard.data?.revenue || {})
+
+/**
+ * Whether this caller was told the folio-derived money at all.
+ *
+ * The `revenue` block is spliced out of the response for a caller without Guest
+ * Folio read, so its absence means "not disclosed to your role" and never "the
+ * day was quiet". `hasField` and not truthiness for exactly that reason: an
+ * empty object is falsy and `?? 0` would render three confident zeros.
+ */
+const revenueDisclosed = computed(() => hasField(dashboard.data, 'revenue'))
 const performance = computed(() => dashboard.data?.performance || {})
 const workload = computed(() => dashboard.data?.workload || {})
 

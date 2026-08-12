@@ -67,6 +67,7 @@ declare module 'vue' {
     PreferencesTab: typeof import('./src/components/guest/PreferencesTab.vue')['default']
     ProfileTab: typeof import('./src/components/guest/ProfileTab.vue')['default']
     PropertySelector: typeof import('./src/components/PropertySelector.vue')['default']
+    RefundPaymentDialog: typeof import('./src/components/RefundPaymentDialog.vue')['default']
     ReservationsTab: typeof import('./src/components/guest/ReservationsTab.vue')['default']
     RoomAttentionPanel: typeof import('./src/components/dashboard/RoomAttentionPanel.vue')['default']
     RoomDetailDialog: typeof import('./src/components/RoomDetailDialog.vue')['default']

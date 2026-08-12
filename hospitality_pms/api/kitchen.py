@@ -160,13 +160,15 @@ def issue_requisition(requisition: str) -> dict:
 @frappe.whitelist(methods=["GET"])
 def get_requisition(requisition: str) -> dict:
 	"""One requisition with its lines."""
-	require_permission(REQUISITION_DOCTYPE, "read")
-
-	doc = frappe.get_doc(REQUISITION_DOCTYPE, requisition)
-	doc.check_permission("read")
+	# `authorise_document` rather than `check_permission` alone (16.7.5). A User
+	# Permission created without `apply_to_all_doctypes` restricts only the
+	# DocTypes it names, so step 2 can legitimately pass for a record in a
+	# property the caller may not operate in - and every one of these DocTypes
+	# carries a required `property`, so the third check always fires.
+	doc = authorise_document(REQUISITION_DOCTYPE, requisition, "read")
 
 	return {
-		"requisition": {field: doc.get(field) for field in REQUISITION_FIELDS},
+		"requisition": _requisition_payload(doc),
 		"lines": [
 			{
 				"name": row.name,
@@ -204,6 +206,49 @@ def _order_disclosure() -> set[str]:
 			allowed.add(field)
 
 	return allowed
+
+
+#: The ERPNext DocType a kitchen movement lands in.
+#:
+#: `Stock Entry` is read by four ERPNext roles - Stock User and Manager,
+#: Manufacturing User and Manager - and by none of the ten roles that can read a
+#: Kitchen Requisition, System Manager aside. So every caller who could reach
+#: `get_requisition`, including Kitchen User, was handed an ERPNext document name
+#: it holds no permission on (16.7.5-R1B). `issue_requisition` was the sharpest:
+#: it creates the Stock Entry and returned its name in the same response.
+#:
+#: The identifier is what is withheld, not the fact. Whether the requisition has
+#: been issued to stock is operational, and `is_posted_to_stock` says so without
+#: naming the document - the same substitution `api/folio.py` makes with
+#: `is_posted_to_erp` in place of a Sales Invoice name.
+STOCK_ENTRY_DOCTYPE = "Stock Entry"
+
+_REQUISITION_FIELD_SOURCE = {"stock_entry": STOCK_ENTRY_DOCTYPE}
+
+
+def _requisition_disclosure() -> set[str]:
+	"""The requisition fields this caller is entitled to, asked once per request."""
+	allowed = {field for field in REQUISITION_FIELDS if field not in _REQUISITION_FIELD_SOURCE}
+
+	for field, doctype in _REQUISITION_FIELD_SOURCE.items():
+		if frappe.has_permission(doctype, "read"):
+			allowed.add(field)
+
+	return allowed
+
+
+def _requisition_payload(doc) -> dict:
+	"""A requisition as this caller may see it, plus the operational substitute."""
+	allowed = _requisition_disclosure()
+
+	payload = {field: doc.get(field) for field in REQUISITION_FIELDS if field in allowed}
+
+	# Always present, for every caller: "has this gone to stock yet" is the
+	# question the kitchen actually asks, and answering it needs no identifier.
+	payload["is_posted_to_stock"] = bool(doc.get("stock_entry"))
+	payload["disclosure"] = {"stock_entry": "stock_entry" in allowed}
+
+	return payload
 
 
 # ---------------------------------------------------------------------------
@@ -265,10 +310,12 @@ def get_order(order: str) -> dict:
 	Guest Folio read, so gating only the order would publish the guest's identity
 	and the folio their money sits on through a second door.
 	"""
-	require_permission(ORDER_DOCTYPE, "read")
-
-	doc = frappe.get_doc(ORDER_DOCTYPE, order)
-	doc.check_permission("read")
+	# `authorise_document` rather than `check_permission` alone (16.7.5). A User
+	# Permission created without `apply_to_all_doctypes` restricts only the
+	# DocTypes it names, so step 2 can legitimately pass for a record in a
+	# property the caller may not operate in - and every one of these DocTypes
+	# carries a required `property`, so the third check always fires.
+	doc = authorise_document(ORDER_DOCTYPE, order, "read")
 
 	fields = [field for field in ORDER_FIELDS if field in _order_disclosure()]
 
@@ -349,24 +396,33 @@ def record_wastage(
 	doc = frappe.get_doc(WASTAGE_DOCTYPE, result["wastage"])
 	doc.check_permission("read")
 
-	return {
-		"wastage": {
-			"name": doc.name,
-			"property": doc.property,
-			"wastage_date": doc.wastage_date,
-			"department": doc.department,
-			"warehouse": doc.warehouse,
-			"item": doc.item,
-			"quantity": doc.quantity,
-			"uom": doc.uom,
-			"reason": doc.reason,
-			"notes": doc.notes,
-			"estimated_value": doc.estimated_value,
-			"stock_entry": doc.stock_entry,
-			"recorded_by": doc.recorded_by,
-			"approved_by": doc.approved_by,
-		}
+	wastage = {
+		"name": doc.name,
+		"property": doc.property,
+		"wastage_date": doc.wastage_date,
+		"department": doc.department,
+		"warehouse": doc.warehouse,
+		"item": doc.item,
+		"quantity": doc.quantity,
+		"uom": doc.uom,
+		"reason": doc.reason,
+		"notes": doc.notes,
+		"estimated_value": doc.estimated_value,
+		"recorded_by": doc.recorded_by,
+		"approved_by": doc.approved_by,
+		# Same substitution as the requisition: the operational fact for everyone,
+		# the ERPNext document name only for a Stock Entry reader. Wastage approval
+		# is a narrower role set than requisitions, but Kitchen Manager, Food and
+		# Beverage Manager, Hotel Manager and General Manager are all in it and none
+		# of them holds Stock Entry read.
+		"is_posted_to_stock": bool(doc.stock_entry),
+		"disclosure": {"stock_entry": frappe.has_permission(STOCK_ENTRY_DOCTYPE, "read")},
 	}
+
+	if wastage["disclosure"]["stock_entry"] and doc.stock_entry:
+		wastage["stock_entry"] = doc.stock_entry
+
+	return {"wastage": wastage}
 
 
 @frappe.whitelist(methods=["GET"])

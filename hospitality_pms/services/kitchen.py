@@ -17,7 +17,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, now_datetime, nowdate
 
-from hospitality_pms.services.base import lock_document, require_role
+from hospitality_pms.services.base import lock_and_get_doc, lock_document, require_role
 from hospitality_pms.services.exceptions import (
 	ConfigurationError,
 	HospitalityPMSError,
@@ -100,9 +100,13 @@ def issue_requisition(requisition: str) -> dict:
 	Idempotent: a requisition that already carries a submitted stock entry
 	returns it rather than moving the stock a second time.
 	"""
-	lock_document(REQUISITION_DOCTYPE, requisition)
-
-	doc = frappe.get_doc(REQUISITION_DOCTYPE, requisition)
+	# Locked and read in one operation (16.7.5). `lock_document` serialises but
+	# does not refresh: a plain `get_doc` after it is still answered from the
+	# snapshot this transaction opened *before* it started waiting, so a retry
+	# that queued behind a winner read `stock_entry` as empty, submitted a
+	# second Material Transfer, and then overwrote the winner's reference -
+	# leaving the first Stock Entry orphaned and the stock moved twice (N1).
+	doc = lock_and_get_doc(REQUISITION_DOCTYPE, requisition)
 
 	if doc.stock_entry and frappe.db.exists("Stock Entry", doc.stock_entry):
 		return {"requisition": requisition, "stock_entry": doc.stock_entry, "duplicate": True}
@@ -287,8 +291,13 @@ def deliver_order(order: str) -> dict:
 	"""Deliver the order and charge it to the folio, exactly once."""
 	from hospitality_pms.services import folio as folio_service
 
-	lock_document(ORDER_DOCTYPE, order)
-	doc = frappe.get_doc(ORDER_DOCTYPE, order)
+	# Locked and read in one operation (16.7.5), for the same reason as
+	# `issue_requisition`. The folio charge below was never at risk - it carries
+	# a deterministic key and `post_charge` locks and reads the folio's own rows
+	# currently - but `_consume_order_stock` at the tail of this function has no
+	# key and no marker of its own, so a stale read here let a retry fall past
+	# the guard below and issue the order's stock a second time.
+	doc = lock_and_get_doc(ORDER_DOCTYPE, order)
 
 	if doc.order_status == "Cancelled":
 		throw(_("Order {0} is cancelled.").format(order), exc=HospitalityPMSError)

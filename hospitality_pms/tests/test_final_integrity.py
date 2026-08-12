@@ -74,8 +74,6 @@ class TestLockingPrimitive(IntegrationTestCase):
 		("services/housekeeping.py", "complete"): "pre-Wave-1; task state",
 		("services/housekeeping.py", "inspect"): "pre-Wave-1; task state",
 		("services/housekeeping.py", "set_do_not_disturb"): "pre-Wave-1; task state",
-		("services/kitchen.py", "issue_requisition"): "pre-Wave-1; requisition state",
-		("services/kitchen.py", "deliver_order"): "pre-Wave-1; order state",
 		("services/maintenance.py", "start_work"): "pre-Wave-1; ticket state",
 		("services/maintenance.py", "take_out_of_service"): "pre-Wave-1; ticket state",
 		("services/maintenance.py", "complete_work"): "pre-Wave-1; ticket state",
@@ -603,3 +601,255 @@ class TestServiceBoundaries(IntegrationTestCase):
 
 		self.assertIn("durability.complete_operation(", source)
 		self.assertIn("_resolve_durable_operation", source)
+
+
+def _string_constants(tree: ast.AST) -> dict:
+	"""Every `NAME = "literal"` in a module, module-level or inside a class.
+
+	Keyed on the bare name, so `cls.DOCTYPE` and `DOCTYPE` resolve alike. Good
+	enough because a test module that bound one name to two different tables would
+	be unreadable for other reasons.
+	"""
+	constants = {}
+
+	for node in ast.walk(tree):
+		if not isinstance(node, ast.Assign):
+			continue
+
+		if not isinstance(node.value, ast.Constant) or not isinstance(node.value.value, str):
+			continue
+
+		for target in node.targets:
+			if isinstance(target, ast.Name):
+				constants[target.id] = node.value.value
+
+	return constants
+
+
+def _ddl_tables(statement: str, constants: dict) -> set:
+	"""The tables a DDL statement names, resolved through the module's constants.
+
+	Reads the `tab` prefix rather than every identifier in the statement, because
+	an "alter table tab{PROBE} drop index {INDEX}" names a table *and* an index,
+	and only the first is what this guard is about.
+
+	An identifier that cannot be resolved comes back as `<unresolved:name>` rather
+	than being dropped, so a statement built some way this function does not
+	understand fails the check instead of passing it silently.
+	"""
+	tables = set()
+
+	# The opening backtick is required. Without it "drop table if exists" matches
+	# its own "tab" and yields a table called "le if exists" - which then fails the
+	# registry check and reports every legitimate probe statement as an offender.
+	for expression in re.findall(r"`tab\{([^}]+)\}`", statement):
+		name = expression.strip().split(".")[-1]
+		tables.add(constants.get(name, f"<unresolved:{name}>"))
+
+	for literal in re.findall(r"`tab([A-Za-z][A-Za-z0-9 _-]*)`", statement):
+		tables.add(literal.strip())
+
+	return tables
+
+
+class TestDestructiveOperationsAreScoped(IntegrationTestCase):
+	"""No test or setup script may damage the site it happens to run against.
+
+	Twice in the 16.7.5 remediation series a helper written for a disposable
+	world turned out to be operating on the whole site:
+
+	* `frappe.db.delete("Night Audit Exception", {"parenttype": AUDIT})` in three
+	  test modules and in `setup/lifecycle_smoke.py`. `parenttype` is
+	  "Night Audit" for *every* exception row on the site, and the call committed.
+	  It emptied the exception table of a live-like open audit, leaving
+	  `reconciliation_variances = 1` with nothing to explain it and no `Version`
+	  row, because `frappe.db.delete` writes none (found in R1C).
+	* `test_schema_migration.py` dropped the real
+	  `tabFolio Charge.unique_parent_idempotency_key` to observe the migration that
+	  creates it, and restored it in a `finally`. `sql_ddl` commits, so any crash in
+	  that window left the host site with no financial replay protection until
+	  somebody next migrated (found in R1D).
+
+	Both are fixed. This is the guard that keeps them fixed, because the suite is
+	run against real sites by project convention and the failure mode is silent.
+
+	Deliberately narrow. It checks two things a reviewer cannot hold in their head
+	across forty files: that a `frappe.db.delete` names *some* filter, and that DDL
+	only ever names a table this app's own tests created.
+	"""
+
+	TESTS = APP / "tests"
+	SETUP = APP / "setup"
+
+	#: Tables the tests are allowed to create and destroy. Both are child DocTypes
+	#: made in `setUpClass` purely so a migration can be observed against them
+	#: instead of against a money table.
+	PROBE_TABLES = ("HPMS R1C Permission Probe", "HPMS R1D Idempotency Probe")
+
+	#: `frappe.db.delete(doctype)` with no filters, where that is correct because
+	#: the target is one of the probe tables above.
+	UNFILTERED_DELETE_EXEMPT = {
+		"tests/test_schema_migration.py": "clears its own throwaway probe table",
+	}
+
+	def test_the_probe_registry_is_the_only_exemption(self):
+		"""The guard above used to key on the substring `PROBE` or `DOCTYPE`.
+
+		`DOCTYPE` was there for `cls.DOCTYPE` in the permission probe, and it also
+		matched `FOLIO_DOCTYPE`, `CHARGE_DOCTYPE` and `AUDIT_DOCTYPE` - so a test
+		dropping an index on a money table through any of those constants was
+		exempted by name. That is the R1D incident itself, waved through by the guard
+		written to prevent it. `PROBE_TABLES` was declared and never read.
+		"""
+		constants = {"PROBE": "HPMS R1D Idempotency Probe", "CHARGE": "Folio Charge"}
+
+		self.assertEqual(
+			_ddl_tables("f'alter table `tab{PROBE}` drop index `{INDEX}`'", constants),
+			{"HPMS R1D Idempotency Probe"},
+			msg="the index name must not be mistaken for a table",
+		)
+		self.assertEqual(
+			_ddl_tables("f'alter table `tab{CHARGE}` drop index `{INDEX}`'", constants),
+			{"Folio Charge"},
+		)
+		self.assertEqual(
+			_ddl_tables("f'drop table if exists `tab{FOLIO_DOCTYPE}`'", {"FOLIO_DOCTYPE": "Guest Folio"}),
+			{"Guest Folio"},
+			msg="a constant ending in DOCTYPE must no longer be an escape hatch",
+		)
+		self.assertEqual(
+			_ddl_tables("'drop table if exists `tabGuest Folio`'", {}),
+			{"Guest Folio"},
+			msg="a literal table name must be read too",
+		)
+		self.assertEqual(
+			_ddl_tables("f'drop table if exists `tab{PROBE}`'", constants),
+			{"HPMS R1D Idempotency Probe"},
+			msg="'drop table if exists' must not match its own 'tab'",
+		)
+		self.assertEqual(
+			_ddl_tables("f'drop table `tab{unknown_thing}`'", {}),
+			{"<unresolved:unknown_thing>"},
+			msg="an unresolvable name must not resolve to nothing and pass vacuously",
+		)
+
+	def test_every_db_delete_names_a_filter(self):
+		"""`frappe.db.delete(doctype)` with no filters empties the table.
+
+		Correct only for a table the test created. Anywhere else it is a
+		site-wide delete wearing a helper's clothes.
+		"""
+		offenders = []
+
+		for path in _python_files(self.TESTS, self.SETUP):
+			relative = _relative(path)
+
+			try:
+				tree = ast.parse(path.read_text())
+			except SyntaxError:  # pragma: no cover - a broken file fails elsewhere
+				continue
+
+			for node in ast.walk(tree):
+				if not isinstance(node, ast.Call):
+					continue
+
+				target = ast.unparse(node.func)
+
+				if target not in ("frappe.db.delete", "frappe.db.truncate"):
+					continue
+
+				# One positional argument and no `filters=` means "the whole table".
+				has_filter = len(node.args) > 1 or any(
+					keyword.arg == "filters" for keyword in node.keywords
+				)
+
+				if has_filter:
+					continue
+
+				if relative in self.UNFILTERED_DELETE_EXEMPT:
+					continue
+
+				offenders.append(f"{relative}:{node.lineno} {target}({ast.unparse(node.args[0]) if node.args else ''})")
+
+		self.assertFalse(
+			offenders,
+			msg=(
+				"unfiltered delete against a business table - scope it to the "
+				f"fixture's own property or parent: {offenders}"
+			),
+		)
+
+	def test_test_ddl_only_ever_names_a_probe_table(self):
+		"""No *test* may drop or alter a table the application actually uses.
+
+		Scoped to `tests/` on purpose. `setup/schema.py` is the legitimate owner of
+		this app's DDL - it is the migration - and flagging it would make the guard
+		something to be silenced rather than something to be trusted.
+
+		Matched with AST rather than by reading lines, so the prose in this very
+		docstring does not trip it.
+		"""
+		offenders = []
+
+		for path in _python_files(self.TESTS):
+			relative = _relative(path)
+
+			try:
+				tree = ast.parse(path.read_text())
+			except SyntaxError:  # pragma: no cover
+				continue
+
+			for node in ast.walk(tree):
+				if not isinstance(node, ast.Call):
+					continue
+
+				if ast.unparse(node.func) not in ("frappe.db.sql_ddl", "frappe.db.sql"):
+					continue
+
+				statement = " ".join(ast.unparse(arg) for arg in node.args)
+				lowered = statement.lower()
+
+				if not any(word in lowered for word in ("drop index", "drop table", "add unique index", "alter table")):
+					continue
+
+				tables = _ddl_tables(statement, _string_constants(tree))
+
+				# Every table the statement names must resolve to a declared probe.
+				# An unresolvable name counts against it: a table this guard cannot
+				# identify is not a table it may clear.
+				if tables and all(table in self.PROBE_TABLES for table in tables):
+					continue
+
+				offenders.append(f"{relative}:{node.lineno} {statement[:90]} -> {sorted(tables)}")
+
+		self.assertFalse(
+			offenders,
+			msg=(
+				"schema DDL in a test against something other than a purpose-built "
+				f"probe table: {offenders}"
+			),
+		)
+
+	def test_the_night_audit_exception_cleanup_stays_scoped(self):
+		"""The specific regression, named so it cannot come back quietly."""
+		for relative in (
+			"tests/test_night_audit.py",
+			"tests/test_business_date.py",
+			"tests/test_night_audit_concurrency.py",
+			"setup/lifecycle_smoke.py",
+		):
+			with self.subTest(file=relative):
+				source = (APP / relative).read_text()
+
+				# Allowed in a comment that records the history; never as code.
+				for number, line in enumerate(source.splitlines(), start=1):
+					stripped = line.strip()
+
+					if stripped.startswith("#"):
+						continue
+
+					self.assertNotIn(
+						'delete("Night Audit Exception", {"parenttype"',
+						stripped,
+						msg=f"{relative}:{number} deletes every audit's exceptions site-wide",
+					)

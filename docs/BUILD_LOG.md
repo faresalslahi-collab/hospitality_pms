@@ -4359,3 +4359,681 @@ assignable-attendant endpoint; `Room Service Order.order_type` still offers
 need screens. Guest Documents remain **BLOCKED** on the File permission design.
 
 Result: **PASS** (security: APPROVED WITH NOTES)
+
+---
+
+## 16.7.5 — Cashier & Folio Workspace
+
+Baseline: **`2cb455a`** — `version-16` with 16.7.4 merged locally, `--no-ff`,
+history preserved. Pre-merge `version-16` was `8e99ac7`; the 16.7.4 head was
+`dc11ae2`; merge-base equalled `version-16`, so 16.7.4 was exactly one commit
+ahead with **no divergent commits**, and the merged tree is byte-identical to
+`dc11ae2`. Post-merge validation before any 16.7.5 work: 521 frontend tests,
+7/7 Node checks, 625 backend tests. Nothing was pushed, pulled or fetched.
+
+This is the financial build, and most of what it found was already written. The
+folio services, the payment state graph, the refund concurrency guarantees, the
+posting service identity and the reconciliation report were all complete and
+hardened. What was missing was a way to reach them, and four defects sitting in
+the seam.
+
+### The legacy audit, first
+
+16.7.4 closed cross-property creation paths but could not speak for rows written
+before it. A **read-only** audit ran twelve relationship checks — Room Service
+Order, Guest Request, Guest Folio, Stay, Housekeeping Task and Maintenance
+Ticket against their linked Stay, Reservation, Room and Folio — across 105 guest
+requests, 43 folios, 37 stays, 49 housekeeping tasks and 79 maintenance tickets.
+
+**Zero mismatches. No writes.** The qualification 16.7.4's report carried is
+discharged: there is no legacy debt behind that fix, and no remediation track
+was needed.
+
+### The four defects
+
+**A refund key identified the amount, not the decision.** `api.payments.refund`
+took no `idempotency_key`, so the service fell back to
+`refund:{transaction}:{amount}` — a content hash. Two genuine goodwill refunds of
+fifty against one capture collided: the second returned the first as a duplicate
+and refunded nothing, while reporting success. `require_operation_key`'s own
+docstring is the argument — *"two minibar waters at the same price ... are
+genuinely two charges, and a content hash cannot tell them from one charge sent
+twice"*. The key is now required, exactly as it is for a charge, a payment and
+an adjustment.
+
+**The refund role list advertised what the matrix refused.** `REFUND_ROLES` named
+General Manager and Hotel Manager; `setup/permissions.py` gives `Payment
+Transaction` writers as `["Front Office Manager", *FINANCE, *ADMIN]` and puts
+`MANAGEMENT` in readers only. So `require_role` admitted them and
+`authorise_document(..., "write")` refused them one line later. The list is now
+exactly the write set — `Accounts User` gained, GM and Hotel Manager removed.
+Widening the matrix instead was rejected: excluding management from *executing*
+payment operations while keeping their oversight read is a deliberate
+separation, and a cashier build is the wrong place to reverse it.
+
+**A failed posting reached finance as a traceback.** `get_failed_postings`
+returns `error_message` and `last_error` — both truncated `str(exc)` — and
+`api.checkout.reconciliation` published them verbatim. There was no
+operator-safe derivation anywhere in the app. `services/finance_messages.py`
+adds one: a category an operator recognises, a `can_retry` derived from **both**
+the posting status and the durable ledger's `queue_status`, and a diagnostic
+reference so support can still find the exception. It is a fail-closed allow
+list — a field `get_failed_postings` gains later is dropped by default, not
+published by default. `get_failed_postings` itself is untouched: its shape is
+fixed by its own test and by what Night Audit reads, so it is projected rather
+than narrowed. The endpoint's inline raw SQL moved to
+`posting.closed_folios_with_unposted_charges`, because a query that decides what
+finance is shown is a business rule.
+
+**Five reads authorised the DocType and not the document.** `get_task`,
+`get_request`, `get_ticket`, `get_requisition` and `get_order` used
+`check_permission` alone. That is sufficient only when the site's Property User
+Permission carries `apply_to_all_doctypes`; scoped with `applicable_for`
+instead — a common way to restrict someone on bookings but not on masters — it
+passes for a record in a property the caller may not operate in. All five now
+call `authorise_document`, and all five DocTypes carry `property` as `reqd`, so
+its third step always fires. The existing fixture sets
+`apply_to_all_doctypes = 1`, which *masks* the condition, so the new tests build
+the permission the other way deliberately — otherwise they would prove
+`check_permission` rather than the fix.
+
+### The kitchen carry-forward, stated precisely
+
+16.7.4 recorded that a retried `issue_requisition` or `deliver_order` could
+double-move stock. Investigation sharpened it: **the charge was never at risk**.
+`deliver_order` posts through `folio.post_charge`, which carries a deterministic
+`order:{order}` key, does its own `lock_and_get_doc` on the folio and its child
+rows, and is backed by a unique `(parent, idempotency_key)` index. Money was
+safe. **Stock was not** — `_consume_order_stock` runs at the tail of the same
+function with no key, no lock and no marker, so a stale read let a retry fall
+past the guard and submit a second Material Issue.
+
+Both sites now read currently with `lock_and_get_doc`, which closes the
+consumption path as a consequence rather than by touching it: the marker was
+always written before consumption, it was only ever *read* wrongly. Their two
+entries were removed from `test_final_integrity`'s allow list in the same
+change, because that list fails in both directions — a listed site that is fixed
+without deleting its entry is as much a failure as a new one.
+
+**`record_wastage` is deferred, with an executable characterisation.** It has no
+key, no lock and no marker to read, so it cannot be closed by reading currently —
+there is nothing to read. Closing it means choosing an identity (a client key,
+or a natural key defensible against two genuinely separate write-offs of the
+same item on the same day), plus a field, a unique index and the audit record it
+lacks. That is schema work. The deferral is a test that asserts today's
+behaviour and fails when the guard lands, so it expires loudly.
+
+### Pre-arrival deposit — classification C, deferred
+
+The wrapper is one line, and every layer beneath accepts it. That is the trap.
+`open_folio(property, guest, reservation=res)` with `stay=None` is schema-legal
+and service-legal, and produces money that:
+
+1. check-in cannot find — `open_folio`'s dedup matches on `{stay, folio_type}`,
+   so a stayless folio is invisible and check-in opens a **second** Master folio;
+2. the carry-forward will not move — `deposit_share` caps on
+   `deposit_received − deposit_credited`, and `deposit_credited` joins on
+   `folio.reservation`, so the pre-arrival row is already counted and the share
+   computes to zero, defending a real P1-6 invariant;
+3. checkout cannot settle — stay-keyed;
+4. cancellation does not block on — `_assert_no_unfinished_stay` sees no Stay;
+5. nothing can delete — `on_trash` refuses a folio with payments;
+6. capture would silently skip — `_apply_to_folio` is `if not doc.folio: return None`.
+
+**Nothing throws at any layer.** The first symptom is a guest asked for a deposit
+they already paid, or a cancelled booking whose money no screen can find. A real
+design needs a pre-arrival folio identity with an adoption step at check-in, the
+deposit modelled as a liability (`Property.deposit_liability_account` exists and
+is read by no posting code), and folio-aware cancel/no-show. Carried forward
+with those notes.
+
+### The workspace
+
+`Folio.vue` is upgraded in place — same `Folio` route, same `/folios/:id` path,
+because Checkout, Departures and Guest 360 all navigate here by name. Four tabs
+(Summary, Charges, Payments, Invoices) on the Guest 360 shell: `?tab=` with
+`replace`, panel a11y wiring, RTL-aware arrow keys, lazy bodies.
+
+Three defects fixed in passing: the page had **no `PermissionDenied` branch**;
+the balance was a `formatCurrency` string, which throws away the settled/due/
+credit distinction a credit balance depends on, and is now `FolioBalance`; and
+the four totals are now `MoneyDisplay`. **No money is computed anywhere** —
+`total_charges` already includes tax, reversed charges stay on the ledger and
+are cancelled by their compensating line, and `total_adjustments` counts
+Adjustment but not Discount. Three rules a client cannot reconstruct, and three
+reasons it must not try.
+
+`get_folio` gained `is_posted_to_erp` on both row types — the operational fact a
+cashier needs to answer "can I close this" — plus a gated `source_doctype`/
+`source_name` so a room-service charge can say what it is for (16.7.4 stamps
+them), and `sales_invoice`/`payment_entry` only where the caller may read those
+DocTypes. Front Office holds none of them, so it gets the boolean and not the
+paperwork. A `disclosure` map distinguishes "no invoice on this row" from "you
+may not be told which invoice".
+
+Refunds are reachable for the first time, from the Payments tab, on rows backed
+by a gateway transaction. The dialog shows captured, already-refunded and
+remaining — **advisory**; the server recomputes the ceiling under a row lock and
+its refusal is what the operator sees. The operation key is retained on failure
+so a retry is the same refund rather than a second one.
+
+### Deliberately not changed
+
+**`Discount` has no role gate and no reason requirement**, while
+`post_adjustment` demands `ADJUSTMENT_ROLES` and an audited reason, and both move
+the balance identically — and `Discount` is exempt from the closed-business-date
+fence. This is a real pre-existing asymmetry. It is recorded rather than fixed:
+`guest_services.apply_service_recovery` posts Discounts legitimately with its own
+reason enforcement, and threading a new gate through a hardened financial service
+is not a cashier-build change. The workspace routes operator discounts through
+`post_adjustment`, which is gated and audited.
+
+`reconcile_folio`'s response keys, `_invoice_batch_key`'s fingerprint,
+`erp_posting_authority`, `SERVICE_PERMISSIONS` and `RECONCILIATION_ROLES` were
+all treated as frozen. Front Office still cannot read Sales Invoice, Payment
+Entry, GL Entry or Financial Posting Log.
+
+### Validation
+
+- **Frontend:** 19 files, **566 tests** (521 at 16.7.4).
+- **Node checks:** 7/7, unmodified.
+- **Backend:** **642 tests** (625 at 16.7.4), green on consecutive full runs.
+- **Concurrency/idempotency:** refund concurrency 9/9, payment durability 10/10,
+  inventory 15/15 — all re-run, all green.
+- **Production build:** passes, no new warnings.
+- **Security review:** **APPROVED WITH NOTES**. All twelve required items
+  reviewed; no permission widened anywhere; the reviewer independently re-ran the
+  N1 detector and confirmed the two allow-list removals were required. Four notes
+  were **fixed in this build**: the unwired refund UI (N4 — now reachable from
+  the Payments tab), `_()` resolving at module scope and freezing a translation,
+  a missing `try`/`catch` on the refund submit, and a dead computed.
+- **Generic CRUD:** none. No new whitelisted endpoint; every binding is to a
+  pre-existing gated one.
+- **Business date / Night Audit:** unchanged. No `nowdate()`/`today()`/
+  `new Date()` added; the closed-date fence is untouched.
+- **Core apps:** `apps/frappe` and `apps/erpnext` clean — status, diff, untracked
+  and HEADs all verified.
+
+Also closed: `frontend/src/components/guest/` was never registered in
+`rtlSource.spec.js`, so nine components shipped in 16.7.3 spent two builds
+outside the RTL and translation-key guards. They passed on registration, but
+they were unguarded. `pages/Folio.vue` is registered too.
+
+### Deferred to RC
+
+The pre-arrival deposit model (above). `record_wastage`'s replay guard and audit
+record. Five GET-by-name **read** endpoints are now gated, but the same pattern
+should be swept for elsewhere. `Discount`'s role/reason asymmetry.
+`mark_reconciled` has no endpoint and adding one would make a structurally
+read-only technical record into a workflow document. The durable-operation queue
+(`reconcile_operation`, `operations_needing_attention`) has no endpoint at all.
+`Room Service Order.order_type` still offers `Restaurant` with no POS behind it.
+`_CONFIGURATION_MARKERS` matches generic words and can mislabel a transient
+failure as a configuration one — cosmetic, since both categories are retryable
+and `queue_status` dominates.
+
+Result: **PASS** (security: APPROVED WITH NOTES)
+
+## 16.7.5-R1B — Security Authorization + Room-State Presentation
+
+Second remediation slice under 16.7.5. Product version deliberately **not**
+bumped: R1A and R1B are remediation of an unreleased 16.7.5, and the version
+moves when the full UAT remediation completes.
+
+Closes the seven authorization/disclosure defects independent Codex UAT raised
+against 16.7.5, plus the Room Rack display gap R1A left open on purpose, plus
+five more of the same class found while fixing them.
+
+### The rule, applied
+
+Permission on a root DocType does not authorize fields joined from another. Each
+aggregate authorises one DocType and then assembles a response out of several,
+reading the rest with `frappe.get_all` or raw SQL — neither of which applies any
+permission. Every fix omits the key rather than blanking it, because `0`, `""`,
+`[]` and `false` are claims about a guest or the hotel's money that the caller
+was specifically not told and that may be untrue.
+
+**Hotel Room, cross-property (HIGH).** `get_room` and `set_room_status` used
+`require_permission` + `doc.check_permission`, the two-step form the app itself
+declared insufficient in 16.7.5 — a User Permission without
+`apply_to_all_doctypes` restricts only the DocTypes it names. Both now use
+`authorise_document`, whose third check resolves the property *from the record*.
+`set_room_status` was the sharper of the two: it writes, and
+`require_dimension_role` beside it has no property dimension at all, so a
+Housekeeping Manager restricted to property A could mark a room clean in B and
+leave a Room Status Log row naming an operator with no business in it.
+
+**Room Rack presentation.** R1A made active-Stay occupancy authoritative for
+every path that *places* a guest and deliberately left the boards computing their
+badge from `occupancy_status`. So room 402 and the five Due Out rooms the estate
+audit found were still advertised as assignable — nobody could be checked in,
+the desk was simply offered a room it could not have. `rooms.is_assignable_now`
+derives the display from the same authority the mutations use, via **one** bulk
+`rooms_with_active_stays` query per board (rack, dashboard room states, and the
+Room Status report, which imports `_blocking_reason` precisely so it can never
+disagree with the rack).
+
+**Command Center.** `revenue.room_revenue_posted`, `payments_received` and
+`outstanding_balance` are summed out of Folio Charge, Folio Payment and Guest
+Folio by raw SQL. `outstanding_balance` is the property's whole open receivables
+position. Ten roles hold Stay read without Guest Folio read and every one lands
+on this screen — its navigation entry carries no role filter, a fact
+`_board_disclosure`'s own docstring records, on the helper written to prevent
+this and applied only to the three boards. The `revenue` key is now spliced away
+and the three queries skipped. `performance` is **not** gated: those figures are
+Night Audit's, whose reader set is identical to Stay's, and gating them on Guest
+Folio would blind the Revenue Manager on a boundary that does not exist. Its
+absolute totals were dropped from the selection instead — no consumer wanted them.
+
+**Checkout summary.** Gated on Stay, returned the folio's name, currency, charge
+and payment totals, balance, the split folios' names *and balances*, the
+departure verdict, and blocker sentences with the amounts inside them. The
+departures board already refused all of it. Disclosure applied at the API
+boundary, not in the service: `check_out` reads the blockers itself to decide the
+city-ledger case, and a service that redacted by session would make a credit
+decision depend on who was looking. Amount-bearing blockers collapse to one fixed
+sentence, classified by new stable `blocker_kinds` rather than by matching
+translated text — and the same change fixed `check_out`'s own city-ledger test,
+which was `_("balance") in blocker` and wrong in both directions on Arabic.
+
+**Room Status Log.** `get_room` returned `changed_by`, `reason` and `reference_*`
+on Hotel Room read alone. Hotel Room is read by 23 roles, the log by 9; the 14 in
+between — Room Attendant, Kitchen User, Accounts User among them — were being
+told who took a room out of order and why, in free text a manager wrote. The
+`history` key is omitted; the room still opens.
+
+**Guest Services.** Narrower than reported. There is no Guest *detail* join and
+Stay's reader set is an identical superset, so those parts are refuted. The real
+leaks were the raw `guest` identifier on board and detail, and
+`recovery_folio_charge` / `recovery_amount` / `recovery_approved_by`.
+`requires_service_recovery` and `recovery_type` stay: "this complaint is being
+made good" is operational and names no money.
+
+**Kitchen (was low-confidence) — CONFIRMED.** `issue_requisition` creates a
+`Stock Entry` and returned its name; `record_wastage` likewise. Stock Entry is
+read by four ERPNext roles and by none of the kitchen ones. The identifier is
+gated and `is_posted_to_stock` substituted, the same trade `get_folio` makes with
+`is_posted_to_erp`.
+
+**Night Audit (was low-confidence) — CONFIRMED, wrong principal.** Codex named
+the Night Auditor, who *is* authorised for Financial Posting Log. The exposure
+was to the other 15 Night Audit readers, through every exception's `reference`.
+Also fixed: the stored exception descriptions interpolated a guest's name, and a
+folio id with its variance amount, into text rendered on screen — those cannot be
+gated afterwards, so they are no longer put there. **Pre-existing rows keep their
+old text**; no historical data was rewritten.
+
+### Found while fixing, same class, not in the Codex list
+
+`check_out`, `post_folio`, `retry_posting` and `reverse_checkout` all returned
+ERP identifiers — Financial Posting Log names, Sales Invoice names, the ERPNext
+Customer, and on the replay path a raw `error_message` — to callers holding none
+of those reads. `api/folio.py` already refuses the same invoice name to the same
+Front Office Agent, so its gate was being defeated from four other endpoints.
+`night_audit.history` published the four folio money fields for up to a hundred
+audits. `reconcile_folio` published `currency_mismatch` (Sales Invoice names) and
+raw failure text.
+
+### Validation
+
+- **Backend:** two new suites — `test_room_authorization` (21) and
+  `test_aggregate_disclosure` (65, 1 skipped). Red-green verified: with the fixes
+  reverted, 9 and 26 tests fail respectively. 38 existing suites re-run green,
+  including all R1A room-authority and concurrency tests and HPMS-QA-16.7.2-C.
+- **Frontend:** **597 tests** (566 at 16.7.5), 20 files. New `Checkout.spec.js`
+  (17). `Dashboard.vue`, `Checkout.vue` and `NightAudit.vue` registered in the RTL
+  and translation-key guards, which none of them was in.
+- **Node:** 7/7. **Production build:** passes, no new warnings.
+- **Security review:** four adversarial passes by an independent reviewer.
+  BLOCKED, BLOCKED, BLOCKED, then **APPROVED WITH NOTES**. Each block was a real
+  sibling endpoint publishing the same payload the round had just gated — the
+  reviewer's own rule, "fixing one of two endpoints that return the same payload
+  fixes neither", applied three times running.
+- **Estate:** business date 2026-08-11 unchanged, `HPMS-NA-2026-00004` still
+  Posting, room 402 and both stays byte-identical. No historical record repaired.
+- **Core apps:** `apps/frappe` and `apps/erpnext` clean, HEADs unmoved.
+
+### Carried forward — Lead decision required
+
+1. **`setup/posting_service.py` revokes ERPNext's own permissions.** It grants
+   the posting service user read on Sales Invoice, Account, Item and Customer via
+   bare `Custom DocPerm` rows. Frappe replaces a DocType's *entire* permission
+   list once any Custom DocPerm exists for it, so those four inserts discard every
+   standard grant on those DocTypes site-wide, for all roles — Accounts
+   Manager/User lose Sales Invoice and Account; Stock, Sales, Item, Purchase and
+   Manufacturing roles lose Item and Customer. `install.py` re-runs it on every
+   migrate. `frappe.permissions.add_permission` copies existing rows forward
+   first, which is the fix. Release-blocking for any site also running ERPNext
+   accounting or stock. Out of R1B scope; found by the security reviewer.
+2. **Two contradictory positions on the raw `Guest` link name.** This build pops
+   it for a non-Guest-reader in `guest_services` and `kitchen`, while the
+   arrivals, departures and in-house boards, `stays.get_stay` and
+   `reservations.list_reservations` publish it — and arrivals publishes
+   `guest_mobile` — on Reservation/Stay read alone. `test_guest_privacy` pins the
+   board behaviour as settled, so this is a product decision, not a bug to fix
+   quietly. Decide one rule and make all of them agree.
+3. `stays.get_stay` returns `folio` and `currency` on the same Stay authority
+   `checkout.summary` now withholds them under.
+4. `DeparturesPanel.vue` badges a row "Blocked" when `can_check_out` is withheld —
+   a confident claim standing in for an omitted field, the mirror of the confident
+   zero this build removed.
+5. The positive side of the Sales Invoice and Customer identifier gates is
+   unreachable on any current bench (item 1 is why) and therefore untested;
+   Payment Entry and Stock Entry are reachable and untested.
+6. R1A's estate list is unchanged and unrepaired: 6 active-Stay/room-state
+   inconsistencies including room 402 and five Due Out rooms, 1 Stay/Reservation
+   Room desync, 3 Checked Out stays with no checkout timestamp.
+
+Result: **PASS** (security: APPROVED WITH NOTES)
+
+## 16.7.5-R1C — ERP Permission Repair, Financial Estate Diagnosis & Full Regression
+
+Third remediation slice under 16.7.5. Product version unchanged, deliberately:
+the series is remediation of an unreleased 16.7.5 and the version moves when it
+completes.
+
+### The release blocker
+
+`setup/posting_service.py` granted the posting identity read on `Sales Invoice`,
+`Account`, `Item` and `Customer` by inserting a bare `Custom DocPerm` row for
+each. Its own docstring said this was chosen "so nothing in ERPNext core is
+modified and `bench migrate` cannot overwrite it". The first half was true; the
+second was the opposite of what happens, and the approach was the *more*
+invasive of the two options.
+
+`Meta.set_custom_permissions` replaces a DocType's entire permission list once
+any Custom DocPerm exists for it, and `get_all_perms` reads exactly that list. So
+each one-permission row did not add a grant — it became the whole grant set.
+Audited on this bench: **126** individual `(role, permlevel, if_owner, ptype)`
+grants destroyed. Accounts Manager and Accounts User lost Sales Invoice and
+Account outright; Item Manager, the Stock roles, Sales User, Purchase User,
+Maintenance User and Manufacturing User lost Item; the Sales and Stock roles lost
+Customer. Even `All`'s permlevel-1 read on Sales Invoice went. `install.py` calls
+this from `after_migrate`, so every migrate re-applied it.
+
+(The R1B review estimated 122. The corrected figure is 126: permission types are
+now read from `Custom DocPerm`'s own meta rather than a hand-written tuple, which
+surfaced four further grants — `import` and `mask` — that the original count
+could not see. The same blind spot existed in the first draft of the new tests.)
+
+### The fix
+
+`grant_service_permission` goes through `frappe.permissions.add_permission`,
+which calls `setup_custom_perms` → `copy_perms` to carry the standard rows into
+Custom DocPerm **before** the new row joins them. Least privilege is asserted on
+every migrate by `_narrow_service_row`, which enumerates every row the role holds
+on the parent — no permlevel or `if_owner` filter, because
+`(role, permlevel, if_owner)` is the identity of a rule and an `if_owner=1` row
+sits beside the ordinary one rather than replacing it — and derives permission
+fieldnames from meta. That matters more than it looks: `Custom DocPerm.export`
+defaults to `1`, so `add_permission`'s own row arrives with `export` set.
+
+**Repair is opt-in and one-shot.** `after_migrate` grants and never restores;
+`patches/v16_7/repair_erp_permission_clobber.py` restores, once. The repair
+recognises our damage by its fingerprint — every custom row on the parent belongs
+to the posting service — and that is also what a deliberately locked-down site
+looks like, so repairing on every migrate would overrule an operator for ever.
+Any parent carrying a row for another role is left alone and reported.
+`after_migrate` additionally *reports* residual drift without touching it, since
+`bench install-app --force` marks patches complete without running them.
+
+### Evidence
+
+- **Reproduced first**, on a purpose-built DocType so the premise could be
+  asserted: a bare insert destroys every standard grant; `add_permission` does
+  not; the repair recovers an already-damaged parent; an operator's custom row is
+  left alone. Red before the fix, green after.
+- **rc.localhost migrated with the fix**: 0 standard grants missing on all four
+  DocTypes, service holds exactly `(0, read)`, role has no desk access, user holds
+  one role. Idempotent across three further runs — byte-identical, no duplicates.
+- **The patch rehearsed against mysite's real damage inside a rolled-back
+  transaction**: all 126 grants restored, service row ends
+  `read=1 write=0 create=0 export=0`, then rolled back and mysite verified
+  unchanged.
+
+### A test suite that was damaging the site it ran on
+
+Three test modules did `frappe.db.delete("Night Audit Exception", {"parenttype": AUDIT})`
+— filtered only on `parenttype`, which is "Night Audit" for every exception row on
+the site — and committed. `setup/lifecycle_smoke.py` did the same, and that script
+is *meant* to be run against a real site.
+
+It had already happened. mysite's open audit `HPMS-NA-2026-00004` carries
+`reconciliation_variances = 1` and zero exception rows to explain it, with no
+`Version` row after the delete because `frappe.db.delete` writes none.
+`information_schema` dates the last write to `tabNight Audit Exception` to
+2026-08-12 20:12 — during this series' own R1B regression sweep. The prior
+convention of running the suite on `mysite.localhost`
+(`HPMS-16.6.0-Verification-Report.md:9`) is what made that possible, and the
+`_Test Company*` residue on that site is the other half of the evidence.
+
+All four now scope the delete to their own property's audits. Proven: rc's five
+exception rows survived three full suite runs, where the first would previously
+have deleted them.
+
+### Financial estate — diagnosed read-only, nothing remediated
+
+Verified against the reported state: Night Audit `HPMS-NA-2026-00004` Posting at
+2026-08-11 **confirmed**; 4 retrying folio-invoice operations **confirmed**; 3,221
+unresolved durable operations, 99.84% channel pushes **confirmed exactly**; "9
+failed postings" **corrected** — 5 `Financial Posting Log` rows plus 4 durable
+rows, which is what `get_failed_postings` unions.
+
+- **Genuinely broken (3).** `HPMS-FOL-2026-00047` has two submitted Sales Invoices
+  (`ACC-SINV-2026-00033`, `…00038`, 950.00 each) with **zero GL entries and zero
+  Payment Ledger entries** and no posting-log row referencing either — 1,900.00 of
+  phantom receivable, 1,035.80 of folio revenue in neither place, invisible to
+  `reconcile_folio` and to Night Audit. ERPNext cancellation is never propagated
+  back into the PMS: 6 log rows say `Posted` against `docstatus=2` documents, and
+  `ACC-PAY-2026-00072/73` leave **460.00 of live `Cash Dr / Debtors Cr` with
+  nothing to settle**. And `tabNight Audit Exception` is empty, so
+  `_assert_no_blocking_exceptions` now passes vacuously.
+- **Configuration, not defect (~3,220 rows).** `Posting Profile DOHA-MAIN` has no
+  tax template for taxed charge types, so `_resolve_tax_head` refuses — correctly,
+  rather than dropping output VAT. 12 synthetic `CM-*` channels have no
+  `api_base_url`. `Selling Settings.allow_negative_rates_for_items = 0` is what
+  broke the Discount-bearing invoice.
+- **Residue (~93 rows, no money).** 88 log rows point at deleted folios; the
+  `HPMS-FOL-2026-00043` "225.00 variance" is two unrelated datasets sharing a
+  recycled primary key (folio created an hour *after* its posting log rows).
+- **`posting._mark_failed` has no callers.** Nothing in current code can write
+  `posting_status = "Failed"`, so all 5 log rows are fossils from a removed code
+  path — two fail at `entry.set_missing_values()`, a line deliberately deleted.
+- **Nothing is safe to retry automatically.** `450qjg7djd` is at attempts 4/5 and
+  one sweep would Abandon it; `HPMS-POST-2026-00093` would raise a *third*
+  invoice. Six items need a human finance decision.
+
+### Validation
+
+- **Backend: 781 tests, green on two consecutive full runs**, on a disposable
+  site (`CI=1 bench --site rc.localhost run-tests --app hospitality_pms`). 642 at
+  16.7.5; +32 R1A, +86 R1B, +21 R1C.
+- **Concurrency/idempotency:** all suites fresh and green, including R1A physical
+  room, reservation/inventory, HPMS-QA-16.7.2-C, payment durability and callback
+  idempotency, channel retry, posting retry, Night Audit concurrency.
+- **R1A and R1B regression:** green.
+- **Frontend:** 597 tests, 20 files. **Node:** 7/7. **Build:** passes, only the
+  pre-existing chunk-size warning.
+- **Security review:** two adversarial passes. APPROVED WITH NOTES, then APPROVED
+  WITH NOTES with both first-pass SHOULD-FIX items verified CLOSED against
+  Frappe's own source. It also caught a vacuous regression test of mine, a
+  comment I had got wrong twice, and the surviving `lifecycle_smoke` instance of
+  the unscoped delete.
+- **Core apps:** `apps/frappe` and `apps/erpnext` clean, HEADs unmoved.
+- **mysite.localhost unchanged:** business date 2026-08-11, `HPMS-NA-2026-00004`
+  still Posting, room 402 and both stays byte-identical, no fixture residue, and
+  the permission damage still present pending the decision below.
+
+### Disposable site
+
+`bench new-site` remains **BLOCKED** — no MariaDB root password on disk,
+`mysql -u root` denied (1698), `sudo -n` denied — as `BUILD_LOG.md:650` already
+recorded. Used the existing `rc.localhost` instead: all three apps installed, a
+scratch site at business date 2026-08-08, never previously subjected to the suite,
+and whose DB user has privileges on its own database only, so it is *physically*
+incapable of writing to mysite. Backed up first; `allow_tests` was not added —
+`CI=1` is accepted by the runner, so no site config was modified.
+
+### Carried forward — decisions required
+
+1. **Normalise mysite's permissions.** Prepared and rehearsed; not executed.
+   `bench --site mysite.localhost migrate` applies the patch, or run
+   `hospitality_pms.patches.v16_7.repair_erp_permission_clobber.execute` directly.
+   Until then Accounts Manager/User cannot read Sales Invoice or Account on that
+   site, and the R1C baseline suite reports 21 failures there by design.
+2. **The three genuinely-broken financial items** above, and the VAT-account
+   decision that gates ~3,220 queued operations. Six items need finance.
+3. **Guest link-name policy**, recorded per R1C Part 9 and *not* normalised:
+   *Guest document identity may be exposed only where operational
+   navigation/linkage requires it and the caller is already authorized for the
+   parent workflow. Guest contact/profile/detail fields still require Guest
+   permission.* Carried to the RC consistency backlog; no exposure broadened, no
+   working link removed.
+4. **R1A estate list unchanged and unrepaired:** 6 active-Stay/room-state
+   mismatches including room 402 and five Due Out rooms, 1 Stay/Reservation Room
+   desync, 3 Checked Out stays with no checkout timestamp.
+5. `test_schema_migration.py:39` drops a unique index on `tabFolio Charge`
+   site-wide and restores it in teardown; a crash mid-test would leave the host
+   site's financial idempotency constraint off until the next migrate.
+6. The four ERPNext DocTypes' permission model is now a Custom DocPerm snapshot,
+   so future ERPNext permission changes to them will not reach the site. Inherent
+   to the only supported API; `tests/test_posting_service_permissions.py` is the
+   drift detector.
+
+Result: **PASS** (security: APPROVED WITH NOTES)
+
+---
+
+## 16.7.5-R1D — Financial Estate & Test-Safety Remediation
+
+Baseline `1600134`. The last slice before the second Codex AI UAT. Detection and
+test safety only: **not one document in ERPNext was created, submitted, cancelled,
+amended or reposted, and no financial history was rewritten.**
+
+### The defect: a Posted log row was taken as proof the ledger still held it
+
+Nothing carries an ERPNext cancellation back into the PMS. There is no `on_cancel`
+hook, and no code in this app cancels an ERP document at all — because
+`checkout.reverse_checkout` deliberately leaves a submitted invoice standing for
+finance. So finance cancelling out of band is *expected* operation, and every
+reader of `Financial Posting Log` treated `posting_status = Posted` as evidence.
+
+Measured on mysite: 6 log rows Posted against `docstatus = 2` documents, 4 Folio
+Charge and 3 Folio Payment rows stamped against them, and a folio with 820 of
+charges outside the ledger that **no route could post and every route called
+healthy** — `post_folio_invoice` answered `duplicate: True` naming the cancelled
+invoice, `checkout.post_folio` answered "nothing to do", `retry_posting` answered
+`retried: False`, and `mark_reconciled` would have stamped the whole condition
+`Reconciled`, which `_claim` treats as interchangeable with Posted.
+
+Seven readers now consult the document, not the log alone. Every one **refuses**;
+none repairs. The charge rows stay stamped, so there is no coherent batch to
+re-post, and clearing those stamps is a correction with its own approval.
+`reconcile_folio` gained `stale_postings` / `needs_erp_reconciliation` — the third
+answer, neither "reconciled" nor "never posted".
+
+### Forensics (read-only, nothing remediated)
+
+- **F1 — two GL-less invoices, 1,900.00.** Frappe writes `docstatus = 1` in
+  `db_update()` *before* `run_post_save_methods()`; ERPNext's `on_submit` throws at
+  `validate_qty` on a −100.00 Discount line (`allow_negative_rates_for_items = 0`)
+  36 lines before `make_gl_entries()`. `save_version()` sits after the throw, so
+  the submission left **no `tabVersion` row** — the failure erased its own trail.
+  GL and AR ageing are clean; the **Sales Register overstates revenue by 1,900.00**.
+  **Corrects `BUILD_LOG.md:4842`**: retrying would *not* raise a third invoice
+  today — it stops at the unmapped tax head. **That refusal is the only thing
+  preventing one.** Mapping a Minibar tax template *alone* would produce a third
+  orphan invoice for 1,035.80. Selling Settings must be fixed first or together.
+- **F2 — 6 Posted-against-cancelled.** Test residue (two scripted teardown batches,
+  self-documented at 2842-2846 and 2919-2921) compounded by the product defect
+  above. The teardown was **incomplete**: 4 documents cancelled where 6 were needed,
+  leaving `ACC-PAY-2026-00072/00073` submitted and de-allocated — **460.00 of live
+  Cash Dr / Debtors Cr today**. "Net live GL impact 0.00" at 2921 is true of the
+  pair it names and **false for the estate**.
+- **F3 — evidence recovered, not lost.** The deleted exception row is in
+  `tabVersion` verbatim: `jn0h1vcnec`, Unposted Charge / Blocking,
+  `HPMS-FOL-2026-00043`, "differs from ERPNext by 225.0", created 17:00:43 and
+  **resolved at 17:00:55**. So the recorded count with no unresolved blocker was
+  the legitimate state; the vacuum came later from the unscoped delete. The 225.00
+  is the recycled-primary-key residue. Nothing was synthesised.
+
+### Configuration and durable operations
+
+`Posting Profile DOHA-MAIN` maps no tax template, and **six** charge types on
+DOHA01 carry tax — 342.00 of output VAT with nowhere to post, at four different
+implied rates. The company's only template, `QATAR VAT 15 - EHQ`, has
+`account_head = Payroll Payable - EHQ` at `rate = 0.0`: **not usable**, and mapping
+it would post output VAT into payroll. Classified CONFIG; **no account chosen**.
+
+Durable ledger: **nothing is SAFE TO RETRY.** 4 invoice operations DO NOT RETRY
+(blocked on the above; `450qjg7djd` at 4/5 would be pushed to terminal Abandoned by
+one sweep), 8 NEEDS RECONCILIATION, 2 refund and 3,216 channel rows HISTORICAL
+RESIDUE. **Do not run the retry sweep on DOHA01.**
+
+### A guard that passed because there was nothing left to check
+
+`_assert_no_blocking_exceptions` reads the exception rows and reads nothing if they
+are gone, while `reconciliation_variances` still says the day disagreed. An earlier
+draft of this record claimed that was not an open door, reasoning that
+`Posting -> Closed` is not a legal transition. **That reasoning was wrong**, and the
+independent finance review found the route it missed — all supported service calls:
+reconcile clean → Ready to Close; a variance appears; reconcile again writes the row
+and the count but does not demote the status; `review()` wipes every exception row,
+leaves the count, and does not transition an audit that is no longer Open; close
+succeeds over a real variance. The guard now refuses and names re-reconciling as the
+remedy. The underlying defect — `review()` destroying rows `reconcile()` owns — is
+**not fixed**, only converted into a refusal.
+
+### Test safety
+
+`test_schema_migration.py` no longer drops the live `tabFolio Charge` unique index;
+it drives the migration against a throwaway child DocType and asserts the real index
+intact in teardown. `setup/lifecycle_smoke.py`'s unscoped exception delete was
+already scoped in R1C. A permanent AST guard in `test_final_integrity.py` refuses an
+unfiltered `frappe.db.delete` and any test DDL naming a table outside the probe
+registry — and after review it keys on the resolved table position, not on the
+substring `DOCTYPE`, which had matched `FOLIO_DOCTYPE`, `CHARGE_DOCTYPE` and
+`AUDIT_DOCTYPE` and would have waved through the very incident it was written for.
+
+### Review
+
+Two independent reviewers. **SECURITY: 9 findings, 8 fixed.** The sharpest was mine:
+the new refusal messages interpolated the ERP document name, and `throw()` puts that
+in `_server_messages` with nothing catching it — reaching `api/checkout.retry_posting`,
+whose Night Auditor, Hotel Manager and General Manager hold no `Sales Invoice` read
+and whose *success* path exists only to withhold that name. Fixed by removing the
+name, not by gating at the raise site: `_claim` runs inside `erp_posting_authority`,
+where a permission question would be answered for the posting service rather than
+the caller. Also: `_erp_document_is_live` raised `ProgrammingError(1146)` on a stored
+doctype whose table is gone (confirmed by execution) — one such row would have taken
+down a whole property's reconciliation; both new gated keys shipped with **zero**
+disclosure-boundary tests, now 6.
+
+**ERP/FINANCE: safe to integrate.** Zero ERPNext writes, idempotency contract
+unchanged, arithmetic identical for healthy folios, `_claim` precedes `run_durably`
+so a refusal orphans no durable row. It also found `post_folio_invoice` checking only
+the *newest* posting, so a folio with a supplementary invoice whose first batch was
+cancelled kept the old misleading answer — for exactly the folios most likely to have
+one. Fixed: every invoice posting is checked.
+
+### Validation
+
+**Backend 823 tests, green on two consecutive full runs** (781 at R1C; +42).
+Frontend **597/597**, Node **7/7**, production build clean. mysite business date
+**2026-08-11** unchanged, `HPMS-NA-2026-00004` still Posting, cores pristine.
+
+### Known gaps carried forward
+
+1. A draft invoice (`submit=False`) is stamped Posted by `_mark_posted`, so it reads
+   as withdrawn and blocks that folio's audit date. Not reachable from any endpoint.
+2. `close()` never re-reconciles and the fingerprint counts only folio rows, so a
+   cancellation after the last reconcile is not detected at close time.
+3. The documented repair path does not complete: un-stamping regenerates the same
+   batch key, whose log row is Posted-and-stale, so `_claim` refuses for ever.
+4. `Checkout.vue` renders neither `needs_erp_reconciliation` nor
+   `cancelled_invoice_count`; the signal reaches the operator only via `note`.
+5. `failed_postings` ordering changed from `modified desc` to `creation asc`.
+6. F1, F2 and the VAT configuration are **unrepaired by design** and require an
+   ERPNext accounting authority. R1A's estate list is carried forward unchanged.
+
+Result: **PASS** (security: fixed on review; ERP/finance: safe to integrate)

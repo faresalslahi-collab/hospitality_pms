@@ -26,10 +26,10 @@
 
       <div class="grid gap-5 p-5 lg:grid-cols-3">
         <section class="space-y-4 lg:col-span-2">
-          <div v-if="summary.data.blockers.length" class="rounded border border-outline-red-1 bg-surface-red-1 p-4">
+          <div v-if="blockers.length" class="rounded border border-outline-red-1 bg-surface-red-1 p-4">
             <p class="font-medium text-ink-red-4">{{ t('page.checkout.blockers_title') }}</p>
             <ul class="mt-2 list-inside list-disc space-y-1 text-p-sm text-ink-red-4">
-              <li v-for="(blocker, index) in summary.data.blockers" :key="index">{{ blocker }}</li>
+              <li v-for="(blocker, index) in blockers" :key="index">{{ blocker }}</li>
             </ul>
           </div>
 
@@ -37,13 +37,19 @@
             <p class="text-p-sm text-ink-green-3">{{ t('page.checkout.no_blockers') }}</p>
           </div>
 
-          <div v-if="summary.data.related_folios.length" class="rounded border border-outline-gray-1">
+          <!--
+            `related_folios` is omitted for a caller without Guest Folio read, so
+            this reads through `relatedFolios` rather than indexing the payload:
+            `summary.data.related_folios.length` throws on an absent key, and the
+            block must simply not appear.
+          -->
+          <div v-if="relatedFolios.length" class="rounded border border-outline-gray-1">
             <h2 class="border-b border-outline-gray-1 px-4 py-2 text-p-sm font-medium text-ink-gray-8">
               {{ t('page.checkout.related_folios') }}
             </h2>
             <div class="divide-y divide-outline-gray-1">
               <RouterLink
-                v-for="row in summary.data.related_folios"
+                v-for="row in relatedFolios"
                 :key="row.name"
                 :to="{ name: 'Folio', params: { id: row.name } }"
                 class="flex items-center justify-between px-4 py-2 text-p-sm hover:bg-surface-gray-1"
@@ -71,6 +77,16 @@
           <div v-if="reverseResult" class="rounded border border-outline-amber-1 bg-surface-amber-1 p-4">
             <p class="font-medium text-ink-amber-3">{{ t('page.checkout.reverse_success') }}</p>
             <p class="mt-1 text-p-sm text-ink-gray-8">{{ reverseResult.note }}</p>
+            <!--
+              The invoice *names* are withheld from a caller without Sales Invoice
+              read (16.7.5-R1B), so the count carries the operational signal on its
+              own: the note is worded hypothetically ("any submitted invoice"), and
+              without this the operator could not tell whether one actually stands.
+              The names are still shown to a caller entitled to them.
+            -->
+            <p v-if="reverseResult.standing_invoice_count" class="mt-1 text-p-sm text-ink-gray-7">
+              {{ t('page.checkout.standing_invoices', { count: reverseResult.standing_invoice_count }) }}
+            </p>
             <p v-if="reverseResult.standing_invoices?.length" class="mt-1 text-p-sm text-ink-gray-7">
               {{ reverseResult.standing_invoices.join(', ') }}
             </p>
@@ -92,7 +108,7 @@
               class="w-full"
               variant="solid"
               :loading="busy === 'check_out'"
-              :disabled="summary.data.blockers.length > 0"
+              :disabled="blockers.length > 0"
               @click="doCheckOut"
             >
               {{ t('page.checkout.check_out') }}
@@ -200,6 +216,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import ErrorState from '@/components/states/ErrorState.vue'
 import LoadingState from '@/components/states/LoadingState.vue'
 import { checkOutResource, checkoutSummaryResource, reverseCheckoutResource } from '@/resources/checkout'
+import { hasField } from '@/resources/guests'
 import { normaliseError } from '@/utils/errors'
 import { formatCurrency, formatDate } from '@/utils/format'
 import { t } from '@/utils/i18n'
@@ -238,12 +255,28 @@ const cityLedgerError = ref('')
 // more than one blocker per condition. So if the number of blockers that
 // balance data alone would explain equals the total blocker count, no other
 // kind of blocker (stay status, disputed folio) can be present.
+/**
+ * Whether this caller was told the folio's money at all.
+ *
+ * The server omits `balance`, `total_charges`, `total_payments`, `currency`,
+ * `folio`, `related_folios` and `can_check_out` for a caller who may not read
+ * Guest Folio, and replaces every amount-bearing blocker with one generic
+ * "cashier action required" sentence. `hasField` is the test, never truthiness:
+ * a settled folio has `balance: 0`, which is a real and different answer.
+ */
+const folioDisclosed = computed(() => hasField(summary.data, 'balance'))
+
+/** Empty when undisclosed, so `.length` is always safe in the template. */
+const relatedFolios = computed(() => summary.data?.related_folios || [])
+
+const blockers = computed(() => summary.data?.blockers || [])
+
 const balanceBlockerCount = computed(() => {
   const s = summary.data
-  if (!s) return 0
+  if (!s || !folioDisclosed.value) return 0
 
   const ownBalance = Math.abs(s.balance) > 0.005 ? 1 : 0
-  const relatedBalances = (s.related_folios || []).filter(
+  const relatedBalances = relatedFolios.value.filter(
     (row) => Math.abs(row.balance) > 0.005,
   ).length
 
@@ -252,23 +285,39 @@ const balanceBlockerCount = computed(() => {
 
 const isBalanceOnlyBlocked = computed(() => {
   const s = summary.data
-  if (!s || !s.blockers.length) return false
+  if (!s || !blockers.value.length) return false
 
-  return balanceBlockerCount.value === s.blockers.length
+  // Undisclosed money means the counting trick below has nothing to count, and
+  // the city-ledger override is a credit decision the server will refuse from
+  // this caller anyway — it needs `CHECKOUT_REVERSAL_ROLES`, all of which read
+  // Guest Folio. Offering the option would be offering a button that cannot work.
+  if (!folioDisclosed.value) return false
+
+  return balanceBlockerCount.value === blockers.value.length
 })
 
 const details = computed(() => {
   const s = summary.data
   if (!s) return []
 
-  return [
+  const rows = [
     { label: t('page.checkout.stay'), value: s.stay },
     { label: t('page.reservations.arrival'), value: formatDate(s.arrival_date) },
     { label: t('page.reservations.departure'), value: formatDate(s.departure_date) },
-    { label: t('page.checkout.total_charges'), value: formatCurrency(s.total_charges, s.currency) },
-    { label: t('page.checkout.total_payments'), value: formatCurrency(s.total_payments, s.currency) },
-    { label: t('page.checkout.balance'), value: formatCurrency(s.balance, s.currency) },
   ]
+
+  // The three money rows are dropped entirely rather than shown as blanks or
+  // zeros: "Balance 0.00" reads as settled, which is the one thing an
+  // undisclosed balance must not be allowed to say.
+  if (folioDisclosed.value) {
+    rows.push(
+      { label: t('page.checkout.total_charges'), value: formatCurrency(s.total_charges, s.currency) },
+      { label: t('page.checkout.total_payments'), value: formatCurrency(s.total_payments, s.currency) },
+      { label: t('page.checkout.balance'), value: formatCurrency(s.balance, s.currency) },
+    )
+  }
+
+  return rows
 })
 
 async function doCheckOut() {

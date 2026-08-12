@@ -18,7 +18,7 @@ permitted to set the property's business date at all (see PropertyService's
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, flt, getdate, now_datetime
+from frappe.utils import add_days, cint, flt, getdate, now_datetime
 
 from hospitality_pms.services import folio as folio_service
 from hospitality_pms.services import posting as posting_service
@@ -182,8 +182,17 @@ def review(audit: str) -> dict:
 				"exception_type": "Unresolved Arrival",
 				"reference_doctype": reservation_service.RESERVATION_DOCTYPE,
 				"reference_name": row["name"],
-				"description": _("{0} was due to arrive on {1} and has not checked in.").format(
-					row["guest_name"] or row["name"], row["arrival_date"]
+				# The guest's name is not in the sentence (16.7.5-R1B). An
+				# exception description is stored text, rendered on the Night Audit
+				# screen to every one of the twenty-three roles that can read a
+				# Night Audit - including the kitchen, housekeeping and maintenance
+				# lines, none of which may read `Guest`. A name baked into the
+				# string cannot be gated afterwards, so it is not put there:
+				# identity travels in `reference`, which `api/night_audit.py` gates
+				# against the DocType it names. A Reservation reader can still
+				# resolve who this is; a Kitchen User cannot, which is correct.
+				"description": _("Reservation {0} was due to arrive on {1} and has not checked in.").format(
+					row["name"], row["arrival_date"]
 				),
 				"severity": BLOCKING,
 			},
@@ -205,8 +214,14 @@ def review(audit: str) -> dict:
 				"exception_type": "Unsettled Departure",
 				"reference_doctype": stay_service.STAY_DOCTYPE,
 				"reference_name": row["name"],
-				"description": _("{0} in room {1} was due to depart on {2} and is still in house.").format(
-					row["guest_name"], row["room"], row["departure_date"]
+				# The stay and the room, not the guest's name, for the reason
+				# recorded on the arrival exception above. Both of these are
+				# readable by every role that can read a Night Audit, so the
+				# sentence stays as useful to the night auditor as it was - the
+				# room number is what they walk to - while the guest's identity
+				# travels in the gated `reference` instead.
+				"description": _("Stay {0} in room {1} was due to depart on {2} and is still in house.").format(
+					row["name"], row["room"], row["departure_date"]
 				),
 				"severity": "Warning",
 			},
@@ -448,8 +463,29 @@ def reconcile(audit: str) -> dict:
 				"exception_type": "Unposted Charge",
 				"reference_doctype": folio_service.FOLIO_DOCTYPE,
 				"reference_name": variance["folio"],
-				"description": _("Folio {0} differs from ERPNext by {1}.").format(
-					variance["folio"], variance["charge_variance"]
+				# Neither the folio's name nor the variance amount is in the
+				# sentence (16.7.5-R1B). This description is rendered on the Night
+				# Audit screen, and ten of the roles that can open it cannot read
+				# `Guest Folio` - so it was telling a room attendant which folio
+				# disagrees with the ledger and by how much money.
+				#
+				# Both facts still reach the people who need them: the folio's
+				# identity through the gated `reference`, and the amount through the
+				# reconciliation endpoint, which is `RECONCILIATION_ROLES`-gated and
+				# is where finance works the variance. What is lost here is only the
+				# ability to read it off a screen without the permission for it.
+				"description": (
+					# Two different problems needing two different people. "Does not
+					# agree" reads as work for whoever posts the day; a posting whose
+					# document has left the ledger is an accounting decision, and
+					# retrying it is refused. Saying so here is what stops the second
+					# being worked as the first.
+					_(
+						"A folio on this business date was posted to ERPNext and that "
+						"document is no longer in the ledger. It needs reconciliation."
+					)
+					if variance.get("needs_erp_reconciliation")
+					else _("A folio on this business date does not agree with ERPNext.")
 				),
 				"severity": BLOCKING,
 			},
@@ -679,6 +715,35 @@ def _assert_no_blocking_exceptions(doc):
 			_("{0} blocking exception(s) must be resolved before the business date can close.").format(
 				len(blocking)
 			),
+			exc=NightAuditError,
+		)
+
+	# The check above reads the exception rows, and reads nothing if there are
+	# none. `reconcile()` writes the rows and `reconciliation_variances` in the same
+	# save, so a positive count with no row to account for it does not mean the day
+	# came out clean - it means the evidence is gone, and this guard was about to
+	# pass on its absence. `HPMS-NA-2026-00004` is in exactly that state: one
+	# recorded variance, no exception rows, and until now a close that consulted
+	# both and objected to neither.
+	#
+	# Resolved rows still satisfy it. Marking an exception resolved without
+	# re-running reconciliation is a legitimate path and leaves the row behind as
+	# its own record; what is refused is a count with nothing behind it at all.
+	#
+	# Deliberately re-reconcile rather than re-derive the variance here: `reconcile`
+	# owns that computation, it is idempotent, and it rewrites both the rows and the
+	# count together. A second opinion computed in the close path would be a second
+	# definition of whether the day agrees with ERPNext.
+	recorded = cint(doc.reconciliation_variances)
+
+	if recorded and not [
+		row for row in doc.audit_exceptions if row.exception_type == "Unposted Charge"
+	]:
+		throw(
+			_(
+				"This audit recorded {0} reconciliation variance(s) but carries no exception "
+				"to account for them. Reconcile again before closing."
+			).format(recorded),
 			exc=NightAuditError,
 		)
 

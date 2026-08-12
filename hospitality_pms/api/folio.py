@@ -19,10 +19,48 @@ from hospitality_pms.services.base import authorise_document, require_operation_
 FOLIO_DOCTYPE = "Guest Folio"
 
 
+#: Posting fields that describe an ERP document rather than the folio.
+#:
+#: Front Office holds no permission on `Financial Posting Log`, `Sales Invoice`
+#: or `Payment Entry`, and the posting-service identity buys *execution*, not
+#: disclosure - it cannot be borrowed by an endpoint to widen a read. So the
+#: cashier is told **whether** a row reached the accounting system, which is
+#: operational fact it needs to answer "can I close this folio", and the ERP
+#: document name only if the caller may read that DocType.
+_INVOICE_DOCTYPE = "Sales Invoice"
+_PAYMENT_ENTRY_DOCTYPE = "Payment Entry"
+
+
+def _posting_disclosure() -> dict:
+	"""Which ERP document names this caller may be told, asked once per request."""
+	return {
+		"invoice": frappe.has_permission(_INVOICE_DOCTYPE, "read"),
+		"payment_entry": frappe.has_permission(_PAYMENT_ENTRY_DOCTYPE, "read"),
+	}
+
+
+def _charge_source(row) -> dict:
+	"""Where a charge came from, when the caller may read that source.
+
+	16.7.4's room service path stamps `reference_doctype`/`reference_name` onto
+	the charge it posts, so a cashier can answer "what is this 120 for". The
+	link is only disclosed to a caller who may read the source DocType - a
+	charge on a folio is not authority over the order that produced it.
+	"""
+	if not row.reference_doctype or not row.reference_name:
+		return {}
+
+	if not frappe.has_permission(row.reference_doctype, "read"):
+		return {}
+
+	return {"source_doctype": row.reference_doctype, "source_name": row.reference_name}
+
+
 @frappe.whitelist(methods=["GET"])
 def get_folio(folio: str) -> dict:
 	"""One folio with its charges, payments and balance."""
 	doc = authorise_document(FOLIO_DOCTYPE, folio, "read")
+	may_read = _posting_disclosure()
 
 	return {
 		"folio": {
@@ -56,6 +94,12 @@ def get_folio(folio: str) -> dict:
 				"payer": row.payer,
 				"is_reversed": row.is_reversed,
 				"reversal_of": row.reversal_of,
+				# Whether the revenue reached ERPNext. A boolean, not a
+				# document: the folio owns the fact, the accounting system owns
+				# the paperwork.
+				"is_posted_to_erp": bool(row.is_posted_to_erp),
+				**_charge_source(row),
+				**({"sales_invoice": row.sales_invoice} if may_read["invoice"] else {}),
 			}
 			for row in doc.charges
 		],
@@ -68,10 +112,17 @@ def get_folio(folio: str) -> dict:
 				"amount": row.amount,
 				"reference": row.reference,
 				"payer": row.payer,
+				"provider_reference": row.provider_reference,
+				"is_reversed": bool(row.is_reversed),
+				"is_posted_to_erp": bool(row.is_posted_to_erp),
+				**({"payment_entry": row.payment_entry} if may_read["payment_entry"] else {}),
 			}
 			for row in doc.payments
 		],
 		"allowed_transitions": sorted(service.TRANSITIONS.get(doc.folio_status, set())),
+		# So a screen can tell "no invoice on this row" from "you may not be
+		# told which invoice".
+		"disclosure": dict(may_read),
 	}
 
 
