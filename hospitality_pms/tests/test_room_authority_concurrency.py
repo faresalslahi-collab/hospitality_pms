@@ -322,20 +322,56 @@ class TestTwoPlacementsRacingForOneRoom(RoomAuthorityRaceTestCase):
 			len(self.committed(results)), 1, msg=f"more than one check-in committed: {results}"
 		)
 
-		# The loser's refusal doubles as an N1 detector for the new guard.
+		# The loser's refusal doubles as an N1 detector for the new guard - when the
+		# loser gets as far as the guard at all.
 		#
 		# Both workers opened their read view on an empty room before the barrier
-		# released them. The loser therefore *cannot* see the winner's Stay
-		# through any plain read - its snapshot predates the commit - and the
-		# room's own flag still says Vacant in that snapshot for the same reason.
-		# So a refusal naming the winner's stay is only reachable through the
-		# locking read, and this assertion fails the moment `current=True` stops
-		# meaning what it says.
+		# released them, so the loser *cannot* see the winner's Stay through any
+		# plain read: its snapshot predates the commit, and the room's own flag
+		# still says Vacant in it. A refusal naming the winner's stay is therefore
+		# only reachable through the locking read.
+		#
+		# But there are two ways to lose this race, and only one of them reaches
+		# the guard. Both workers take the Hotel Room lock in `check_in` before any
+		# of this, and InnoDB may break that contention with a 1213 rather than
+		# queueing - measured on the R1C regression site, where the loser deadlocked
+		# at `lock_document("Hotel Room", room)` and never got to the Stay read.
+		# That is the documented trade this codebase already accepts ("a retryable
+		# deadlock is preferable to silent double occupancy"), and it is the *safe*
+		# way to lose: the whole transaction rolls back.
+		#
+		# So the invariant is asserted unconditionally above, and the N1 property is
+		# asserted only on the path that can carry it. The property is not left
+		# untested by that concession: `TestRacesAgainstASittingGuest` asserts the
+		# guard's exact message strictly, with no deadlock exemption, and cannot
+		# deadlock for a structural reason.
+		#
+		# That reason is lock *ordering*, and it is worth stating precisely because
+		# two earlier versions of this comment got it wrong. It is not that the room
+		# lock is uncontended there - both workers contend for it exactly as they do
+		# here. Nor is it that no second lock is taken: `assert_room_unoccupied`
+		# reads Stay with `for_update`, so a second lock certainly is requested, and
+		# the refusal is derived *from* that locking read. What makes a cycle
+		# impossible is that the Stay lock is only ever requested while already
+		# holding the Hotel Room lock - always that order, never the reverse - and
+		# the sitting guest's Stay row is held by nobody, its transaction having
+		# committed long before the race. So the worker that waits holds nothing the
+		# holder wants, and there is no cycle to break.
 		print(f"\n  R1A empty-room race refusal: {self.errors(results)}")
 
 		winner = self.committed(results)[0]["result"]["stay"]
+		deadlocked = self.deadlocks(results)
+
+		if deadlocked:
+			print(
+				"  R1A note: the loser lost to a lock cycle rather than to the guard "
+				f"({len(deadlocked)} of {len(results)}); invariant still asserted"
+			)
 
 		for result in self.failed(results):
+			if result in deadlocked:
+				continue
+
 			self.assertIn(
 				winner,
 				result.get("error") or "",

@@ -787,38 +787,37 @@ class TestReverseCheckoutDisclosure(DisclosureWorld):
 		self.assertNotIn("ACC-SINV", json.dumps(result, default=str))
 
 	def test_a_sales_invoice_reader_keeps_the_names(self):
-		"""The gate is the permission, not the role name - if any role has it.
+		"""The gate is the permission, not the role name.
 
-		Skipped on this bench, and the reason is an **app defect** rather than a gap
-		in the test: `frappe.has_permission("Sales Invoice", "read")` is False for
-		Accounts Manager, even though `Sales Invoice`'s shipped DocPerm grants it
-		`read=1` at permlevel 0 with `if_owner=0`.
+		Two roles, and both are needed, which is the point this test got wrong at
+		first. `Accounts Manager` supplies the `Sales Invoice` read the gate turns
+		on; `Front Office Manager` supplies the `Stay` write the endpoint itself
+		requires. A user holding only the first is refused by `authorise_document`
+		before the projection is ever reached - so the earlier single-role version
+		was not testing the gate, it was testing the door.
 
-		The cause is `setup/posting_service.py`, which grants the posting service
-		user read on `Sales Invoice`, `Account`, `Item` and `Customer` by inserting
-		bare `Custom DocPerm` rows. Frappe replaces a DocType's *entire* permission
-		list as soon as any Custom DocPerm exists for it, so those four inserts
-		silently revoke every standard ERPNext grant on those DocTypes, site-wide,
-		for every role - and `install.py` re-runs it on each migrate. Frappe's own
-		`add_permission` copies the existing rows forward first, which is the fix.
-
-		Consequence for this suite: the positive side of the Sales Invoice and
-		Customer identifier gates has no reachable subject on any bench running this
-		app. That is the safe direction - a gate that never discloses cannot leak -
-		but it is untested, and the reason is a defect to be fixed elsewhere rather
-		than a configuration choice to be worked around here.
+		It did not show up until R1C. On a bench where `setup/posting_service.py`
+		had already revoked ERPNext's standard grants, `has_permission("Sales
+		Invoice", "read")` was False for every role, this test skipped, and the flaw
+		in it skipped with it. Repairing the permissions made the test run, and it
+		failed immediately. Recorded because that is the useful part: a skip had
+		been standing in for a broken assertion.
 		"""
-		reader = self.fixtures.user("acct", ["Accounts Manager"], properties=[self.property])
+		reader = self.fixtures.user(
+			"acct", ["Accounts Manager", "Front Office Manager"], properties=[self.property]
+		)
 		frappe.db.commit()
 
 		frappe.set_user(reader)
 
 		if not frappe.has_permission("Sales Invoice", "read"):
 			self.skipTest(
-				"CONFIG GAP: no role on this site resolves Sales Invoice read, "
-				"including Accounts Manager, whose DocPerm grants it - so the "
-				"positive side of the ERP-identifier gate has no subject here"
+				"no role on this site resolves Sales Invoice read - if this fires, "
+				"check whether setup/posting_service.py has clobbered the standard "
+				"grants again (see tests/test_posting_service_permissions.py)"
 			)
+
+		self.assertTrue(frappe.has_permission("Stay", "write"), msg="premise: needs Stay write")
 
 		result = self._reverse_as(reader)
 
@@ -826,8 +825,22 @@ class TestReverseCheckoutDisclosure(DisclosureWorld):
 		self.assertTrue(result["disclosure"]["standing_invoices"])
 
 	def test_no_hospitality_role_reads_sales_invoice(self):
-		"""The premise behind every ERP-identifier gate in this module."""
-		for user in (self.desk, self.auditor, self.attendant, self.kitchen):
+		"""The premise behind every ERP-identifier gate in this module.
+
+		Front Office **Manager** is included explicitly, and not because it is
+		another operational role worth checking. The positive test above hands its
+		user `Accounts Manager` *and* `Front Office Manager`, the second only to get
+		past `authorise_document(Stay, "write")`. If Front Office Manager ever gained
+		Sales Invoice read, that test would keep passing for the wrong reason - the
+		names would be disclosed on the strength of the operational role rather than
+		the accounting one - and nothing would say so. This is what says so.
+		"""
+		manager = self.fixtures.user(
+			"fom-only", ["Front Office Manager"], properties=[self.property]
+		)
+		frappe.db.commit()
+
+		for user in (self.desk, self.auditor, self.attendant, self.kitchen, manager):
 			frappe.set_user(user)
 			self.assertFalse(
 				frappe.has_permission("Sales Invoice", "read"),

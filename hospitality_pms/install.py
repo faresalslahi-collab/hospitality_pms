@@ -72,9 +72,63 @@ def sync_roles():
 	# The identity Hospitality posts to ERPNext under. Kept here so a fresh
 	# install, an upgrade and a repeated migrate all converge on the same
 	# narrowly-scoped role, permission and user (UAT-004).
+	#
+	# Called **without** `repair`: this path grants, it never restores. The
+	# restoration of what the pre-16.7.5-R1C implementation revoked is a one-shot
+	# patch (`patches/v16_7/repair_erp_permission_clobber.py`), because the
+	# fingerprint it recognises - every custom row on the parent belongs to the
+	# posting service - is also what a deliberately locked-down site looks like,
+	# and repairing on every migrate would overrule that operator for ever.
 	ensure_posting_service()
 
+	# Reported, never repaired. The patch above cannot reach every damaged site -
+	# `bench install-app --force` over an already-installed site marks patches
+	# complete without running them - and a site whose ERPNext permissions are
+	# missing should say so on every migrate rather than only in a transcript
+	# nobody kept. Read-only, four cheap queries, and it warns rather than throws:
+	# an accounting permission model is not this function's to decide, and a
+	# migrate must not fail because of one.
+	_warn_on_erp_permission_drift()
+
 	frappe.db.commit()
+
+
+def _warn_on_erp_permission_drift():
+	"""Log a warning if ERPNext's own grants are not in effect on our four DocTypes.
+
+	The drift detector `setup/posting_service.py`'s docstring refers to, in the one
+	place it can run on a production site - the test suite that also detects it
+	never runs there.
+	"""
+	from hospitality_pms.patches.v16_7.repair_erp_permission_clobber import (
+		_missing_standard_grants,
+	)
+	from hospitality_pms.setup.posting_service import SERVICE_PERMISSIONS
+
+	for declared in SERVICE_PERMISSIONS:
+		doctype = declared["doctype"]
+
+		try:
+			missing = _missing_standard_grants(doctype)
+		except Exception:
+			# A DocType that is not installed, or metadata that will not load, is
+			# not a reason to fail a migrate.
+			continue
+
+		if not missing:
+			continue
+
+		message = (
+			f"Hospitality PMS: {len(missing)} standard ERPNext permission grant(s) on "
+			f"{doctype} are not in effect. Run "
+			f"`bench --site <site> execute "
+			f"hospitality_pms.patches.v16_7.repair_erp_permission_clobber.execute` "
+			f"to restore them, or review Custom DocPerm for this DocType if the "
+			f"narrowing was deliberate."
+		)
+
+		print(f"  {message}")
+		frappe.logger("hospitality_pms").warning(message)
 
 
 def before_uninstall():

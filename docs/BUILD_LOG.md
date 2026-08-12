@@ -4725,3 +4725,179 @@ raw failure text.
    Room desync, 3 Checked Out stays with no checkout timestamp.
 
 Result: **PASS** (security: APPROVED WITH NOTES)
+
+## 16.7.5-R1C — ERP Permission Repair, Financial Estate Diagnosis & Full Regression
+
+Third remediation slice under 16.7.5. Product version unchanged, deliberately:
+the series is remediation of an unreleased 16.7.5 and the version moves when it
+completes.
+
+### The release blocker
+
+`setup/posting_service.py` granted the posting identity read on `Sales Invoice`,
+`Account`, `Item` and `Customer` by inserting a bare `Custom DocPerm` row for
+each. Its own docstring said this was chosen "so nothing in ERPNext core is
+modified and `bench migrate` cannot overwrite it". The first half was true; the
+second was the opposite of what happens, and the approach was the *more*
+invasive of the two options.
+
+`Meta.set_custom_permissions` replaces a DocType's entire permission list once
+any Custom DocPerm exists for it, and `get_all_perms` reads exactly that list. So
+each one-permission row did not add a grant — it became the whole grant set.
+Audited on this bench: **126** individual `(role, permlevel, if_owner, ptype)`
+grants destroyed. Accounts Manager and Accounts User lost Sales Invoice and
+Account outright; Item Manager, the Stock roles, Sales User, Purchase User,
+Maintenance User and Manufacturing User lost Item; the Sales and Stock roles lost
+Customer. Even `All`'s permlevel-1 read on Sales Invoice went. `install.py` calls
+this from `after_migrate`, so every migrate re-applied it.
+
+(The R1B review estimated 122. The corrected figure is 126: permission types are
+now read from `Custom DocPerm`'s own meta rather than a hand-written tuple, which
+surfaced four further grants — `import` and `mask` — that the original count
+could not see. The same blind spot existed in the first draft of the new tests.)
+
+### The fix
+
+`grant_service_permission` goes through `frappe.permissions.add_permission`,
+which calls `setup_custom_perms` → `copy_perms` to carry the standard rows into
+Custom DocPerm **before** the new row joins them. Least privilege is asserted on
+every migrate by `_narrow_service_row`, which enumerates every row the role holds
+on the parent — no permlevel or `if_owner` filter, because
+`(role, permlevel, if_owner)` is the identity of a rule and an `if_owner=1` row
+sits beside the ordinary one rather than replacing it — and derives permission
+fieldnames from meta. That matters more than it looks: `Custom DocPerm.export`
+defaults to `1`, so `add_permission`'s own row arrives with `export` set.
+
+**Repair is opt-in and one-shot.** `after_migrate` grants and never restores;
+`patches/v16_7/repair_erp_permission_clobber.py` restores, once. The repair
+recognises our damage by its fingerprint — every custom row on the parent belongs
+to the posting service — and that is also what a deliberately locked-down site
+looks like, so repairing on every migrate would overrule an operator for ever.
+Any parent carrying a row for another role is left alone and reported.
+`after_migrate` additionally *reports* residual drift without touching it, since
+`bench install-app --force` marks patches complete without running them.
+
+### Evidence
+
+- **Reproduced first**, on a purpose-built DocType so the premise could be
+  asserted: a bare insert destroys every standard grant; `add_permission` does
+  not; the repair recovers an already-damaged parent; an operator's custom row is
+  left alone. Red before the fix, green after.
+- **rc.localhost migrated with the fix**: 0 standard grants missing on all four
+  DocTypes, service holds exactly `(0, read)`, role has no desk access, user holds
+  one role. Idempotent across three further runs — byte-identical, no duplicates.
+- **The patch rehearsed against mysite's real damage inside a rolled-back
+  transaction**: all 126 grants restored, service row ends
+  `read=1 write=0 create=0 export=0`, then rolled back and mysite verified
+  unchanged.
+
+### A test suite that was damaging the site it ran on
+
+Three test modules did `frappe.db.delete("Night Audit Exception", {"parenttype": AUDIT})`
+— filtered only on `parenttype`, which is "Night Audit" for every exception row on
+the site — and committed. `setup/lifecycle_smoke.py` did the same, and that script
+is *meant* to be run against a real site.
+
+It had already happened. mysite's open audit `HPMS-NA-2026-00004` carries
+`reconciliation_variances = 1` and zero exception rows to explain it, with no
+`Version` row after the delete because `frappe.db.delete` writes none.
+`information_schema` dates the last write to `tabNight Audit Exception` to
+2026-08-12 20:12 — during this series' own R1B regression sweep. The prior
+convention of running the suite on `mysite.localhost`
+(`HPMS-16.6.0-Verification-Report.md:9`) is what made that possible, and the
+`_Test Company*` residue on that site is the other half of the evidence.
+
+All four now scope the delete to their own property's audits. Proven: rc's five
+exception rows survived three full suite runs, where the first would previously
+have deleted them.
+
+### Financial estate — diagnosed read-only, nothing remediated
+
+Verified against the reported state: Night Audit `HPMS-NA-2026-00004` Posting at
+2026-08-11 **confirmed**; 4 retrying folio-invoice operations **confirmed**; 3,221
+unresolved durable operations, 99.84% channel pushes **confirmed exactly**; "9
+failed postings" **corrected** — 5 `Financial Posting Log` rows plus 4 durable
+rows, which is what `get_failed_postings` unions.
+
+- **Genuinely broken (3).** `HPMS-FOL-2026-00047` has two submitted Sales Invoices
+  (`ACC-SINV-2026-00033`, `…00038`, 950.00 each) with **zero GL entries and zero
+  Payment Ledger entries** and no posting-log row referencing either — 1,900.00 of
+  phantom receivable, 1,035.80 of folio revenue in neither place, invisible to
+  `reconcile_folio` and to Night Audit. ERPNext cancellation is never propagated
+  back into the PMS: 6 log rows say `Posted` against `docstatus=2` documents, and
+  `ACC-PAY-2026-00072/73` leave **460.00 of live `Cash Dr / Debtors Cr` with
+  nothing to settle**. And `tabNight Audit Exception` is empty, so
+  `_assert_no_blocking_exceptions` now passes vacuously.
+- **Configuration, not defect (~3,220 rows).** `Posting Profile DOHA-MAIN` has no
+  tax template for taxed charge types, so `_resolve_tax_head` refuses — correctly,
+  rather than dropping output VAT. 12 synthetic `CM-*` channels have no
+  `api_base_url`. `Selling Settings.allow_negative_rates_for_items = 0` is what
+  broke the Discount-bearing invoice.
+- **Residue (~93 rows, no money).** 88 log rows point at deleted folios; the
+  `HPMS-FOL-2026-00043` "225.00 variance" is two unrelated datasets sharing a
+  recycled primary key (folio created an hour *after* its posting log rows).
+- **`posting._mark_failed` has no callers.** Nothing in current code can write
+  `posting_status = "Failed"`, so all 5 log rows are fossils from a removed code
+  path — two fail at `entry.set_missing_values()`, a line deliberately deleted.
+- **Nothing is safe to retry automatically.** `450qjg7djd` is at attempts 4/5 and
+  one sweep would Abandon it; `HPMS-POST-2026-00093` would raise a *third*
+  invoice. Six items need a human finance decision.
+
+### Validation
+
+- **Backend: 781 tests, green on two consecutive full runs**, on a disposable
+  site (`CI=1 bench --site rc.localhost run-tests --app hospitality_pms`). 642 at
+  16.7.5; +32 R1A, +86 R1B, +21 R1C.
+- **Concurrency/idempotency:** all suites fresh and green, including R1A physical
+  room, reservation/inventory, HPMS-QA-16.7.2-C, payment durability and callback
+  idempotency, channel retry, posting retry, Night Audit concurrency.
+- **R1A and R1B regression:** green.
+- **Frontend:** 597 tests, 20 files. **Node:** 7/7. **Build:** passes, only the
+  pre-existing chunk-size warning.
+- **Security review:** two adversarial passes. APPROVED WITH NOTES, then APPROVED
+  WITH NOTES with both first-pass SHOULD-FIX items verified CLOSED against
+  Frappe's own source. It also caught a vacuous regression test of mine, a
+  comment I had got wrong twice, and the surviving `lifecycle_smoke` instance of
+  the unscoped delete.
+- **Core apps:** `apps/frappe` and `apps/erpnext` clean, HEADs unmoved.
+- **mysite.localhost unchanged:** business date 2026-08-11, `HPMS-NA-2026-00004`
+  still Posting, room 402 and both stays byte-identical, no fixture residue, and
+  the permission damage still present pending the decision below.
+
+### Disposable site
+
+`bench new-site` remains **BLOCKED** — no MariaDB root password on disk,
+`mysql -u root` denied (1698), `sudo -n` denied — as `BUILD_LOG.md:650` already
+recorded. Used the existing `rc.localhost` instead: all three apps installed, a
+scratch site at business date 2026-08-08, never previously subjected to the suite,
+and whose DB user has privileges on its own database only, so it is *physically*
+incapable of writing to mysite. Backed up first; `allow_tests` was not added —
+`CI=1` is accepted by the runner, so no site config was modified.
+
+### Carried forward — decisions required
+
+1. **Normalise mysite's permissions.** Prepared and rehearsed; not executed.
+   `bench --site mysite.localhost migrate` applies the patch, or run
+   `hospitality_pms.patches.v16_7.repair_erp_permission_clobber.execute` directly.
+   Until then Accounts Manager/User cannot read Sales Invoice or Account on that
+   site, and the R1C baseline suite reports 21 failures there by design.
+2. **The three genuinely-broken financial items** above, and the VAT-account
+   decision that gates ~3,220 queued operations. Six items need finance.
+3. **Guest link-name policy**, recorded per R1C Part 9 and *not* normalised:
+   *Guest document identity may be exposed only where operational
+   navigation/linkage requires it and the caller is already authorized for the
+   parent workflow. Guest contact/profile/detail fields still require Guest
+   permission.* Carried to the RC consistency backlog; no exposure broadened, no
+   working link removed.
+4. **R1A estate list unchanged and unrepaired:** 6 active-Stay/room-state
+   mismatches including room 402 and five Due Out rooms, 1 Stay/Reservation Room
+   desync, 3 Checked Out stays with no checkout timestamp.
+5. `test_schema_migration.py:39` drops a unique index on `tabFolio Charge`
+   site-wide and restores it in teardown; a crash mid-test would leave the host
+   site's financial idempotency constraint off until the next migrate.
+6. The four ERPNext DocTypes' permission model is now a Custom DocPerm snapshot,
+   so future ERPNext permission changes to them will not reach the site. Inherent
+   to the only supported API; `tests/test_posting_service_permissions.py` is the
+   drift detector.
+
+Result: **PASS** (security: APPROVED WITH NOTES)

@@ -266,8 +266,23 @@ def _lifecycle(world):
 
 	# The audit and its exceptions are property-scoped fixtures; remove them
 	# here because Fixtures does not track documents the service created.
-	frappe.db.delete("Night Audit Exception", {"parenttype": "Night Audit"})
-	frappe.db.delete("Night Audit", {"property": prop})
+	#
+	# Scoped by resolving this property's audit names first (16.7.5-R1C). The
+	# exception delete used to filter on `parenttype` alone, which is
+	# "Night Audit" for every exception row on the site - so this script, which is
+	# meant to be run against a real site with `bench execute`, destroyed the
+	# exception rows of every audit of every property and committed, with no
+	# Version trail to show it had happened. The same defect was found in three
+	# test modules and fixed there; this instance is the one that runs on purpose
+	# outside a test.
+	audits = frappe.get_all("Night Audit", filters={"property": prop}, pluck="name")
+
+	if audits:
+		frappe.db.delete(
+			"Night Audit Exception", {"parent": ("in", audits), "parenttype": "Night Audit"}
+		)
+		frappe.db.delete("Night Audit", {"name": ("in", audits)})
+
 	frappe.db.commit()
 
 
