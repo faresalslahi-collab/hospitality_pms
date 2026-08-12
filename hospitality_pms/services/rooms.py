@@ -16,7 +16,7 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, now_datetime
 
-from hospitality_pms.services.base import lock_document, require_role
+from hospitality_pms.services.base import lock_and_find, lock_document, require_role
 from hospitality_pms.services.exceptions import (
 	InvalidStateTransitionError,
 	RoomNotAssignableError,
@@ -94,6 +94,12 @@ BLOCKING_MAINTENANCE = {"Under Maintenance", "Out of Service", "Out of Order"}
 BLOCKING_INVENTORY = {"Blocked", "Not Assignable", "Stop Sell"}
 
 #: Occupancy states meaning the room already has, or is committed to, a guest.
+#:
+#: **Not the authority for whether somebody is in the room.** This is a
+#: denormalised flag, and `active_stay_in_room` below is the authority; see the
+#: section on physical occupancy. `Due Out` is deliberately still absent from
+#: this set - a Due Out room is genuinely re-lettable *once its guest has left*,
+#: and it is the Stay, not the flag, that knows whether they have.
 OCCUPIED_STATES = {"Occupied", "House Use"}
 
 
@@ -192,15 +198,200 @@ def get_room_state(room: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Physical occupancy: who is actually in the room
+# ---------------------------------------------------------------------------
+#
+# Three records claim to know whether a room has a guest in it, and until
+# HPMS-UAT-16.7.5-B01 the two that were asked were the two that can be wrong.
+#
+# `Hotel Room.occupancy_status` is a denormalised operational flag. It is what
+# the rack renders and what housekeeping works from, and it is maintained by
+# whichever service last touched the room. That makes it fast and makes it
+# fallible: any path that moves a guest without moving the flag leaves it
+# lying, and a *second* guest's checkout will happily set it `Vacant` while the
+# first guest is still in the room. That is literally what happened to room 402.
+#
+# `Reservation Room` is the authoritative record of what was *sold*, and its
+# overlap test is departure-exclusive - one guest leaves on the 12th, another
+# arrives on the 12th - because that is correct for selling nights. It is not
+# correct for asking who is in the bed, because a stay whose departure date is
+# today does not overlap an assignment starting today, and the guest has not
+# packed yet.
+#
+# `Stay` is the operational record of a guest in a room, and it is the only one
+# of the three that is a statement about a physical body. It is therefore the
+# authority for physical occupancy, and this is where that is expressed. The
+# other two remain useful and remain checked; neither is trusted alone.
+
+
+def active_stay_in_room(
+	room: str,
+	*,
+	exclude_stay: str | None = None,
+	property_name: str | None = None,
+	current: bool = False,
+) -> str | None:
+	"""The active Stay physically occupying `room`, or None.
+
+	The authoritative answer to "may another guest be put in this room". Named
+	for what it returns rather than as a predicate because every caller that
+	refuses wants to say *which* stay it refused for, and a bare boolean makes
+	that message impossible.
+
+	Active means both halves of `stays.ACTIVE_OCCUPANCY_STATES` and a null
+	`checked_out_on`, and both halves are load-bearing. The status is the
+	operational truth the desk works from; the timestamp is the one that cannot
+	be reached by a workflow transition, so a stay that has been marked departed
+	releases its room even if some path left its status behind. The estate audit
+	found three stays on this bench whose status and timestamp disagree, so the
+	two genuinely do come apart on real data.
+
+	`exclude_stay` is the stay being moved. A room change must not find the
+	guest it is moving and refuse to move them.
+
+	`current` decides snapshot or current read, and carries exactly the meaning
+	it carries in `availability` and `base`:
+
+	* Left `False` - a plain read, for the pickers and boards that ask this
+	  question constantly and must never take a row lock to answer it.
+	* Set `True` - a locking read, for a caller that is about to *commit* a
+	  guest into this room. Those callers hold the Hotel Room lock while they
+	  decide, and **a lock serialises without refreshing**: under REPEATABLE
+	  READ a plain read is answered from the view this transaction opened before
+	  the rival committed, so the loser of the race still sees the room empty
+	  (N1, `services/base.py`). `lock_and_find` is used rather than a plain
+	  `get_all` for that reason, and because when it finds nothing it locks the
+	  gap - so "no active stay" stays true until this transaction ends.
+
+	Property scoped through `room`, which is unique per property by
+	construction, and additionally on `property` when the caller already knows
+	it. That is not redundancy for its own sake: the extra column is the one the
+	Stay table is indexed on, and passing it keeps the guard cheap on a large
+	estate.
+	"""
+	# Imported inside the function, not at module scope. `services.stays` imports
+	# this module, so an eager import here would be circular. The state set lives
+	# there because that is where the Stay state machine lives, and there must be
+	# exactly one of it.
+	from hospitality_pms.services.stays import ACTIVE_OCCUPANCY_STATES, STAY_DOCTYPE
+
+	filters = {
+		"room": room,
+		"stay_status": ("in", ACTIVE_OCCUPANCY_STATES),
+		"checked_out_on": ("is", "not set"),
+	}
+
+	if property_name:
+		filters["property"] = property_name
+
+	if exclude_stay:
+		filters["name"] = ("!=", exclude_stay)
+
+	if current:
+		found = lock_and_find(STAY_DOCTYPE, filters, ["name"])
+
+		return found["name"] if found else None
+
+	return frappe.db.get_value(STAY_DOCTYPE, filters, "name")
+
+
+def assert_room_unoccupied(
+	room: str,
+	*,
+	exclude_stay: str | None = None,
+	property_name: str | None = None,
+	current: bool = True,
+	label: str | None = None,
+):
+	"""Refuse to place a guest in a room another active Stay is occupying.
+
+	The commit-time guard. Every mutation that can put a body in a physical room
+	calls this, under that room's lock, and refuses on its own account - not
+	because the picker filtered the room out, and not because the room's flag
+	said something. A front-end that offers the wrong room is a usability
+	defect; a mutation that accepts it is two guests behind one door.
+
+	Defaults to `current=True`, unlike `active_stay_in_room`. The default is the
+	safe one here because every caller of *this* function is by definition
+	committing.
+	"""
+	occupant = active_stay_in_room(
+		room, exclude_stay=exclude_stay, property_name=property_name, current=current
+	)
+
+	if not occupant:
+		return
+
+	label = label or frappe.db.get_value(ROOM_DOCTYPE, room, "room_number") or room
+
+	# Says which stay, because the desk's next question is always "who is in it
+	# then", and the answer sends them to the right record. Says nothing about
+	# the guest: a room number and a stay id are operational facts, a guest name
+	# is personal data and this refusal is reachable by roles that may not read
+	# Guest.
+	throw(
+		_(
+			"Room {0} is still occupied by stay {1}, which has not been checked out. "
+			"Check that stay out, or choose another room."
+		).format(label, occupant),
+		exc=RoomNotAssignableError,
+	)
+
+
+def rooms_with_active_stays(property_name: str, *, exclude_stay: str | None = None) -> set[str]:
+	"""Every room in the property an active Stay is physically occupying.
+
+	The set form, for the pickers. `get_assignable_rooms` filters a whole room
+	list, and asking `active_stay_in_room` per room would turn one query into one
+	per room on every render (SAD section 13).
+
+	Carries no date argument, deliberately. Physical occupancy is a fact about
+	*now*, so there is no date on which this set is a different set. Whether it
+	applies to a given assignment is a separate question, and it belongs to the
+	caller: `availability.get_assignable_rooms` owns that rule and documents it.
+	Pushing a date in here would invite two callers to answer it differently.
+
+	A plain read on purpose: this feeds a list, and the authority that matters
+	re-asks under the lock.
+	"""
+	from hospitality_pms.services.stays import ACTIVE_OCCUPANCY_STATES, STAY_DOCTYPE
+
+	filters = {
+		"property": property_name,
+		"stay_status": ("in", ACTIVE_OCCUPANCY_STATES),
+		"checked_out_on": ("is", "not set"),
+		"room": ("is", "set"),
+	}
+
+	if exclude_stay:
+		filters["name"] = ("!=", exclude_stay)
+
+	return set(
+		frappe.get_all(
+			STAY_DOCTYPE,
+			filters=filters,
+			pluck="room",
+			limit_page_length=0,
+		)
+	)
+
+
+# ---------------------------------------------------------------------------
 # Assignability
 # ---------------------------------------------------------------------------
 
 
-def _occupancy_applies(room: str, arrival=None) -> bool:
+def occupancy_applies(room: str, arrival=None) -> bool:
 	"""Whether "somebody is in it now" is a reason to refuse this assignment.
 
 	It is, unless the assignment starts after today: a room occupied this
 	morning is a perfectly good room to promise to next Tuesday's arrival.
+
+	Public, and named without the underscore, because it is the single date rule
+	shared by both occupancy authorities - the room's own flag here in
+	`assert_assignable`, and the active-Stay check in
+	`reservations.assign_room`. Two copies of "does today's occupant matter"
+	would be two chances to answer it differently.
 	"""
 	if arrival is None:
 		return True
@@ -250,7 +441,7 @@ def assert_assignable(
 			exc=RoomNotAssignableError,
 		)
 
-	if _occupancy_applies(room, arrival) and state.get("occupancy_status") in OCCUPIED_STATES:
+	if occupancy_applies(room, arrival) and state.get("occupancy_status") in OCCUPIED_STATES:
 		throw(
 			_("Room {0} is already {1}.").format(label, _(state["occupancy_status"])),
 			exc=RoomNotAssignableError,

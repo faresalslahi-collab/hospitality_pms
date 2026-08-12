@@ -57,6 +57,26 @@ TRANSITIONS = {
 	CLOSED: set(),
 }
 
+#: The stay statuses in which a guest is **physically in their room**.
+#:
+#: The one definition of active physical occupancy, and the reason room
+#: authority has a single answer rather than one per caller (HPMS-UAT-16.7.5-B01).
+#: Read by `rooms.active_stay_in_room`, which is what every physical-room
+#: mutation asks before it puts a guest anywhere.
+#:
+#: `Expected` is deliberately absent: a stay is created `Expected` and becomes
+#: `In House` in the same check-in, and nobody is in the room until it does.
+#: `Checked Out` and `Closed` are absent because the guest has gone - a departed
+#: stay must release its room, or one checkout would sterilise a room forever.
+#:
+#: `Due Out` is the member this product got wrong, and the reason room 402
+#: happened. It means "leaving today", not "left": the guest is still in the bed,
+#: their luggage is still in the wardrobe, and `mark_due_out` puts every
+#: departing stay here from the Night Audit each morning. Treating it as vacant
+#: made a guest invisible on the one day the desk is most likely to re-let their
+#: room.
+ACTIVE_OCCUPANCY_STATES = (IN_HOUSE, DUE_OUT)
+
 #: Checking a guest into a room that is not clean is a manager decision, and
 #: the reason is recorded on the stay (SAS section 3.2).
 READINESS_OVERRIDE_ROLES = (
@@ -151,6 +171,26 @@ def check_in(
 			)
 
 	room_service.assert_assignable(room, allow_unready_housekeeping=allow_unready_room)
+
+	# And whether the room still has its previous guest in it
+	# (HPMS-UAT-16.7.5-B01).
+	#
+	# `assert_assignable` above asks the room's own occupancy flag, and that flag
+	# reads `Due Out` for every guest the Night Audit marked as leaving today -
+	# a state deliberately outside `OCCUPIED_STATES`, because the room *is*
+	# re-lettable once they have gone. It cannot tell whether they have gone.
+	# Room 402's flag went one worse and read `Vacant`, because the second guest
+	# checked out of it while the first was still there.
+	#
+	# Asked under the Hotel Room lock taken at the top of this function, and with
+	# a **current** read: the lock stops two check-ins picking this room at once
+	# but does not refresh what this transaction sees, so a plain read would be
+	# answered from the view opened before the rival's check-in committed (N1).
+	#
+	# No `occupancy_applies` gate here, unlike `assign_room`. A check-in is
+	# always now - `_assert_arrival_is_due` has already refused a future arrival -
+	# so there is no date on which today's occupant is somebody else's problem.
+	room_service.assert_room_unoccupied(room, property_name=reservation_doc.property)
 
 	# Assigning through the reservation service re-checks the clash rules.
 	if line.assigned_room != room:
@@ -259,6 +299,25 @@ def _insert_stay(values: dict):
 	to create a stay in future has to come through here - and therefore through
 	the preconditions that make a stay safe to create.
 	"""
+	# The last line of defence for physical occupancy, and the reason it is here
+	# rather than only in `check_in`.
+	#
+	# `check_in` asks `assert_room_unoccupied` itself, and that is the check that
+	# produces the readable refusal; this one will normally never fire. It is
+	# placed here because this function is the documented single door through
+	# which a Stay comes into existence, which makes it the only place a guard
+	# cannot be bypassed by a *future* caller that forgets to ask. A room guard
+	# that lives only in today's callers protects only today's callers
+	# (defence in depth, and the same reasoning that put the orchestration
+	# context here in the first place).
+	#
+	# Deliberately not gated on a date: a Stay is created by check-in, which is
+	# always now.
+	room = values.get("room")
+
+	if room:
+		room_service.assert_room_unoccupied(room, property_name=values.get("property"))
+
 	with service_context(STAY_ORCHESTRATION):
 		return frappe.get_doc(values).insert(ignore_permissions=True)
 
@@ -437,6 +496,26 @@ def change_room(stay: str, new_room: str, reason: str, *, allow_unready: bool = 
 		exclude_line=line_name,
 		remedy=_("Choose another room, or move the booking that already holds this one."),
 	)
+
+	# And the destination must not have a guest in it right now
+	# (HPMS-UAT-16.7.5-B01).
+	#
+	# The two checks above are the two that were satisfied for room 402 while
+	# somebody was asleep in it: `assert_assignable` reads a flag that says
+	# `Due Out` for every departing guest, and `_assert_room_free` reads an
+	# interval whose departure-exclusive overlap does not catch the guest whose
+	# departure date is today. A room move is a physical placement exactly like a
+	# check-in, so it asks the same question the same way.
+	#
+	# `exclude_stay` is this stay: a guest moving out of a room must not be found
+	# as their own rival in it. That matters because this is asked about
+	# `new_room` only - the room being vacated needs no permission from anybody -
+	# but a caller moving a guest back into a room they still nominally hold
+	# would otherwise be refused on their own account.
+	#
+	# Under the Hotel Room locks taken above, with a current read, for the reason
+	# recorded on `_assert_room_free`: the lock serialises but does not refresh.
+	room_service.assert_room_unoccupied(new_room, exclude_stay=stay, property_name=doc.property)
 
 	previous_room = doc.room
 
