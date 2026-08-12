@@ -67,10 +67,12 @@ def board(property: str | None = None, include_closed: int = 0) -> dict:
 @frappe.whitelist(methods=["GET"])
 def get_request(request: str) -> dict:
 	"""One guest request."""
-	require_permission(REQUEST_DOCTYPE, "read")
-
-	doc = frappe.get_doc(REQUEST_DOCTYPE, request)
-	doc.check_permission("read")
+	# `authorise_document` rather than `check_permission` alone (16.7.5). A User
+	# Permission created without `apply_to_all_doctypes` restricts only the
+	# DocTypes it names, so step 2 can legitimately pass for a record in a
+	# property the caller may not operate in - and every one of these DocTypes
+	# carries a required `property`, so the third check always fires.
+	doc = authorise_document(REQUEST_DOCTYPE, request, "read")
 
 	return {
 		"request": {field: doc.get(field) for field in REQUEST_FIELDS},

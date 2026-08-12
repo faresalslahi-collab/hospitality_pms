@@ -1245,3 +1245,28 @@ _POSTING_TYPE_BY_OPERATION = {
 	"post_folio_invoice": "Sales Invoice",
 	"post_folio_payment": "Payment Entry",
 }
+
+
+def closed_folios_with_unposted_charges(property_name: str, limit: int = 100) -> list[dict]:
+	"""Folios that closed with revenue still not in the ledger.
+
+	The ones finance most needs to see: the guest has gone, the folio is
+	settled, and a charge never reached ERPNext. Lived as raw SQL inside
+	`api.checkout.reconciliation` until 16.7.5; moved here because a query that
+	decides what finance is shown is a business rule, and `CLAUDE.md` puts
+	those in `services/`.
+	"""
+	return frappe.db.sql(
+		"""
+		select distinct f.name, f.guest_name, f.folio_status, f.total_charges, f.balance
+		from `tabGuest Folio` f
+		inner join `tabFolio Charge` c on c.parent = f.name
+		where f.property = %(property)s
+		  and f.folio_status in ('Settled', 'Closed')
+		  and ifnull(c.is_posted_to_erp, 0) = 0
+		order by f.modified desc
+		limit %(limit)s
+		""",
+		{"property": property_name, "limit": int(limit)},
+		as_dict=True,
+	)

@@ -3,6 +3,7 @@
 import frappe
 
 from hospitality_pms.services import checkout as service
+from hospitality_pms.services import finance_messages
 from hospitality_pms.services import posting as posting_service
 from hospitality_pms.services.base import authorise_document, require_role
 from hospitality_pms.services.property import resolve_property
@@ -61,24 +62,16 @@ def reconciliation(property: str | None = None) -> dict:
 	require_role(RECONCILIATION_ROLES)
 	property_name = resolve_property(property)
 
-	failed = posting_service.get_failed_postings(property_name)
-
-	# Folios that closed with charges never posted are the ones finance most
-	# needs to see: the guest has gone and the revenue is not in the ledger.
-	unposted = frappe.db.sql(
-		"""
-		select distinct f.name, f.guest_name, f.folio_status, f.total_charges, f.balance
-		from `tabGuest Folio` f
-		inner join `tabFolio Charge` c on c.parent = f.name
-		where f.property = %(property)s
-		  and f.folio_status in ('Settled', 'Closed')
-		  and ifnull(c.is_posted_to_erp, 0) = 0
-		order by f.modified desc
-		limit 100
-		""",
-		{"property": property_name},
-		as_dict=True,
+	# Projected, never published raw. `get_failed_postings` returns the
+	# `Financial Posting Log`'s `error_message` and the durable ledger's
+	# `last_error` - both truncated `str(exc)` - and this endpoint used to hand
+	# them to a browser. Its own shape is fixed by its test and by what Night
+	# Audit reads, so it is projected here rather than narrowed there.
+	failed = finance_messages.safe_failed_postings(
+		posting_service.get_failed_postings(property_name)
 	)
+
+	unposted = posting_service.closed_folios_with_unposted_charges(property_name)
 
 	return {
 		"property": property_name,

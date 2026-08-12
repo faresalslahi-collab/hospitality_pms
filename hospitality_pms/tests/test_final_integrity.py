@@ -74,8 +74,6 @@ class TestLockingPrimitive(IntegrationTestCase):
 		("services/housekeeping.py", "complete"): "pre-Wave-1; task state",
 		("services/housekeeping.py", "inspect"): "pre-Wave-1; task state",
 		("services/housekeeping.py", "set_do_not_disturb"): "pre-Wave-1; task state",
-		("services/kitchen.py", "issue_requisition"): "pre-Wave-1; requisition state",
-		("services/kitchen.py", "deliver_order"): "pre-Wave-1; order state",
 		("services/maintenance.py", "start_work"): "pre-Wave-1; ticket state",
 		("services/maintenance.py", "take_out_of_service"): "pre-Wave-1; ticket state",
 		("services/maintenance.py", "complete_work"): "pre-Wave-1; ticket state",

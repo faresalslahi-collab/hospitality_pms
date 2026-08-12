@@ -40,7 +40,14 @@ const MIGRATED_BOARDS = ['Arrivals.vue', 'Departures.vue', 'InHouse.vue'].map((n
  * contract. The reservation workspace opens on one document from its route, so it
  * has no active-property watcher to assert — it would be wrong for it to have one.
  */
-const OTHER_PAGES = [join(SRC, 'pages', 'Reservation.vue')]
+/** The Guest 360 tabs and header, added in 16.7.3.
+ *
+ * Registered in 16.7.5. They were built to the same rules as the reservation
+ * workspace but were never added to this list, so nine components spent two
+ * builds outside the direction and translation-key guards. */
+const GUEST_WORKSPACE = join(SRC, 'components', 'guest')
+
+const OTHER_PAGES = [join(SRC, 'pages', 'Reservation.vue'), join(SRC, 'pages', 'Folio.vue')]
 
 /**
  * Only `.vue` files. A resource module carries no markup and no `t()` call, so it
@@ -53,7 +60,13 @@ function vueFilesIn(dir) {
     .map((name) => join(dir, name))
 }
 
-const files = [...vueFilesIn(UI_KIT), ...vueFilesIn(WORKSPACE), ...MIGRATED_BOARDS, ...OTHER_PAGES]
+const files = [
+  ...vueFilesIn(UI_KIT),
+  ...vueFilesIn(WORKSPACE),
+  ...vueFilesIn(GUEST_WORKSPACE),
+  ...MIGRATED_BOARDS,
+  ...OTHER_PAGES,
+]
 
 /**
  * Physical direction utilities, each paired with the logical one to use instead.
@@ -113,7 +126,8 @@ describe('the UI kit and the migrated boards express direction logically', () =>
     // cannot make every check below pass by checking nothing.
     expect(vueFilesIn(UI_KIT).length).toBeGreaterThanOrEqual(5)
     expect(vueFilesIn(WORKSPACE).length).toBeGreaterThanOrEqual(6)
-    expect(files.length).toBeGreaterThanOrEqual(15)
+    expect(vueFilesIn(GUEST_WORKSPACE).length).toBeGreaterThanOrEqual(8)
+    expect(files.length).toBeGreaterThanOrEqual(24)
   })
 
   for (const path of files) {

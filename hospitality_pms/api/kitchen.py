@@ -160,10 +160,12 @@ def issue_requisition(requisition: str) -> dict:
 @frappe.whitelist(methods=["GET"])
 def get_requisition(requisition: str) -> dict:
 	"""One requisition with its lines."""
-	require_permission(REQUISITION_DOCTYPE, "read")
-
-	doc = frappe.get_doc(REQUISITION_DOCTYPE, requisition)
-	doc.check_permission("read")
+	# `authorise_document` rather than `check_permission` alone (16.7.5). A User
+	# Permission created without `apply_to_all_doctypes` restricts only the
+	# DocTypes it names, so step 2 can legitimately pass for a record in a
+	# property the caller may not operate in - and every one of these DocTypes
+	# carries a required `property`, so the third check always fires.
+	doc = authorise_document(REQUISITION_DOCTYPE, requisition, "read")
 
 	return {
 		"requisition": {field: doc.get(field) for field in REQUISITION_FIELDS},
@@ -265,10 +267,12 @@ def get_order(order: str) -> dict:
 	Guest Folio read, so gating only the order would publish the guest's identity
 	and the folio their money sits on through a second door.
 	"""
-	require_permission(ORDER_DOCTYPE, "read")
-
-	doc = frappe.get_doc(ORDER_DOCTYPE, order)
-	doc.check_permission("read")
+	# `authorise_document` rather than `check_permission` alone (16.7.5). A User
+	# Permission created without `apply_to_all_doctypes` restricts only the
+	# DocTypes it names, so step 2 can legitimately pass for a record in a
+	# property the caller may not operate in - and every one of these DocTypes
+	# carries a required `property`, so the third check always fires.
+	doc = authorise_document(ORDER_DOCTYPE, order, "read")
 
 	fields = [field for field in ORDER_FIELDS if field in _order_disclosure()]
 

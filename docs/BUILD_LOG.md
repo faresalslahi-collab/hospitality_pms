@@ -4359,3 +4359,217 @@ assignable-attendant endpoint; `Room Service Order.order_type` still offers
 need screens. Guest Documents remain **BLOCKED** on the File permission design.
 
 Result: **PASS** (security: APPROVED WITH NOTES)
+
+---
+
+## 16.7.5 — Cashier & Folio Workspace
+
+Baseline: **`2cb455a`** — `version-16` with 16.7.4 merged locally, `--no-ff`,
+history preserved. Pre-merge `version-16` was `8e99ac7`; the 16.7.4 head was
+`dc11ae2`; merge-base equalled `version-16`, so 16.7.4 was exactly one commit
+ahead with **no divergent commits**, and the merged tree is byte-identical to
+`dc11ae2`. Post-merge validation before any 16.7.5 work: 521 frontend tests,
+7/7 Node checks, 625 backend tests. Nothing was pushed, pulled or fetched.
+
+This is the financial build, and most of what it found was already written. The
+folio services, the payment state graph, the refund concurrency guarantees, the
+posting service identity and the reconciliation report were all complete and
+hardened. What was missing was a way to reach them, and four defects sitting in
+the seam.
+
+### The legacy audit, first
+
+16.7.4 closed cross-property creation paths but could not speak for rows written
+before it. A **read-only** audit ran twelve relationship checks — Room Service
+Order, Guest Request, Guest Folio, Stay, Housekeeping Task and Maintenance
+Ticket against their linked Stay, Reservation, Room and Folio — across 105 guest
+requests, 43 folios, 37 stays, 49 housekeeping tasks and 79 maintenance tickets.
+
+**Zero mismatches. No writes.** The qualification 16.7.4's report carried is
+discharged: there is no legacy debt behind that fix, and no remediation track
+was needed.
+
+### The four defects
+
+**A refund key identified the amount, not the decision.** `api.payments.refund`
+took no `idempotency_key`, so the service fell back to
+`refund:{transaction}:{amount}` — a content hash. Two genuine goodwill refunds of
+fifty against one capture collided: the second returned the first as a duplicate
+and refunded nothing, while reporting success. `require_operation_key`'s own
+docstring is the argument — *"two minibar waters at the same price ... are
+genuinely two charges, and a content hash cannot tell them from one charge sent
+twice"*. The key is now required, exactly as it is for a charge, a payment and
+an adjustment.
+
+**The refund role list advertised what the matrix refused.** `REFUND_ROLES` named
+General Manager and Hotel Manager; `setup/permissions.py` gives `Payment
+Transaction` writers as `["Front Office Manager", *FINANCE, *ADMIN]` and puts
+`MANAGEMENT` in readers only. So `require_role` admitted them and
+`authorise_document(..., "write")` refused them one line later. The list is now
+exactly the write set — `Accounts User` gained, GM and Hotel Manager removed.
+Widening the matrix instead was rejected: excluding management from *executing*
+payment operations while keeping their oversight read is a deliberate
+separation, and a cashier build is the wrong place to reverse it.
+
+**A failed posting reached finance as a traceback.** `get_failed_postings`
+returns `error_message` and `last_error` — both truncated `str(exc)` — and
+`api.checkout.reconciliation` published them verbatim. There was no
+operator-safe derivation anywhere in the app. `services/finance_messages.py`
+adds one: a category an operator recognises, a `can_retry` derived from **both**
+the posting status and the durable ledger's `queue_status`, and a diagnostic
+reference so support can still find the exception. It is a fail-closed allow
+list — a field `get_failed_postings` gains later is dropped by default, not
+published by default. `get_failed_postings` itself is untouched: its shape is
+fixed by its own test and by what Night Audit reads, so it is projected rather
+than narrowed. The endpoint's inline raw SQL moved to
+`posting.closed_folios_with_unposted_charges`, because a query that decides what
+finance is shown is a business rule.
+
+**Five reads authorised the DocType and not the document.** `get_task`,
+`get_request`, `get_ticket`, `get_requisition` and `get_order` used
+`check_permission` alone. That is sufficient only when the site's Property User
+Permission carries `apply_to_all_doctypes`; scoped with `applicable_for`
+instead — a common way to restrict someone on bookings but not on masters — it
+passes for a record in a property the caller may not operate in. All five now
+call `authorise_document`, and all five DocTypes carry `property` as `reqd`, so
+its third step always fires. The existing fixture sets
+`apply_to_all_doctypes = 1`, which *masks* the condition, so the new tests build
+the permission the other way deliberately — otherwise they would prove
+`check_permission` rather than the fix.
+
+### The kitchen carry-forward, stated precisely
+
+16.7.4 recorded that a retried `issue_requisition` or `deliver_order` could
+double-move stock. Investigation sharpened it: **the charge was never at risk**.
+`deliver_order` posts through `folio.post_charge`, which carries a deterministic
+`order:{order}` key, does its own `lock_and_get_doc` on the folio and its child
+rows, and is backed by a unique `(parent, idempotency_key)` index. Money was
+safe. **Stock was not** — `_consume_order_stock` runs at the tail of the same
+function with no key, no lock and no marker, so a stale read let a retry fall
+past the guard and submit a second Material Issue.
+
+Both sites now read currently with `lock_and_get_doc`, which closes the
+consumption path as a consequence rather than by touching it: the marker was
+always written before consumption, it was only ever *read* wrongly. Their two
+entries were removed from `test_final_integrity`'s allow list in the same
+change, because that list fails in both directions — a listed site that is fixed
+without deleting its entry is as much a failure as a new one.
+
+**`record_wastage` is deferred, with an executable characterisation.** It has no
+key, no lock and no marker to read, so it cannot be closed by reading currently —
+there is nothing to read. Closing it means choosing an identity (a client key,
+or a natural key defensible against two genuinely separate write-offs of the
+same item on the same day), plus a field, a unique index and the audit record it
+lacks. That is schema work. The deferral is a test that asserts today's
+behaviour and fails when the guard lands, so it expires loudly.
+
+### Pre-arrival deposit — classification C, deferred
+
+The wrapper is one line, and every layer beneath accepts it. That is the trap.
+`open_folio(property, guest, reservation=res)` with `stay=None` is schema-legal
+and service-legal, and produces money that:
+
+1. check-in cannot find — `open_folio`'s dedup matches on `{stay, folio_type}`,
+   so a stayless folio is invisible and check-in opens a **second** Master folio;
+2. the carry-forward will not move — `deposit_share` caps on
+   `deposit_received − deposit_credited`, and `deposit_credited` joins on
+   `folio.reservation`, so the pre-arrival row is already counted and the share
+   computes to zero, defending a real P1-6 invariant;
+3. checkout cannot settle — stay-keyed;
+4. cancellation does not block on — `_assert_no_unfinished_stay` sees no Stay;
+5. nothing can delete — `on_trash` refuses a folio with payments;
+6. capture would silently skip — `_apply_to_folio` is `if not doc.folio: return None`.
+
+**Nothing throws at any layer.** The first symptom is a guest asked for a deposit
+they already paid, or a cancelled booking whose money no screen can find. A real
+design needs a pre-arrival folio identity with an adoption step at check-in, the
+deposit modelled as a liability (`Property.deposit_liability_account` exists and
+is read by no posting code), and folio-aware cancel/no-show. Carried forward
+with those notes.
+
+### The workspace
+
+`Folio.vue` is upgraded in place — same `Folio` route, same `/folios/:id` path,
+because Checkout, Departures and Guest 360 all navigate here by name. Four tabs
+(Summary, Charges, Payments, Invoices) on the Guest 360 shell: `?tab=` with
+`replace`, panel a11y wiring, RTL-aware arrow keys, lazy bodies.
+
+Three defects fixed in passing: the page had **no `PermissionDenied` branch**;
+the balance was a `formatCurrency` string, which throws away the settled/due/
+credit distinction a credit balance depends on, and is now `FolioBalance`; and
+the four totals are now `MoneyDisplay`. **No money is computed anywhere** —
+`total_charges` already includes tax, reversed charges stay on the ledger and
+are cancelled by their compensating line, and `total_adjustments` counts
+Adjustment but not Discount. Three rules a client cannot reconstruct, and three
+reasons it must not try.
+
+`get_folio` gained `is_posted_to_erp` on both row types — the operational fact a
+cashier needs to answer "can I close this" — plus a gated `source_doctype`/
+`source_name` so a room-service charge can say what it is for (16.7.4 stamps
+them), and `sales_invoice`/`payment_entry` only where the caller may read those
+DocTypes. Front Office holds none of them, so it gets the boolean and not the
+paperwork. A `disclosure` map distinguishes "no invoice on this row" from "you
+may not be told which invoice".
+
+Refunds are reachable for the first time, from the Payments tab, on rows backed
+by a gateway transaction. The dialog shows captured, already-refunded and
+remaining — **advisory**; the server recomputes the ceiling under a row lock and
+its refusal is what the operator sees. The operation key is retained on failure
+so a retry is the same refund rather than a second one.
+
+### Deliberately not changed
+
+**`Discount` has no role gate and no reason requirement**, while
+`post_adjustment` demands `ADJUSTMENT_ROLES` and an audited reason, and both move
+the balance identically — and `Discount` is exempt from the closed-business-date
+fence. This is a real pre-existing asymmetry. It is recorded rather than fixed:
+`guest_services.apply_service_recovery` posts Discounts legitimately with its own
+reason enforcement, and threading a new gate through a hardened financial service
+is not a cashier-build change. The workspace routes operator discounts through
+`post_adjustment`, which is gated and audited.
+
+`reconcile_folio`'s response keys, `_invoice_batch_key`'s fingerprint,
+`erp_posting_authority`, `SERVICE_PERMISSIONS` and `RECONCILIATION_ROLES` were
+all treated as frozen. Front Office still cannot read Sales Invoice, Payment
+Entry, GL Entry or Financial Posting Log.
+
+### Validation
+
+- **Frontend:** 19 files, **566 tests** (521 at 16.7.4).
+- **Node checks:** 7/7, unmodified.
+- **Backend:** **642 tests** (625 at 16.7.4), green on consecutive full runs.
+- **Concurrency/idempotency:** refund concurrency 9/9, payment durability 10/10,
+  inventory 15/15 — all re-run, all green.
+- **Production build:** passes, no new warnings.
+- **Security review:** **APPROVED WITH NOTES**. All twelve required items
+  reviewed; no permission widened anywhere; the reviewer independently re-ran the
+  N1 detector and confirmed the two allow-list removals were required. Four notes
+  were **fixed in this build**: the unwired refund UI (N4 — now reachable from
+  the Payments tab), `_()` resolving at module scope and freezing a translation,
+  a missing `try`/`catch` on the refund submit, and a dead computed.
+- **Generic CRUD:** none. No new whitelisted endpoint; every binding is to a
+  pre-existing gated one.
+- **Business date / Night Audit:** unchanged. No `nowdate()`/`today()`/
+  `new Date()` added; the closed-date fence is untouched.
+- **Core apps:** `apps/frappe` and `apps/erpnext` clean — status, diff, untracked
+  and HEADs all verified.
+
+Also closed: `frontend/src/components/guest/` was never registered in
+`rtlSource.spec.js`, so nine components shipped in 16.7.3 spent two builds
+outside the RTL and translation-key guards. They passed on registration, but
+they were unguarded. `pages/Folio.vue` is registered too.
+
+### Deferred to RC
+
+The pre-arrival deposit model (above). `record_wastage`'s replay guard and audit
+record. Five GET-by-name **read** endpoints are now gated, but the same pattern
+should be swept for elsewhere. `Discount`'s role/reason asymmetry.
+`mark_reconciled` has no endpoint and adding one would make a structurally
+read-only technical record into a workflow document. The durable-operation queue
+(`reconcile_operation`, `operations_needing_attention`) has no endpoint at all.
+`Room Service Order.order_type` still offers `Restaurant` with no POS behind it.
+`_CONFIGURATION_MARKERS` matches generic words and can mislabel a transient
+failure as a configuration one — cosmetic, since both categories are retryable
+and `queue_status` dominates.
+
+Result: **PASS** (security: APPROVED WITH NOTES)
