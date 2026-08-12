@@ -22,15 +22,38 @@ const SRC = join(HERE, '..', 'src')
 
 /** The UI kit plus the three boards migrated onto it in 16.7.0. */
 const UI_KIT = join(SRC, 'components', 'operational')
-const MIGRATED_PAGES = ['Arrivals.vue', 'Departures.vue', 'InHouse.vue'].map((name) =>
+
+/** The Reservation Workspace tabs and header, added in 16.7.2. */
+const WORKSPACE = join(SRC, 'components', 'reservation')
+
+/**
+ * The property-scoped boards. These share one contract — they open on the active
+ * property and re-ask when it changes — which is what the business-date block at
+ * the bottom of this file asserts.
+ */
+const MIGRATED_BOARDS = ['Arrivals.vue', 'Departures.vue', 'InHouse.vue'].map((name) =>
   join(SRC, 'pages', name),
 )
 
-const kitFiles = readdirSync(UI_KIT)
-  .filter((name) => name.endsWith('.vue'))
-  .map((name) => join(UI_KIT, name))
+/**
+ * Pages held to the direction and translation rules but *not* to the board
+ * contract. The reservation workspace opens on one document from its route, so it
+ * has no active-property watcher to assert — it would be wrong for it to have one.
+ */
+const OTHER_PAGES = [join(SRC, 'pages', 'Reservation.vue')]
 
-const files = [...kitFiles, ...MIGRATED_PAGES]
+/**
+ * Only `.vue` files. A resource module carries no markup and no `t()` call, so it
+ * has nothing for either guard to check and would trip the "uses at least one
+ * key" assertion below.
+ */
+function vueFilesIn(dir) {
+  return readdirSync(dir)
+    .filter((name) => name.endsWith('.vue'))
+    .map((name) => join(dir, name))
+}
+
+const files = [...vueFilesIn(UI_KIT), ...vueFilesIn(WORKSPACE), ...MIGRATED_BOARDS, ...OTHER_PAGES]
 
 /**
  * Physical direction utilities, each paired with the logical one to use instead.
@@ -85,8 +108,12 @@ function allSourceFiles(dir = SRC) {
 
 describe('the UI kit and the migrated boards express direction logically', () => {
   it('has files to check (the guard itself is not vacuous)', () => {
-    expect(kitFiles.length).toBeGreaterThanOrEqual(5)
-    expect(files.length).toBeGreaterThanOrEqual(8)
+    // The 16.7.0 kit (5), the 16.7.2 workspace components (6), and the four
+    // migrated pages. A count assertion so a glob that silently stops matching
+    // cannot make every check below pass by checking nothing.
+    expect(vueFilesIn(UI_KIT).length).toBeGreaterThanOrEqual(5)
+    expect(vueFilesIn(WORKSPACE).length).toBeGreaterThanOrEqual(6)
+    expect(files.length).toBeGreaterThanOrEqual(15)
   })
 
   for (const path of files) {
@@ -176,7 +203,7 @@ describe('every translation key the new code uses exists in both catalogues', ()
 })
 
 describe('the migrated boards keep the business date on the server', () => {
-  for (const path of MIGRATED_PAGES) {
+  for (const path of MIGRATED_BOARDS) {
     const name = path.split('/').slice(-1)[0]
 
     it(`${name} never reads the browser clock`, () => {
@@ -194,6 +221,21 @@ describe('the migrated boards keep the business date on the server', () => {
 
       expect(source).not.toContain('on_date')
       expect(source).not.toContain('toServerDate')
+    })
+  }
+})
+
+describe('the reservation workspace takes its dates from the server', () => {
+  // Not a board, so it has no active-property watcher — but the date rule is the
+  // same and matters more here, because this is the screen that *edits* booking
+  // dates. 16.7.2 fixed `toServerDate`/`formatDate` reading date-only values
+  // through a UTC instant; a `new Date(...)` in this screen would put the defect
+  // straight back where it does the most harm.
+  for (const path of [...vueFilesIn(WORKSPACE), ...OTHER_PAGES]) {
+    const name = path.split('/').slice(-1)[0]
+
+    it(`${name} never constructs a Date`, () => {
+      expect(read(path)).not.toContain('new Date(')
     })
   }
 })

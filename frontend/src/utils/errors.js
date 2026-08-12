@@ -17,7 +17,24 @@ export const ErrorKind = {
 }
 
 const PERMISSION_TYPES = ['PermissionError', 'PermissionDeniedError', 'PropertyAccessError']
-const CONFLICT_TYPES = ['InvalidStateTransitionError', 'AvailabilityError', 'DuplicateRequestError']
+const CONFLICT_TYPES = [
+  'InvalidStateTransitionError',
+  'AvailabilityError',
+  'DuplicateRequestError',
+  // A database deadlock is a contention outcome, not a fault: two operations
+  // reached for the same inventory and InnoDB rolled one of them back so the
+  // other could finish. Retrying is exactly the right response, which is what
+  // makes it a conflict rather than a server error — the same category as an
+  // availability clash, and for the same reason.
+  //
+  // 16.7.2 made this reachable in one narrow case (HPMS-QA-16.7.2-C): the
+  // availability count on a commit path is now a current read, which locks every
+  // row the optimiser examines, so a room-type change racing a confirmation for
+  // the last room of a type can deadlock. That trade was taken deliberately — a
+  // deadlock refuses one caller loudly, where the snapshot read it replaced sold
+  // the same room twice in silence.
+  'QueryDeadlockError',
+]
 
 /** @returns {{kind: string, title: string, message: string, retryable: boolean}} */
 export function normaliseError(error) {
