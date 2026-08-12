@@ -20,6 +20,7 @@ declare module 'vue' {
     ChangeLineDatesDialog: typeof import('./src/components/reservation/ChangeLineDatesDialog.vue')['default']
     ChangeRoomDialog: typeof import('./src/components/ChangeRoomDialog.vue')['default']
     CompleteHousekeepingTaskDialog: typeof import('./src/components/CompleteHousekeepingTaskDialog.vue')['default']
+    CreateHousekeepingTaskDialog: typeof import('./src/components/CreateHousekeepingTaskDialog.vue')['default']
     CreateMaintenanceTicketDialog: typeof import('./src/components/CreateMaintenanceTicketDialog.vue')['default']
     CreateRoomServiceOrderDialog: typeof import('./src/components/CreateRoomServiceOrderDialog.vue')['default']
     DashboardCard: typeof import('./src/components/dashboard/DashboardCard.vue')['default']

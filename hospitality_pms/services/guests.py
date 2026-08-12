@@ -268,19 +268,20 @@ def merge_guests(source: str, target: str, reason: str) -> dict:
 
 	snapshot = json.dumps(source_doc.as_dict(no_nulls=True), default=str, indent=1)
 
-	moved = {}
 	for doctype, fieldname in get_guest_link_fields():
 		if not frappe.db.table_exists(doctype):
 			continue
 
+		# Deliberately unscoped, and it must stay that way. The merge has to
+		# repoint *every* reference: narrowing this read to the caller's
+		# properties would leave rows elsewhere pointing at a guest the code
+		# below retires, which is an orphan, not a privacy control.
 		affected = frappe.get_all(doctype, filters={fieldname: source}, pluck="name")
 		if not affected:
 			continue
 
 		for record in affected:
 			frappe.db.set_value(doctype, record, fieldname, target, update_modified=False)
-
-		moved[f"{doctype}.{fieldname}"] = len(affected)
 
 	frappe.get_doc(
 		{
@@ -303,7 +304,30 @@ def merge_guests(source: str, target: str, reason: str) -> dict:
 		update_modified=True,
 	)
 
-	return {"source": source, "target": target, "references_moved": moved}
+	# No counts. Until 16.7.4 this returned `references_moved` - a per-DocType
+	# tally of the rows just repointed, built from the unscoped read above - and
+	# 16.7.3 made merge reachable from a browser, so a Hotel Manager restricted
+	# to one property learned how many reservations, stays and folios the guest
+	# had across the whole estate. Worse, `get_guest_link_fields` discovers link
+	# fields from the schema, so the tally silently grew to include DocTypes the
+	# caller cannot read at all: a Guest Relations Officer holds no read on
+	# Financial Posting Log, Payment Transaction, Key Card or Guest Registration,
+	# and was counted rows in every one of them.
+	#
+	# Scoping the counts was considered and rejected. Scoping by property leaves
+	# the DocType axis open; filtering by DocType leaves the property axis open;
+	# a single total is still an estate-wide fact and is recoverable by
+	# subtraction. And any filter is a standing obligation to re-review it every
+	# time a DocType gains a `Link: Guest` field, which the schema discovery
+	# above guarantees will happen unnoticed.
+	#
+	# The field had no consumer: the dialog discards the response and shows a
+	# fixed confirmation, and nothing in the backend read it. A value nobody
+	# reads has no requirement to satisfy, so its correct scope is none. If merge
+	# volume is ever genuinely needed, it belongs in a property-scoped read of
+	# `Guest Merge Log`, which is already audited and reader-restricted - not in
+	# the return value of a mutation.
+	return {"source": source, "target": target}
 
 
 # ---------------------------------------------------------------------------

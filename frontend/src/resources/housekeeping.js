@@ -10,6 +10,39 @@ export function housekeepingTaskResource() {
   return apiResource('housekeeping.get_task', { method: 'GET' })
 }
 
+/**
+ * Raise an ad-hoc cleaning task.
+ *
+ * Bound to the frontend for the first time in 16.7.4. The endpoint existed but
+ * nothing called it, and until this build the service did not check that the
+ * room belonged to the property the task was stamped with — so binding it would
+ * have opened a cross-property write, since every later lifecycle call on the
+ * task writes that room's housekeeping status.
+ *
+ * The property is not a field on the form: it comes from the active property
+ * context, and the server authorises it and then proves the room belongs to it.
+ */
+export function createHousekeepingTaskResource() {
+  return apiResource('housekeeping.create_task')
+}
+
+/**
+ * Task types the server accepts, in the order a desk is likeliest to need them.
+ *
+ * Mirrored from the `Housekeeping Task.task_type` Select. A value not on this
+ * list is refused by the DocType, so the list is a convenience, not a control.
+ */
+export const TASK_TYPES = [
+  'Departure Clean',
+  'Stayover Clean',
+  'Turndown',
+  'Deep Clean',
+  'Linen Change',
+  'Minibar Check',
+  'Inspection',
+  'Special Request',
+]
+
 /** Assign a task to a room attendant. The server decides who may be assigned. */
 export function assignHousekeepingTaskResource() {
   return apiResource('housekeeping.assign')

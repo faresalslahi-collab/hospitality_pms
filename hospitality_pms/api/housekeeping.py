@@ -3,7 +3,7 @@
 import frappe
 
 from hospitality_pms.services import housekeeping as service
-from hospitality_pms.services.base import require_permission
+from hospitality_pms.services.base import authorise_document, require_permission
 from hospitality_pms.services.property import resolve_property
 
 TASK_DOCTYPE = "Housekeeping Task"
@@ -114,7 +114,7 @@ def create_task(
 @frappe.whitelist(methods=["POST"])
 def assign(task: str, assignee: str) -> dict:
 	"""Assign a task to a room attendant."""
-	require_permission(TASK_DOCTYPE, "write")
+	authorise_document(TASK_DOCTYPE, task, "write")
 
 	service.assign(task, assignee)
 
@@ -124,7 +124,7 @@ def assign(task: str, assignee: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def start(task: str) -> dict:
 	"""Start cleaning."""
-	require_permission(TASK_DOCTYPE, "write")
+	authorise_document(TASK_DOCTYPE, task, "write")
 
 	service.start(task)
 
@@ -144,7 +144,7 @@ def complete(
 	maintenance_description: str | None = None,
 ) -> dict:
 	"""Finish cleaning."""
-	require_permission(TASK_DOCTYPE, "write")
+	authorise_document(TASK_DOCTYPE, task, "write")
 
 	service.complete(
 		task,
@@ -164,7 +164,7 @@ def complete(
 @frappe.whitelist(methods=["POST"])
 def inspect(task: str, passed: int, notes: str | None = None, score: int | None = None) -> dict:
 	"""Supervisor sign-off on a cleaned room."""
-	require_permission(TASK_DOCTYPE, "write")
+	authorise_document(TASK_DOCTYPE, task, "write")
 
 	service.inspect(
 		task,
@@ -179,7 +179,7 @@ def inspect(task: str, passed: int, notes: str | None = None, score: int | None 
 @frappe.whitelist(methods=["POST"])
 def set_do_not_disturb(task: str, refused: int = 0) -> dict:
 	"""Record DND or a refused service against a task."""
-	require_permission(TASK_DOCTYPE, "write")
+	authorise_document(TASK_DOCTYPE, task, "write")
 
 	service.set_do_not_disturb(task, refused=bool(int(refused or 0)))
 

@@ -3,7 +3,7 @@
 import frappe
 
 from hospitality_pms.services import guest_services as service
-from hospitality_pms.services.base import require_permission
+from hospitality_pms.services.base import authorise_document, require_permission
 from hospitality_pms.services.property import resolve_property
 
 REQUEST_DOCTYPE = "Guest Request"
@@ -118,7 +118,7 @@ def create_request(
 @frappe.whitelist(methods=["POST"])
 def assign(request: str, assignee: str, department: str | None = None) -> dict:
 	"""Assign a request and record its first response."""
-	require_permission(REQUEST_DOCTYPE, "write")
+	authorise_document(REQUEST_DOCTYPE, request, "write")
 
 	service.assign(request, assignee, department=department)
 
@@ -128,7 +128,7 @@ def assign(request: str, assignee: str, department: str | None = None) -> dict:
 @frappe.whitelist(methods=["POST"])
 def start(request: str) -> dict:
 	"""Start work on a request."""
-	require_permission(REQUEST_DOCTYPE, "write")
+	authorise_document(REQUEST_DOCTYPE, request, "write")
 
 	service.start(request)
 
@@ -138,7 +138,7 @@ def start(request: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def complete(request: str, resolution: str, guest_satisfied: int | None = None) -> dict:
 	"""Complete a request."""
-	require_permission(REQUEST_DOCTYPE, "write")
+	authorise_document(REQUEST_DOCTYPE, request, "write")
 
 	service.complete(
 		request,
@@ -152,7 +152,7 @@ def complete(request: str, resolution: str, guest_satisfied: int | None = None) 
 @frappe.whitelist(methods=["POST"])
 def escalate(request: str, escalate_to: str | None = None, reason: str | None = None) -> dict:
 	"""Escalate a request by one level."""
-	require_permission(REQUEST_DOCTYPE, "write")
+	authorise_document(REQUEST_DOCTYPE, request, "write")
 
 	service.escalate(request, escalate_to=escalate_to, reason=reason)
 
@@ -162,7 +162,7 @@ def escalate(request: str, escalate_to: str | None = None, reason: str | None = 
 @frappe.whitelist(methods=["POST"])
 def reopen(request: str, reason: str) -> dict:
 	"""Reopen a completed request the guest is not satisfied with."""
-	require_permission(REQUEST_DOCTYPE, "write")
+	authorise_document(REQUEST_DOCTYPE, request, "write")
 
 	service.reopen(request, reason)
 
@@ -172,7 +172,7 @@ def reopen(request: str, reason: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def close(request: str) -> dict:
 	"""Close a completed request."""
-	require_permission(REQUEST_DOCTYPE, "write")
+	authorise_document(REQUEST_DOCTYPE, request, "write")
 
 	service.close(request)
 
@@ -188,7 +188,7 @@ def apply_service_recovery(
 	post_to_folio: int = 1,
 ) -> dict:
 	"""Compensate a guest, posting the cost to their folio when there is one."""
-	require_permission(REQUEST_DOCTYPE, "write")
+	authorise_document(REQUEST_DOCTYPE, request, "write")
 
 	service.apply_service_recovery(
 		request,

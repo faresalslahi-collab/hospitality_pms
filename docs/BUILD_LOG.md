@@ -4175,3 +4175,187 @@ the dead stay-statistic columns, and the `id_image` exposure — and one securit
 note was fixed rather than recorded.
 
 Result: **PASS** (security: APPROVED WITH NOTES)
+
+---
+
+## 16.7.4 — Services & Operations Workspace
+
+Baseline: **`8e99ac7`** — `version-16` with 16.7.3 merged locally, `--no-ff`,
+history preserved. Pre-merge `version-16` was `0804047`; the 16.7.3 head was
+`d9aed9f`; merge-base equalled `version-16`, so 16.7.3 was exactly one commit
+ahead with **no divergent commits**, and the merged tree is byte-identical to
+`d9aed9f`. Post-merge validation before any 16.7.4 work: 505 frontend tests,
+7/7 Node checks, 592 backend tests. Nothing was pushed, pulled or fetched.
+
+This build set out to consolidate the remaining operational surfaces. What the
+investigation found changed both the shape of the work and its centre of gravity:
+three of the five named Services screens cannot be built as specified, and the
+same authorisation defect was sitting in four separate modules.
+
+### What the Services area actually is
+
+The brief named Guest Requests, Laundry, Transport, Minibar and Kitchen. Ground
+truth, from the schema rather than from the plan:
+
+- **Laundry does not exist.** Not partially — at all. There is a `Laundry` value
+  in the folio `charge_type` enum and a `Laundry` value in the warehouse
+  `purpose` enum, and **no code anywhere references either**. No DocType, no
+  service, no endpoint, no category value, no field. Building it would have been
+  new domain design inside a consolidation build.
+- **Transport is a category value** on `Guest Request.category`, and nothing
+  else. No pickup time, no vehicle, no driver, no destination, no flight number.
+  A transport request today is free text in `description`, so a dispatch board is
+  not buildable on existing fields.
+- **Minibar was already finished**, in Kitchen, as `Room Service Order.order_type`
+  — with folio posting *and* a submitted ERPNext Material Issue, keyed
+  `order:{order}`. A second Minibar→folio path would have been a double-charge
+  surface, since that key is scoped to Room Service Order names.
+
+So the Services group carries **two** entries — Guest Requests and Kitchen —
+because those are the two with screens behind them. Transport is reachable as a
+category filter on the requests it actually is; Minibar is reachable under
+Kitchen, where its money already lives. Adding three more nav entries would have
+produced exactly the placeholder navigation the brief forbids, and the frontend
+spec now pins each absence with the reason.
+
+Housekeeping and Maintenance stay first-class boards under Rooms. `Housekeeping.vue`
+was left alone deliberately: its card grid is a documented tablet decision —
+*"room attendants use this on a tablet between rooms, so the board favours a few
+large tap targets over a dense table"* — and migrating it to a table would have
+regressed the use case the brief calls tablet-critical.
+
+### The defect this build actually closed
+
+Four modules, one mistake. `require_permission(DOCTYPE, "write")` answers "may
+this user ever complete a housekeeping task", which every supervisor may, for
+every property in the estate. It does not answer "may this user complete *this*
+task". **Twenty-one endpoints** across housekeeping, guest services, maintenance
+and kitchen took a caller-supplied document name behind that check alone — the
+exact class `services.base.authorise_document` exists to close, and which nine
+other API modules already used.
+
+Concretely, before this build a manager restricted to one property could start,
+complete or inspect another property's housekeeping task (and thereby write that
+room's housekeeping status), take another property's room out of service,
+complete another property's guest request, and — worst — **post a room service
+charge onto another property's guest folio**: `kitchen.create_order` resolved the
+caller's property, then looked up a *caller-supplied stay* with a permission-free
+read and charged that stay's folio.
+
+All twenty-one now call `authorise_document`. The critical question is whether
+its third step actually fires, since it is conditional on the record carrying a
+`property` field — so that was verified rather than assumed: `Housekeeping Task`,
+`Guest Request`, `Maintenance Ticket`, `Kitchen Requisition` and `Room Service
+Order` all carry `property` as **`reqd: 1`**, so the value can never be empty and
+the guard can never silently skip.
+
+Three creates gained ownership proofs, placed in the **services** rather than the
+API because the automation paths (`checkout._raise_housekeeping_task`, the night
+audit) pass a parent record's own property and room, which agree by construction:
+
+- `housekeeping.create_task` — the room must belong to the property. Without it,
+  the property was authorised and the room never was, and every later lifecycle
+  call wrote a room in an estate the caller had no access to.
+- `guest_services._assert_context_belongs` — stay, room and reservation must
+  belong to the property. The **guest is deliberately excluded**: a Guest carries
+  no `property` and is a global master record, so there is nothing to compare
+  against and including it would have thrown on every request. This is the
+  16.7.1 finding, open until now.
+- `kitchen.create_order` — the stay and room are proved **before** the folio is
+  looked up, which is what closes the financial path rather than merely
+  narrowing it.
+
+Refusals raise `PermissionDeniedError`, not a bare validation error, so they
+surface as 403 and are caught by the suite's own `REFUSALS` tuple.
+
+### Kitchen disclosure
+
+The order board gates on `Room Service Order.read`, which every kitchen role
+holds — and none of them holds Guest or Guest Folio read at any permlevel. The
+guest's name was read with a permission-free query and the folio came straight
+off the order, so a Kitchen User opened the board onto a named list of guests and
+the folios their money sits on. The same fields went out through `get_order`.
+
+Both doors now omit `guest`, `guest_name`, `folio` and `folio_charge_row` unless
+the caller may read the owning DocType, and the name lookup does not run at all
+for an unentitled caller. The decision is taken **once per request from the
+caller's roles**, so the presence/absence channel carries no information about the
+data. The page drops the column rather than drawing a dash, because a dash reads
+as "no guest on this order", which for a room service order is never true.
+
+`stay` is gated the same way and is recorded as **defence in depth, not a
+redaction**: a 16.7.4 review read it as a leak, and it is not — `Kitchen User` is
+inside the Stay reader set. A test now states which way round that rule runs, so
+a later narrowing of the matrix does not silently change the answer.
+
+### Merge response privacy (carried from 16.7.3)
+
+`merge_guests` returned `references_moved`, a per-DocType tally built from an
+unscoped permission-free read. Scoping it was considered and rejected: by property
+leaves the DocType axis open, by DocType leaves the property axis open, a single
+total is recoverable by subtraction — and any filter is a standing obligation to
+re-review it every time a DocType gains a `Link: Guest` field, which
+`get_guest_link_fields` discovers automatically. The field had **no consumer**:
+the dialog discards the response, nothing in the backend read it. A value nobody
+reads has no requirement to satisfy, so its correct scope is none.
+
+The write loop is byte-identical and still unscoped. That is the point: narrowing
+it would leave rows in other properties pointing at a guest the merge has just
+retired, and an orphan is worse than the disclosure. A test asserts both halves.
+
+### Housekeeping task creation
+
+Bound to the frontend for the first time. The endpoint existed and nothing called
+it; binding it before the room/property proof would have opened the cross-property
+write described above. The dialog has no property field — the property comes from
+the active context and the server re-authorises it — and the server is idempotent
+per (property, room, task type, day), so a double submit returns the existing task
+rather than queueing the room twice.
+
+### Validation
+
+- **Frontend:** 18 files, **521 tests** (505 at 16.7.3).
+- **Node checks:** 7/7, unmodified.
+- **Backend:** **625 tests** (592 at 16.7.3), green on consecutive full runs.
+- **Concurrency:** 15/15. HPMS-QA-16.7.2-C **reproduced** in one of the runs and
+  the invariant held — no oversell, count correct. It remains open and
+  characterised; nothing in this build touches inventory lock order.
+- **Production build:** passes, no new warnings.
+- **Security review:** **APPROVED WITH NOTES**. All thirteen required items
+  reviewed, core apps verified clean. Two review findings were **fixed in this
+  build**: a vacuous kitchen test (it passed `lines=[]`, which the API refuses
+  before the service is entered, so it never reached the check it claimed to test
+  and passed against the unfixed code), and the refusal exception class. The
+  cross-property **stay** path — this build's headline financial fix — now has a
+  real test that creates an in-house stay in the other property.
+- **Generic CRUD:** none. No new whitelisted endpoint of any kind.
+- **Cashier scope:** none. `apply_service_recovery` was tightened, not added.
+- **Business date:** unchanged. No `nowdate()`/`today()`/`new Date()` added; no
+  Night Audit movement; no configuration mutation.
+- **Core apps:** `apps/frappe` and `apps/erpnext` clean, HEADs unmoved, zero
+  untracked files.
+
+### Deferred
+
+**Legacy data, and the honest limit of this fix.** The new context checks run on
+**create**. Documents written before 16.7.4 may still carry a cross-property
+stay or folio, and `apply_service_recovery` and `deliver_order` post to whatever
+was attached then. The path is closed going forward; it is **not** retro-active,
+and no backfill patch ships here. This build should not be recorded as having
+fully closed the cross-property folio path until a remediation query confirms no
+such rows exist. That query is the first item for 16.7.5.
+
+**Also deferred:** five GET-by-name endpoints (`get_task`, `get_request`,
+`get_ticket`, `get_requisition`, `get_order`) still use `check_permission` without
+`require_property_access` — the same class one door over, on the read side;
+kitchen's `issue_requisition` and `deliver_order` retain the lock-then-stale-read
+idempotency hazard allow-listed in `test_final_integrity` (a retried issue can
+double-move stock), which is a hardening wave and not a UI build; wastage has no
+replay guard and no audit record; `requisition_status = "Cancelled"` and
+`Maintenance Ticket` cancel/reopen are in the state machines and reachable by no
+code; `assigned_to` is unvalidated across all four modules and there is no
+assignable-attendant endpoint; `Room Service Order.order_type` still offers
+`Restaurant` with no POS behind it. Laundry and Transport need models before they
+need screens. Guest Documents remain **BLOCKED** on the File permission design.
+
+Result: **PASS** (security: APPROVED WITH NOTES)
