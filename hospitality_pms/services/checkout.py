@@ -436,15 +436,43 @@ def reverse_checkout(stay: str, reason: str) -> dict:
 		stay, _("Checkout reversed: {0}").format(reason.strip()), note_type="Operational"
 	)
 
-	invoices = frappe.get_all(
-		posting_service.POSTING_LOG,
-		filters={"folio": folio, "posting_type": "Sales Invoice", "posting_status": "Posted"},
-		fields=["erp_document"],
-	)
+	# Through `folio_erp_documents` rather than a hand-rolled copy of the same
+	# query. The local version asked the posting log which invoices were Posted and
+	# reported every one of them as standing - so a folio whose invoices finance had
+	# already cancelled was reversed with a note telling finance to go and handle
+	# two documents they had withdrawn themselves. It also missed Reconciled rows,
+	# which are Posted rows somebody has since signed off.
+	#
+	# Both lists are returned, because they call for opposite actions: a standing
+	# invoice needs a credit note or a cancellation, a cancelled one needs the PMS
+	# side reconciling to it.
+	# One log read, partitioned here. Asking `folio_erp_documents` twice would run
+	# the same query twice and pay the liveness lookups on the second pass as well.
+	invoiced = posting_service.folio_erp_documents(folio, "Sales Invoice", live_only=False)
+	standing = [
+		name for name in invoiced if posting_service._erp_document_is_live("Sales Invoice", name)
+	]
+	cancelled = [name for name in invoiced if name not in standing]
+
+	note = _("Any submitted invoice is left standing and must be handled by finance.")
+
+	if cancelled:
+		# "not in the ledger", not "cancelled": a draft and a deleted document are
+		# both counted here too, and neither has ever been in it. The key keeps the
+		# name `cancelled_invoices` because cancellation is overwhelmingly what puts
+		# a document in this list, but the sentence an operator reads must be true of
+		# all three.
+		note = _(
+			"Any submitted invoice is left standing and must be handled by finance. "
+			"{0} invoice(s) this folio posted are not in the ledger and need "
+			"reconciliation."
+		).format(len(cancelled))
 
 	return {
 		"stay": stay,
 		"folio": folio,
-		"standing_invoices": [row["erp_document"] for row in invoices if row["erp_document"]],
-		"note": _("Any submitted invoice is left standing and must be handled by finance."),
+		"standing_invoices": standing,
+		"cancelled_invoices": cancelled,
+		"needs_erp_reconciliation": bool(cancelled),
+		"note": note,
 	}

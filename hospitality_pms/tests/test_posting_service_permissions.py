@@ -170,6 +170,11 @@ class TestCustomDocPermMechanism(IntegrationTestCase):
 		if frappe.db.exists("DocType", cls.DOCTYPE):
 			frappe.delete_doc("DocType", cls.DOCTYPE, force=True, ignore_permissions=True)
 
+		# `delete_doc` on a DocType does not always drop its table (16.7.5-R1D).
+		# Without this the probe leaves a `tabHPMS ...` orphan on every site the
+		# suite runs against. Only ever this table: the name is a class constant.
+		frappe.db.sql_ddl(f"drop table if exists `tab{cls.DOCTYPE}`")
+
 		frappe.db.commit()
 		super().tearDownClass()
 

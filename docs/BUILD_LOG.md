@@ -4901,3 +4901,139 @@ incapable of writing to mysite. Backed up first; `allow_tests` was not added —
    drift detector.
 
 Result: **PASS** (security: APPROVED WITH NOTES)
+
+---
+
+## 16.7.5-R1D — Financial Estate & Test-Safety Remediation
+
+Baseline `1600134`. The last slice before the second Codex AI UAT. Detection and
+test safety only: **not one document in ERPNext was created, submitted, cancelled,
+amended or reposted, and no financial history was rewritten.**
+
+### The defect: a Posted log row was taken as proof the ledger still held it
+
+Nothing carries an ERPNext cancellation back into the PMS. There is no `on_cancel`
+hook, and no code in this app cancels an ERP document at all — because
+`checkout.reverse_checkout` deliberately leaves a submitted invoice standing for
+finance. So finance cancelling out of band is *expected* operation, and every
+reader of `Financial Posting Log` treated `posting_status = Posted` as evidence.
+
+Measured on mysite: 6 log rows Posted against `docstatus = 2` documents, 4 Folio
+Charge and 3 Folio Payment rows stamped against them, and a folio with 820 of
+charges outside the ledger that **no route could post and every route called
+healthy** — `post_folio_invoice` answered `duplicate: True` naming the cancelled
+invoice, `checkout.post_folio` answered "nothing to do", `retry_posting` answered
+`retried: False`, and `mark_reconciled` would have stamped the whole condition
+`Reconciled`, which `_claim` treats as interchangeable with Posted.
+
+Seven readers now consult the document, not the log alone. Every one **refuses**;
+none repairs. The charge rows stay stamped, so there is no coherent batch to
+re-post, and clearing those stamps is a correction with its own approval.
+`reconcile_folio` gained `stale_postings` / `needs_erp_reconciliation` — the third
+answer, neither "reconciled" nor "never posted".
+
+### Forensics (read-only, nothing remediated)
+
+- **F1 — two GL-less invoices, 1,900.00.** Frappe writes `docstatus = 1` in
+  `db_update()` *before* `run_post_save_methods()`; ERPNext's `on_submit` throws at
+  `validate_qty` on a −100.00 Discount line (`allow_negative_rates_for_items = 0`)
+  36 lines before `make_gl_entries()`. `save_version()` sits after the throw, so
+  the submission left **no `tabVersion` row** — the failure erased its own trail.
+  GL and AR ageing are clean; the **Sales Register overstates revenue by 1,900.00**.
+  **Corrects `BUILD_LOG.md:4842`**: retrying would *not* raise a third invoice
+  today — it stops at the unmapped tax head. **That refusal is the only thing
+  preventing one.** Mapping a Minibar tax template *alone* would produce a third
+  orphan invoice for 1,035.80. Selling Settings must be fixed first or together.
+- **F2 — 6 Posted-against-cancelled.** Test residue (two scripted teardown batches,
+  self-documented at 2842-2846 and 2919-2921) compounded by the product defect
+  above. The teardown was **incomplete**: 4 documents cancelled where 6 were needed,
+  leaving `ACC-PAY-2026-00072/00073` submitted and de-allocated — **460.00 of live
+  Cash Dr / Debtors Cr today**. "Net live GL impact 0.00" at 2921 is true of the
+  pair it names and **false for the estate**.
+- **F3 — evidence recovered, not lost.** The deleted exception row is in
+  `tabVersion` verbatim: `jn0h1vcnec`, Unposted Charge / Blocking,
+  `HPMS-FOL-2026-00043`, "differs from ERPNext by 225.0", created 17:00:43 and
+  **resolved at 17:00:55**. So the recorded count with no unresolved blocker was
+  the legitimate state; the vacuum came later from the unscoped delete. The 225.00
+  is the recycled-primary-key residue. Nothing was synthesised.
+
+### Configuration and durable operations
+
+`Posting Profile DOHA-MAIN` maps no tax template, and **six** charge types on
+DOHA01 carry tax — 342.00 of output VAT with nowhere to post, at four different
+implied rates. The company's only template, `QATAR VAT 15 - EHQ`, has
+`account_head = Payroll Payable - EHQ` at `rate = 0.0`: **not usable**, and mapping
+it would post output VAT into payroll. Classified CONFIG; **no account chosen**.
+
+Durable ledger: **nothing is SAFE TO RETRY.** 4 invoice operations DO NOT RETRY
+(blocked on the above; `450qjg7djd` at 4/5 would be pushed to terminal Abandoned by
+one sweep), 8 NEEDS RECONCILIATION, 2 refund and 3,216 channel rows HISTORICAL
+RESIDUE. **Do not run the retry sweep on DOHA01.**
+
+### A guard that passed because there was nothing left to check
+
+`_assert_no_blocking_exceptions` reads the exception rows and reads nothing if they
+are gone, while `reconciliation_variances` still says the day disagreed. An earlier
+draft of this record claimed that was not an open door, reasoning that
+`Posting -> Closed` is not a legal transition. **That reasoning was wrong**, and the
+independent finance review found the route it missed — all supported service calls:
+reconcile clean → Ready to Close; a variance appears; reconcile again writes the row
+and the count but does not demote the status; `review()` wipes every exception row,
+leaves the count, and does not transition an audit that is no longer Open; close
+succeeds over a real variance. The guard now refuses and names re-reconciling as the
+remedy. The underlying defect — `review()` destroying rows `reconcile()` owns — is
+**not fixed**, only converted into a refusal.
+
+### Test safety
+
+`test_schema_migration.py` no longer drops the live `tabFolio Charge` unique index;
+it drives the migration against a throwaway child DocType and asserts the real index
+intact in teardown. `setup/lifecycle_smoke.py`'s unscoped exception delete was
+already scoped in R1C. A permanent AST guard in `test_final_integrity.py` refuses an
+unfiltered `frappe.db.delete` and any test DDL naming a table outside the probe
+registry — and after review it keys on the resolved table position, not on the
+substring `DOCTYPE`, which had matched `FOLIO_DOCTYPE`, `CHARGE_DOCTYPE` and
+`AUDIT_DOCTYPE` and would have waved through the very incident it was written for.
+
+### Review
+
+Two independent reviewers. **SECURITY: 9 findings, 8 fixed.** The sharpest was mine:
+the new refusal messages interpolated the ERP document name, and `throw()` puts that
+in `_server_messages` with nothing catching it — reaching `api/checkout.retry_posting`,
+whose Night Auditor, Hotel Manager and General Manager hold no `Sales Invoice` read
+and whose *success* path exists only to withhold that name. Fixed by removing the
+name, not by gating at the raise site: `_claim` runs inside `erp_posting_authority`,
+where a permission question would be answered for the posting service rather than
+the caller. Also: `_erp_document_is_live` raised `ProgrammingError(1146)` on a stored
+doctype whose table is gone (confirmed by execution) — one such row would have taken
+down a whole property's reconciliation; both new gated keys shipped with **zero**
+disclosure-boundary tests, now 6.
+
+**ERP/FINANCE: safe to integrate.** Zero ERPNext writes, idempotency contract
+unchanged, arithmetic identical for healthy folios, `_claim` precedes `run_durably`
+so a refusal orphans no durable row. It also found `post_folio_invoice` checking only
+the *newest* posting, so a folio with a supplementary invoice whose first batch was
+cancelled kept the old misleading answer — for exactly the folios most likely to have
+one. Fixed: every invoice posting is checked.
+
+### Validation
+
+**Backend 823 tests, green on two consecutive full runs** (781 at R1C; +42).
+Frontend **597/597**, Node **7/7**, production build clean. mysite business date
+**2026-08-11** unchanged, `HPMS-NA-2026-00004` still Posting, cores pristine.
+
+### Known gaps carried forward
+
+1. A draft invoice (`submit=False`) is stamped Posted by `_mark_posted`, so it reads
+   as withdrawn and blocks that folio's audit date. Not reachable from any endpoint.
+2. `close()` never re-reconciles and the fingerprint counts only folio rows, so a
+   cancellation after the last reconcile is not detected at close time.
+3. The documented repair path does not complete: un-stamping regenerates the same
+   batch key, whose log row is Posted-and-stale, so `_claim` refuses for ever.
+4. `Checkout.vue` renders neither `needs_erp_reconciliation` nor
+   `cancelled_invoice_count`; the signal reaches the operator only via `note`.
+5. `failed_postings` ordering changed from `modified desc` to `creation asc`.
+6. F1, F2 and the VAT configuration are **unrepaired by design** and require an
+   ERPNext accounting authority. R1A's estate list is carried forward unchanged.
+
+Result: **PASS** (security: fixed on review; ERP/finance: safe to integrate)

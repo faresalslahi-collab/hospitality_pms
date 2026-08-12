@@ -18,7 +18,7 @@ permitted to set the property's business date at all (see PropertyService's
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, flt, getdate, now_datetime
+from frappe.utils import add_days, cint, flt, getdate, now_datetime
 
 from hospitality_pms.services import folio as folio_service
 from hospitality_pms.services import posting as posting_service
@@ -474,7 +474,19 @@ def reconcile(audit: str) -> dict:
 				# reconciliation endpoint, which is `RECONCILIATION_ROLES`-gated and
 				# is where finance works the variance. What is lost here is only the
 				# ability to read it off a screen without the permission for it.
-				"description": _("A folio on this business date does not agree with ERPNext."),
+				"description": (
+					# Two different problems needing two different people. "Does not
+					# agree" reads as work for whoever posts the day; a posting whose
+					# document has left the ledger is an accounting decision, and
+					# retrying it is refused. Saying so here is what stops the second
+					# being worked as the first.
+					_(
+						"A folio on this business date was posted to ERPNext and that "
+						"document is no longer in the ledger. It needs reconciliation."
+					)
+					if variance.get("needs_erp_reconciliation")
+					else _("A folio on this business date does not agree with ERPNext.")
+				),
 				"severity": BLOCKING,
 			},
 		)
@@ -703,6 +715,35 @@ def _assert_no_blocking_exceptions(doc):
 			_("{0} blocking exception(s) must be resolved before the business date can close.").format(
 				len(blocking)
 			),
+			exc=NightAuditError,
+		)
+
+	# The check above reads the exception rows, and reads nothing if there are
+	# none. `reconcile()` writes the rows and `reconciliation_variances` in the same
+	# save, so a positive count with no row to account for it does not mean the day
+	# came out clean - it means the evidence is gone, and this guard was about to
+	# pass on its absence. `HPMS-NA-2026-00004` is in exactly that state: one
+	# recorded variance, no exception rows, and until now a close that consulted
+	# both and objected to neither.
+	#
+	# Resolved rows still satisfy it. Marking an exception resolved without
+	# re-running reconciliation is a legitimate path and leaves the row behind as
+	# its own record; what is refused is a count with nothing behind it at all.
+	#
+	# Deliberately re-reconcile rather than re-derive the variance here: `reconcile`
+	# owns that computation, it is idempotent, and it rewrites both the rows and the
+	# count together. A second opinion computed in the close path would be a second
+	# definition of whether the day agrees with ERPNext.
+	recorded = cint(doc.reconciliation_variances)
+
+	if recorded and not [
+		row for row in doc.audit_exceptions if row.exception_type == "Unposted Charge"
+	]:
+		throw(
+			_(
+				"This audit recorded {0} reconciliation variance(s) but carries no exception "
+				"to account for them. Reconcile again before closing."
+			).format(recorded),
 			exc=NightAuditError,
 		)
 

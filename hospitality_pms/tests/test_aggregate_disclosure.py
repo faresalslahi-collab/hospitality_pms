@@ -750,6 +750,11 @@ class TestReverseCheckoutDisclosure(DisclosureWorld):
 
 	SERVICE_RESULT = {
 		"standing_invoices": ["ACC-SINV-2026-00001", "ACC-SINV-2026-00002"],
+		# 16.7.5-R1D. The same class of identifier under a name that describes the
+		# problem instead of the payload - which is exactly how `currency_mismatch`
+		# escaped the first R1B pass, so it is in the stub from the day it exists.
+		"cancelled_invoices": ["ACC-SINV-2026-00003"],
+		"needs_erp_reconciliation": True,
 		"note": "Any submitted invoice is left standing and must be handled by finance.",
 	}
 
@@ -824,6 +829,46 @@ class TestReverseCheckoutDisclosure(DisclosureWorld):
 		self.assertEqual(result["standing_invoices"], self.SERVICE_RESULT["standing_invoices"])
 		self.assertTrue(result["disclosure"]["standing_invoices"])
 
+	def test_the_cancelled_invoice_names_are_withheld_too(self):
+		"""16.7.5-R1D added a second list of Sales Invoice names to this endpoint.
+
+		Gating `standing_invoices` and not this one would leave the endpoint
+		disclosing exactly what it was changed to withhold, under a different key.
+		"""
+		result = self._reverse_as(self.desk)
+
+		self.assertNotIn("cancelled_invoices", result, msg="cancelled invoice names disclosed")
+		self.assertEqual(result["cancelled_invoice_count"], 1)
+		self.assertFalse(result["disclosure"]["cancelled_invoices"])
+		self.assertNotIn("ACC-SINV", json.dumps(result, default=str))
+
+	def test_the_reconciliation_flag_reaches_an_operational_caller(self):
+		"""The boolean is the part that must not be gated.
+
+		It carries no identifier and no amount, and it is what tells the caller the
+		reversal is not the whole story. Withholding it would leave the screen
+		reporting a clean reversal over a folio that needs finance.
+		"""
+		result = self._reverse_as(self.desk)
+
+		self.assertTrue(result["needs_erp_reconciliation"])
+
+	def test_a_sales_invoice_reader_keeps_both_lists(self):
+		reader = self.fixtures.user(
+			"acct2", ["Accounts Manager", "Front Office Manager"], properties=[self.property]
+		)
+		frappe.db.commit()
+
+		frappe.set_user(reader)
+
+		if not frappe.has_permission("Sales Invoice", "read"):
+			self.skipTest("no role on this site resolves Sales Invoice read")
+
+		result = self._reverse_as(reader)
+
+		self.assertEqual(result["cancelled_invoices"], self.SERVICE_RESULT["cancelled_invoices"])
+		self.assertTrue(result["disclosure"]["cancelled_invoices"])
+
 	def test_no_hospitality_role_reads_sales_invoice(self):
 		"""The premise behind every ERP-identifier gate in this module.
 
@@ -868,6 +913,28 @@ class TestReconcileFolioDisclosure(DisclosureWorld):
 				"error_message": "OperationalError(1213) at 10.0.0.4:3306 key=aggdis",
 			}
 		],
+		# 16.7.5-R1D. Two doctypes on purpose: the projection gates per row, so a
+		# single-doctype fixture could not catch a mixed list being passed off as
+		# fully disclosed.
+		"stale_postings": [
+			{
+				"log": "HPMS-FPL-2026-00002",
+				"posting_type": "Sales Invoice",
+				"posting_status": "Posted",
+				"erp_doctype": "Sales Invoice",
+				"erp_document": "ACC-SINV-2026-00004",
+				"amount": 820.0,
+			},
+			{
+				"log": "HPMS-FPL-2026-00003",
+				"posting_type": "Payment Entry",
+				"posting_status": "Reconciled",
+				"erp_doctype": "Payment Entry",
+				"erp_document": "ACC-PAY-2026-00004",
+				"amount": 460.0,
+			},
+		],
+		"needs_erp_reconciliation": True,
 	}
 
 	def _project(self) -> dict:
@@ -941,6 +1008,71 @@ class TestReconcileFolioDisclosure(DisclosureWorld):
 
 		self.assertNotIn("can_retry", projected["failed_postings"][0])
 		self.assertNotIn("category", projected["failed_postings"][0])
+
+	def test_stale_posting_rows_keep_the_log_and_lose_the_document(self):
+		"""16.7.5-R1D. `stale_postings` names ERP documents; the same gate applies.
+
+		What survives is what this audience is entitled to and needs: the posting-log
+		name they may read and can open, the type, the status and the amount - the
+		folio's own money, which this `Guest Folio`-authorised endpoint already
+		discloses in `charge_variance` beside it.
+		"""
+		frappe.set_user(self.auditor)
+
+		projected = self._project()
+
+		self.assertEqual(len(projected["stale_postings"]), 2)
+
+		for row in projected["stale_postings"]:
+			self.assertNotIn("erp_document", row, msg=f"ERP document disclosed: {row}")
+
+		self.assertEqual(projected["stale_postings"][0]["log"], "HPMS-FPL-2026-00002")
+		self.assertEqual(projected["stale_postings"][0]["amount"], 820.0)
+		self.assertEqual(projected["stale_postings"][1]["posting_status"], "Reconciled")
+
+		self.assertNotIn("ACC-SINV", json.dumps(projected, default=str))
+		self.assertNotIn("ACC-PAY", json.dumps(projected, default=str))
+
+	def test_the_stale_posting_disclosure_flag_is_honest_and_always_present(self):
+		"""A flag that appears only when something was withheld is itself a signal.
+
+		`disclosure` is a claim about this response. Emitting the key only on the
+		path that has rows to redact lets a client tell the two cases apart by its
+		absence - the leak-by-omission this module refuses everywhere else - and
+		`all([])` would then quietly report `True` for a list nobody was shown.
+		"""
+		frappe.set_user(self.auditor)
+
+		projected = self._project()
+
+		self.assertIn("stale_postings", projected["disclosure"])
+		self.assertFalse(projected["disclosure"]["stale_postings"])
+
+		# Same endpoint, nothing stale: the key must still be there, and now true,
+		# because nothing was withheld.
+		from hospitality_pms.services import posting as posting_service
+
+		clean = dict(self.RESULT)
+		clean["stale_postings"] = []
+		clean["needs_erp_reconciliation"] = False
+
+		original = posting_service.reconcile_folio
+		posting_service.reconcile_folio = lambda _folio: dict(clean)
+
+		try:
+			empty = checkout_api.reconcile_folio(folio=self.folio)
+		finally:
+			posting_service.reconcile_folio = original
+
+		self.assertIn("stale_postings", empty["disclosure"])
+		self.assertTrue(empty["disclosure"]["stale_postings"])
+		self.assertFalse(empty["needs_erp_reconciliation"])
+
+	def test_the_reconciliation_flag_is_never_gated(self):
+		"""It names nothing and it is the reason the folio does not reconcile."""
+		frappe.set_user(self.auditor)
+
+		self.assertTrue(self._project()["needs_erp_reconciliation"])
 
 
 class TestGuestServicesDisclosure(DisclosureWorld):

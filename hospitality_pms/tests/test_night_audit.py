@@ -208,6 +208,20 @@ class TestCloseGate(NightAuditTestCase):
 		with self.assertRaises(NightAuditError):
 			audit_service.close(audit)
 
+	def test_a_clean_audit_records_no_variance_and_still_closes(self):
+		"""The guard must cost nothing when there is genuinely nothing to explain."""
+		audit = self._audit()
+		audit_service.review(audit)
+		audit_service.post_room_charges(audit)
+		audit_service.reconcile(audit)
+
+		self.assertEqual(self._field(audit, "reconciliation_variances"), 0)
+		self.assertEqual(frappe.db.count("Night Audit Exception", {"parent": audit}), 0)
+
+		audit_service.close(audit)
+
+		self.assertEqual(self._field(audit, "audit_status"), audit_service.CLOSED)
+
 	def test_close_refuses_durable_failed_posting(self):
 		"""Wave 3's durable failure evidence blocks the close.
 
@@ -393,3 +407,190 @@ class TestExhaustiveReconciliation(NightAuditTestCase):
 
 		self.assertIsNotNone(self._field(audit, "reconciliation_completed_on"))
 		self.assertIsNotNone(self._field(audit, "reconciliation_population"))
+
+
+class TestRecordedVarianceMustBeAccountedFor(NightAuditTestCase):
+	"""A variance count with no exception row behind it is missing evidence.
+
+	`_assert_no_blocking_exceptions` reads the audit's exception rows and reads
+	nothing at all if the rows are gone, while `reconciliation_variances` still says
+	the day did not agree with ERPNext. `reconcile()` writes both in the same save,
+	so a positive count with no row behind it is not a clean day - it is a day whose
+	evidence has been destroyed. `mysite.localhost`'s open audit
+	`HPMS-NA-2026-00004` is in exactly that state, put there by this suite's own
+	unscoped cleanup (see `_clear_audits`).
+
+	**How dangerous this was.** An earlier version of this docstring claimed the
+	vacuous guard was not an open door, on the grounds that an audit carrying a
+	variance is left in Posting and `Posting -> Closed` is not in `TRANSITIONS`.
+	That reasoning was wrong, and R1D's independent ERP/finance review found the
+	route it missed. Reaching Ready to Close with a live variance and no evidence
+	needs no forced status and no direct database edit - only supported service
+	calls, in this order:
+
+	1. `reconcile()` on a clean day -> variances 0, no rows, **Ready to Close**;
+	2. a variance appears on the audit date;
+	3. `reconcile()` again -> writes the exception row and sets
+	   `reconciliation_variances = 1`, but does **not** demote the status;
+	4. `review()` -> `doc.set("audit_exceptions", [])` wipes every exception row and
+	   never touches `reconciliation_variances`, and does not transition because it
+	   only moves an audit that is still Open;
+	5. `close()` -> pre-R1D, both remaining asserts pass and the business date moves
+	   over a real, unexamined variance.
+
+	So the guard below is the only thing that refuses, and the hole was reachable.
+	The underlying defect - `review()` destroying rows `reconcile()` owns, while
+	leaving the count that describes them - is **not** fixed here; it is converted
+	into a refusal that names re-reconciling as the remedy. Repairing the ownership
+	of those rows is a Night Audit change of its own.
+
+	Its own world and its own property: `folio_with_unposted_charge` commits, so a
+	variance created here would otherwise outlive its test and block every later
+	close in the same class. Same reason `TestExhaustiveReconciliation` has one.
+	"""
+
+	WORLD_CODE = "NV"
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		cls.world.check_in_guest(0)
+
+	def _audit_with_a_variance_and_no_evidence(self) -> str:
+		"""Reconcile a real variance, then destroy the exception rows."""
+		self.world.folio_with_unposted_charge(25)
+
+		audit = self._audit()
+		audit_service.review(audit)
+		audit_service.post_room_charges(audit)
+		result = audit_service.reconcile(audit)
+
+		self.assertGreaterEqual(result["variances"], 1, msg=f"no variance to lose: {result}")
+
+		# Scoped to this audit. The unscoped form of exactly this delete is what
+		# damaged the live site.
+		frappe.db.delete("Night Audit Exception", {"parent": audit, "parenttype": AUDIT})
+
+		self.assertEqual(frappe.db.count("Night Audit Exception", {"parent": audit}), 0)
+		self.assertGreaterEqual(self._field(audit, "reconciliation_variances"), 1)
+
+		return audit
+
+	def test_close_refuses_a_recorded_variance_with_no_exception_to_show_for_it(self):
+		"""The guard itself, with the transition check taken out of the way.
+
+		Ready to Close is forced deliberately. `reconcile()` will not put an audit
+		there while a variance stands, which is precisely why the vacuous guard was
+		masked - so reaching the state the guard exists to cover means arriving at it
+		by some other route, exactly as a reopened day, a forced status or a future
+		caller would.
+		"""
+		audit = self._audit_with_a_variance_and_no_evidence()
+
+		frappe.db.set_value(
+			AUDIT, audit, "audit_status", audit_service.READY_TO_CLOSE, update_modified=False
+		)
+
+		with self.assertRaises(NightAuditError) as caught:
+			audit_service.close(audit)
+
+		message = str(caught.exception).lower()
+		self.assertIn("no exception", message)
+		self.assertIn("reconcil", message)
+		self.assertNotEqual(self._field(audit, "audit_status"), audit_service.CLOSED)
+
+	def test_reconciling_again_is_what_answers_the_missing_evidence(self):
+		"""The remedy the refusal names, and it is not the same refusal twice.
+
+		Re-reconciling rebuilds the rows and the count together. The day is then
+		still not closeable - the variance was real - but it is refused by the
+		exception itself, which is the answer that can be worked.
+		"""
+		audit = self._audit_with_a_variance_and_no_evidence()
+
+		frappe.db.set_value(
+			AUDIT, audit, "audit_status", audit_service.READY_TO_CLOSE, update_modified=False
+		)
+
+		with self.assertRaises(NightAuditError) as first:
+			audit_service.close(audit)
+
+		self.assertIn("no exception", str(first.exception).lower())
+
+		audit_service.reconcile(audit)
+
+		self.assertGreaterEqual(frappe.db.count("Night Audit Exception", {"parent": audit}), 1)
+
+		with self.assertRaises(NightAuditError) as second:
+			audit_service.close(audit)
+
+		self.assertIn("blocking exception", str(second.exception).lower())
+
+
+class TestReviewCanStrandAVarianceCount(NightAuditTestCase):
+	"""The reachable route to Ready to Close with a count and no evidence.
+
+	Its own world: this test needs a genuinely clean first reconcile, and
+	`folio_with_unposted_charge` commits - so a variance created by a sibling test
+	would still be there and the day would never reach Ready to Close.
+	"""
+
+	WORLD_CODE = "NW"
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		cls.world.check_in_guest(0)
+
+	def test_review_can_strand_a_variance_count_at_ready_to_close(self):
+		"""The reachable route, driven entirely through the services.
+
+		No forced status and no direct write to `audit_status`. This is the test that
+		had to exist once the "not an open door" reasoning was shown to be wrong: if
+		`review()` ever stops wiping `reconcile()`'s rows, or starts clearing the
+		count with them, this fails and the guard below can be re-examined.
+		"""
+		audit = self._audit()
+		audit_service.review(audit)
+		audit_service.post_room_charges(audit)
+		audit_service.reconcile(audit)
+
+		self.assertEqual(self._field(audit, "audit_status"), audit_service.READY_TO_CLOSE)
+
+		# A variance appears on the audit date, and is reconciled into the record.
+		self.world.folio_with_unposted_charge(25)
+		audit_service.reconcile(audit)
+
+		self.assertGreaterEqual(self._field(audit, "reconciliation_variances"), 1)
+
+		# `review()` rebuilds the exception list from arrivals and departures only,
+		# so it destroys the reconciliation rows and leaves the count describing
+		# them - and it does not demote an audit that is no longer Open.
+		audit_service.review(audit)
+
+		self.assertEqual(
+			frappe.db.count("Night Audit Exception", {"parent": audit, "exception_type": "Unposted Charge"}),
+			0,
+			msg="premise: review() wipes the reconciliation rows",
+		)
+		self.assertGreaterEqual(
+			self._field(audit, "reconciliation_variances"),
+			1,
+			msg="premise: review() leaves the count behind",
+		)
+		self.assertIn(
+			self._field(audit, "audit_status"),
+			(audit_service.READY_TO_CLOSE, audit_service.REVIEWING),
+		)
+
+		# Whatever `review()` left the status as, the close is now refused by the
+		# guard rather than by the state machine.
+		frappe.db.set_value(
+			AUDIT, audit, "audit_status", audit_service.READY_TO_CLOSE, update_modified=False
+		)
+
+		with self.assertRaises(NightAuditError) as caught:
+			audit_service.close(audit)
+
+		self.assertIn("no exception", str(caught.exception).lower())
+		self.assertNotEqual(self._field(audit, "audit_status"), audit_service.CLOSED)

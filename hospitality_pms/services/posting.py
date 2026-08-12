@@ -42,7 +42,12 @@ from frappe.utils import flt, now_datetime, nowdate
 
 from hospitality_pms.services import durability
 from hospitality_pms.services.base import lock_and_get_doc, lock_and_read
-from hospitality_pms.services.exceptions import ConfigurationError, PostingError, throw
+from hospitality_pms.services.exceptions import (
+	ConfigurationError,
+	PostingError,
+	ReconciliationError,
+	throw,
+)
 from hospitality_pms.services.guests import ensure_customer
 from hospitality_pms.services.property import (
 	get_business_date,
@@ -135,6 +140,94 @@ def resolve_charge_item(profile: str, charge_type: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _erp_document_is_live(erp_doctype: str | None, erp_document: str | None) -> bool:
+	"""Whether the ERP document a posting log row names is still in the ledger.
+
+	A Posted row records what posting did *at the time*. Nothing propagates an
+	ERPNext cancellation back into the PMS - there is no `on_cancel` hook and no
+	code in this app cancels an ERP document at all, because
+	`checkout.reverse_checkout` deliberately leaves a submitted invoice standing
+	for finance to decide on. So finance cancelling an invoice out of band is
+	*expected* operation, and the log alone cannot answer whether the ledger
+	still holds the posting it describes.
+
+	It could not even ask: `_claim` used to read `name` and `posting_status` and
+	nothing else, so a Posted row against a cancelled invoice was indistinguishable
+	from a healthy one. That is what let a folio with 820 of charges outside the
+	ledger be told, by every route it has, that it was already invoiced.
+
+	`docstatus == 1`, not `!= 2`: a draft has never entered the ledger and a
+	deleted document reads `None`, and neither is evidence that anything posted.
+	The same predicate `_submitted_invoices` already applies, kept as one
+	definition of "in the ledger" for the whole module.
+	"""
+	if not erp_doctype or not erp_document:
+		return False
+
+	# `ignore=True` because `erp_doctype` is *stored data* - a Link to DocType that
+	# `_mark_posted` wrote at posting time - and a DocType renamed or removed by a
+	# later patch leaves rows naming the old one. Without it `get_value` raises
+	# ProgrammingError(1146) on the missing table, and this predicate is called per
+	# posting row inside `reconcile_folio`, which `night_audit.reconcile` runs over
+	# every folio on the property: one unreadable row would take down the whole
+	# day's reconciliation. `services/base.py`'s `may_read_doctype` fails closed on
+	# a stored DocType name for the same reason, citing this bench's own rename
+	# patch. Missing table, missing column and "Invalid DocType" are all absorbed
+	# (`frappe/database/database.py:682-691`), and absorbed to `None` - which is not
+	# `1`, so the row reads as not live. Failing closed here means "no evidence the
+	# ledger holds this", which is the safe direction.
+	return frappe.db.get_value(erp_doctype, erp_document, "docstatus", ignore=True) == 1
+
+
+def _stale_rows(rows: list[dict]) -> list[dict]:
+	"""Which of these posting-log rows claim a posting the ledger does not hold.
+
+	Takes rows rather than a folio so the two callers can each fetch them the way
+	that suits: `reconcile_folio` already reads the log once for its failure list
+	and partitions that, while `post_folio_invoice` asks only on the branch where
+	it has nothing to post. One definition of the predicate either way.
+	"""
+	return [
+		row
+		for row in rows
+		if row["posting_status"] in (POSTED, RECONCILED)
+		and not _erp_document_is_live(row["erp_doctype"], row["erp_document"])
+	]
+
+
+def _stale_posting_message(log: str) -> str:
+	"""Why we are refusing - without naming the accounting document.
+
+	The document's name is deliberately absent. This message travels to the browser
+	in `_server_messages` and no endpoint catches it, so naming a Sales Invoice
+	here would hand it to every caller who can reach a refusal - including
+	`api/checkout.retry_posting`'s Night Auditor, Hotel Manager and General
+	Manager, none of whom hold `Sales Invoice` read, and whose success path on that
+	same endpoint exists *only* to withhold that name from them (16.7.5-R1B:
+	permission on a root DocType does not authorise fields joined from another).
+	An error message is not a lesser channel than a response body.
+
+	Gating the message at the raise site would be wrong rather than merely
+	insufficient: `_claim` is reached from inside `erp_posting_authority`, where the
+	session user is the posting service identity, so a permission question asked
+	here would be answered for the wrong user. Omitting the name is the only
+	version that stays correct wherever the raise sites move.
+
+	The posting log's own name is what finance acts on, and every role that can
+	reach this refusal may read `Financial Posting Log`. The endpoint projections
+	add the document name for callers permitted to see it.
+
+	"is not in the ledger", not "is no longer in": `_erp_document_is_live` treats a
+	draft and a deleted row as not live too, and neither has ever been in the
+	ledger. The sentence has to be true of all three.
+	"""
+	return _(
+		"Posting {0} is recorded as posted, but the accounting document it names is "
+		"not in the ledger. This needs reconciliation before anything further is "
+		"posted against it."
+	).format(log)
+
+
 def _claim(
 	property_name: str,
 	posting_type: str,
@@ -156,12 +249,25 @@ def _claim(
 	existing = frappe.db.get_value(
 		POSTING_LOG,
 		{"idempotency_key": idempotency_key},
-		["name", "posting_status"],
+		["name", "posting_status", "erp_doctype", "erp_document"],
 		as_dict=True,
 	)
 
 	if existing:
-		return existing["name"], existing["posting_status"] in (POSTED, RECONCILED)
+		done = existing["posting_status"] in (POSTED, RECONCILED)
+
+		# A Posted row whose document has left the ledger is not evidence that
+		# the work was done, and it is not licence to do it again either. The
+		# folio's rows are still stamped, the key is still claimed, and re-posting
+		# under it would either double-post or post a batch that no longer matches
+		# what the stamps say. So it stops here and says which document went.
+		#
+		# Deliberately a refusal rather than `already_done = False`: there is one
+		# safe answer and it is "a human decides what happened".
+		if done and not _erp_document_is_live(existing["erp_doctype"], existing["erp_document"]):
+			throw(_stale_posting_message(existing["name"]), exc=ReconciliationError)
+
+		return existing["name"], done
 
 	doc = frappe.get_doc(
 		{
@@ -333,6 +439,39 @@ def post_folio_invoice(folio: str, *, business_date=None, submit: bool = True) -
 		existing = _latest_invoice_posting(folio)
 
 		if existing:
+			# ...unless one of this folio's invoices has been withdrawn from the ledger
+			# since. Then "already done" is false, and answering `duplicate: True`
+			# while pointing at an invoice as the reason is the single most misleading
+			# thing this module can say - it was the whole of the folio's remediation
+			# route, and it reported health.
+			#
+			# Every invoice posting is checked, not just the newest. Gating on
+			# `_latest_invoice_posting` alone was the first version of this guard and it
+			# had a hole exactly where the batch key was invented to help: a folio with
+			# a supplementary invoice (P2-4's late charge) whose *first* batch was
+			# cancelled still had a live newest row, so the old misleading answer
+			# survived for precisely the folios most likely to have one.
+			#
+			# It still does not re-post. Every charge row is stamped
+			# `is_posted_to_erp`, so `chargeable` is empty and there is no batch to
+			# raise an invoice from; clearing those stamps is a repair with its own
+			# audit and approval, not something a read-path retry may do.
+			stale = _stale_rows(
+				frappe.get_all(
+					POSTING_LOG,
+					filters={
+						"folio": folio,
+						"posting_type": "Sales Invoice",
+						"posting_status": ("in", (POSTED, RECONCILED)),
+					},
+					fields=["name", "posting_status", "erp_doctype", "erp_document"],
+					order_by="creation asc",
+				)
+			)
+
+			if stale:
+				throw(_stale_posting_message(stale[0]["name"]), exc=ReconciliationError)
+
 			return {**existing, "duplicate": True}
 
 		throw(_("Folio {0} has no charges to invoice.").format(folio), exc=PostingError)
@@ -977,6 +1116,13 @@ def retry_posting(log: str) -> dict:
 	entry = frappe.get_doc(POSTING_LOG, log)
 
 	if entry.posting_status in (POSTED, RECONCILED):
+		# Refusing to retry is the right answer only while the document is still
+		# there. Reporting `retried: False` on the authority of a cancelled invoice
+		# tells the one person looking at the reconciliation queue that the row is
+		# fine, which is how six of them sat untouched.
+		if not _erp_document_is_live(entry.erp_doctype, entry.erp_document):
+			throw(_stale_posting_message(log), exc=ReconciliationError)
+
 		return {"log": log, "status": entry.posting_status, "retried": False}
 
 	if entry.posting_status == CANCELLED:
@@ -996,13 +1142,20 @@ def retry_posting(log: str) -> dict:
 	return {**result, "retried": True}
 
 
-def folio_erp_documents(folio: str, posting_type: str) -> list[str]:
+def folio_erp_documents(folio: str, posting_type: str, *, live_only: bool = True) -> list[str]:
 	"""ERPNext documents this folio successfully posted, oldest first.
 
 	Read from the posting log, which records what posting actually did, rather
 	than from the folio's own rows, which record only what posting *intended*.
+
+	The log records what posting did *at the time*, though, and it is never
+	revised when ERPNext later withdraws the document - so by default the names
+	are filtered down to the ones still in the ledger. `live_only=False` returns
+	the log's own answer unfiltered, which is what a reconciliation report needs
+	in order to say *which* documents went and a caller deciding whether money
+	moved must never use.
 	"""
-	return frappe.get_all(
+	rows = frappe.get_all(
 		POSTING_LOG,
 		filters={
 			"folio": folio,
@@ -1010,9 +1163,21 @@ def folio_erp_documents(folio: str, posting_type: str) -> list[str]:
 			"posting_status": ("in", (POSTED, RECONCILED)),
 			"erp_document": ("is", "set"),
 		},
+		fields=["erp_doctype", "erp_document"],
 		order_by="creation asc",
-		pluck="erp_document",
 	)
+
+	if not live_only:
+		return [row["erp_document"] for row in rows]
+
+	# `erp_doctype` off the row rather than `posting_type`: the two agree on every
+	# row `_mark_posted` has ever written, but only one of them is the field that
+	# says what the document actually is.
+	return [
+		row["erp_document"]
+		for row in rows
+		if _erp_document_is_live(row["erp_doctype"] or posting_type, row["erp_document"])
+	]
 
 
 def reconcile_folio(folio: str) -> dict:
@@ -1061,11 +1226,60 @@ def reconcile_folio(folio: str) -> dict:
 	unposted_charges = [row.name for row in doc.charges if not row.is_posted_to_erp]
 	unposted_payments = [row.name for row in doc.payments if not row.is_posted_to_erp]
 
-	failures = frappe.get_all(
+	# One query, partitioned in Python, rather than two: the `failed_postings` fetch
+	# was already being made, so widening its filter adds no round trip.
+	#
+	# It is not free overall, and the earlier version of this comment claiming so
+	# was wrong. `_erp_document_is_live` below is a primary-key lookup **per
+	# Posted or Reconciled row**, and `night_audit.reconcile` calls this function
+	# for every folio in the property's population, paginated to exhaustion. The
+	# cost is therefore O(folios x postings) single-row reads per audit, not zero.
+	# Accepted rather than optimised: the alternative is a batched existence query
+	# per doctype, which is worth doing if an audit ever measures slow, and is not
+	# worth the second code path until it does.
+	log_rows = frappe.get_all(
 		POSTING_LOG,
-		filters={"folio": folio, "posting_status": FAILED},
-		fields=["name", "posting_type", "error_message", "attempts"],
+		filters={"folio": folio, "posting_status": ("in", (FAILED, POSTED, RECONCILED))},
+		fields=[
+			"name",
+			"posting_type",
+			"posting_status",
+			"erp_doctype",
+			"erp_document",
+			"amount",
+			"error_message",
+			"attempts",
+		],
+		order_by="creation asc",
 	)
+
+	failures = [
+		{field: row[field] for field in ("name", "posting_type", "error_message", "attempts")}
+		for row in log_rows
+		if row["posting_status"] == FAILED
+	]
+
+	# The third answer. Not "reconciled" and not "never posted" - posted, and then
+	# withdrawn from the ledger by someone outside this application.
+	#
+	# Without it this report was mute rather than wrong: `_submitted_invoices`
+	# correctly refuses to count a cancelled invoice, so the variance was right,
+	# but the drop is a silent `continue` and `erp_invoices` came back empty. A
+	# folio with 820 posted-then-cancelled read as "820 never reached ERPNext"
+	# beside `unposted_charges: []` - two statements that cannot both be true and
+	# nothing in the payload to reconcile them. Finance was pointed at a posting
+	# job when the answer was an accounting decision.
+	stale_postings = [
+		{
+			"log": row["name"],
+			"posting_type": row["posting_type"],
+			"posting_status": row["posting_status"],
+			"erp_doctype": row["erp_doctype"],
+			"erp_document": row["erp_document"],
+			"amount": flt(row["amount"], precision),
+		}
+		for row in _stale_rows(log_rows)
+	]
 
 	charge_variance = flt(flt(doc.total_charges) - erp_invoiced, precision)
 	payment_variance = flt(flt(doc.total_payments) - erp_paid, precision)
@@ -1095,6 +1309,8 @@ def reconcile_folio(folio: str) -> dict:
 		"unposted_charges": unposted_charges,
 		"unposted_payments": unposted_payments,
 		"failed_postings": failures,
+		"stale_postings": stale_postings,
+		"needs_erp_reconciliation": bool(stale_postings),
 		"is_reconciled": (
 			charge_variance == 0
 			and payment_variance == 0
@@ -1103,6 +1319,7 @@ def reconcile_folio(folio: str) -> dict:
 			and not unposted_charges
 			and not unposted_payments
 			and not failures
+			and not stale_postings
 		),
 	}
 
@@ -1111,7 +1328,10 @@ def _submitted_invoices(folio: str) -> list[dict]:
 	"""The folio's Sales Invoices that are actually in the ledger."""
 	rows = []
 
-	for name in folio_erp_documents(folio, "Sales Invoice"):
+	# `live_only=False`: the `docstatus == 1` gate is right here, and asking
+	# `folio_erp_documents` to apply the same predicate first would buy one extra
+	# query per document to learn what the row fetch below already returns.
+	for name in folio_erp_documents(folio, "Sales Invoice", live_only=False):
 		row = frappe.db.get_value(
 			"Sales Invoice",
 			name,
@@ -1129,7 +1349,7 @@ def _submitted_invoices(folio: str) -> list[dict]:
 def _submitted_payment_entries(folio: str) -> list[dict]:
 	rows = []
 
-	for name in folio_erp_documents(folio, "Payment Entry"):
+	for name in folio_erp_documents(folio, "Payment Entry", live_only=False):
 		row = frappe.db.get_value(
 			"Payment Entry",
 			name,
@@ -1169,7 +1389,29 @@ def _allocated_against(payment_entries: list[str], invoices: list[str]) -> float
 
 
 def mark_reconciled(log: str) -> str:
-	"""Flag a posting as checked off by finance."""
+	"""Flag a posting as checked off by finance.
+
+	Refuses a row whose ERP document has left the ledger. Reconciled is treated
+	as interchangeable with Posted by `_claim`, `_latest_invoice_posting` and
+	`folio_erp_documents`, so without this guard the reconciliation dashboard
+	could stamp a stale row and permanently launder it past every check above -
+	the one write on this path that makes the condition unrecoverable.
+	"""
+	entry = frappe.db.get_value(
+		POSTING_LOG, log, ["posting_status", "erp_doctype", "erp_document"], as_dict=True
+	)
+
+	if not entry:
+		throw(_("Posting {0} does not exist.").format(log), exc=PostingError)
+
+	# Only rows that claim a posting are checked. A Failed row names no document
+	# and finance signing one off is a decision about a posting that never
+	# happened, which is theirs to make.
+	if entry["posting_status"] in (POSTED, RECONCILED) and not _erp_document_is_live(
+		entry["erp_doctype"], entry["erp_document"]
+	):
+		throw(_stale_posting_message(log), exc=ReconciliationError)
+
 	frappe.db.set_value(
 		POSTING_LOG,
 		log,

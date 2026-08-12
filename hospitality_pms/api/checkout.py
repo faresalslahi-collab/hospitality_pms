@@ -337,17 +337,31 @@ def reverse_checkout(stay: str, reason: str) -> dict:
 	# The operational fact is kept unconditionally and made explicit as a count, so
 	# the screen can still say "two invoices need finance's attention" without
 	# naming them. `Checkout.vue` renders the note either way.
+	# `cancelled_invoices` is the same disclosure - `Sales Invoice` names - under a
+	# name that describes the problem instead of the payload, so it is gated by the
+	# same permission and counted the same way. `needs_erp_reconciliation` is a
+	# boolean about this folio's own consistency and is kept unconditionally: it is
+	# what tells the caller to stop, and a screen that could not see it would go on
+	# treating the reversal as complete.
 	invoices = result.get("standing_invoices") or []
+	cancelled = result.get("cancelled_invoices") or []
 	may_read_invoices = may_read_doctype("Sales Invoice")
 
+	withheld = ("standing_invoices", "cancelled_invoices")
+
 	disclosed = {
-		**{field: value for field, value in result.items() if field != "standing_invoices"},
+		**{field: value for field, value in result.items() if field not in withheld},
 		"standing_invoice_count": len(invoices),
-		"disclosure": {"standing_invoices": may_read_invoices},
+		"cancelled_invoice_count": len(cancelled),
+		"disclosure": {field: may_read_invoices for field in withheld},
 	}
 
-	if may_read_invoices and invoices:
-		disclosed["standing_invoices"] = invoices
+	if may_read_invoices:
+		if invoices:
+			disclosed["standing_invoices"] = invoices
+
+		if cancelled:
+			disclosed["cancelled_invoices"] = cancelled
 
 	return disclosed
 
@@ -407,8 +421,16 @@ def reconcile_folio(folio: str) -> dict:
 		field: frappe.has_permission(doctype, "read") for field, doctype in gated.items()
 	}
 
+	# `stale_postings` is excluded from the spread as well as gated below. It is not
+	# in `gated` because its rows are projected field by field rather than passed or
+	# withheld whole, but leaving it out of the exclusion would splice the raw rows -
+	# ERP document names included - into the response and rely on the projection
+	# further down overwriting them. That happens to hold today and is one edited
+	# condition away from not holding.
+	withheld = set(gated) | {"stale_postings"}
+
 	disclosed = {
-		**{field: value for field, value in result.items() if field not in gated},
+		**{field: value for field, value in result.items() if field not in withheld},
 		**{field: result[field] for field in gated if disclosure[field] and field in result},
 		"disclosure": disclosure,
 	}
@@ -434,6 +456,54 @@ def reconcile_folio(folio: str) -> dict:
 		disclosed["failed_postings"] = [
 			{field: value for field, value in row.items() if field != "error_message"}
 			for row in result["failed_postings"]
+		]
+
+	# `stale_postings` rows name an ERP document, which is the same disclosure the
+	# three keys above are gated on - so the name is dropped unless the caller may
+	# read it. What is left is the posting-log name, the type, the status and the
+	# amount: enough for finance to open the log row and work it, and for the screen
+	# to say *why* the folio does not reconcile, which is the whole point of the key.
+	# `needs_erp_reconciliation` is a boolean and stays unconditionally.
+	#
+	# Rebuilt field by field rather than by popping two keys, so a field added to
+	# the service's row shape later has to be considered here before it is published.
+	#
+	# `may_read_doctype` rather than `frappe.has_permission`, matching
+	# `_disclose_posting` above: the doctype comes off the row, so it is the
+	# polymorphic case that helper exists for, and it fails closed on a name that is
+	# not a DocType at all.
+	#
+	# Outside the `if`, unconditionally: `disclosure` is a claim about what this
+	# response withheld, and a key that appears only when there is something to
+	# withhold lets a client tell the two cases apart by its absence - the exact
+	# leak-by-omission this module refuses at `standing_invoices`. Keyed
+	# `stale_postings`, matching the payload field, so a client reading
+	# `disclosure[field]` gets an answer rather than `undefined`.
+	stale = result.get("stale_postings") or []
+	may_name = {row["erp_doctype"]: may_read_doctype(row["erp_doctype"]) for row in stale}
+
+	# True when nothing was withheld - which is honest for an empty list, and for a
+	# mixed-doctype list is False as soon as *any* row's document was dropped. It
+	# cannot claim disclosure that did not happen, and it cannot silently pass a
+	# partially-redacted list off as complete.
+	disclosed["disclosure"]["stale_postings"] = all(may_name.get(row["erp_doctype"]) for row in stale)
+
+	if stale:
+		disclosed["stale_postings"] = [
+			{
+				"log": row["log"],
+				"posting_type": row["posting_type"],
+				"posting_status": row["posting_status"],
+				"amount": row["amount"],
+				# `erp_doctype` is emitted unconditionally, matching `_disclose_posting`
+				# above. Withholding it while publishing `posting_type`, which carries the
+				# same value on every row `_mark_posted` has written, would be a gate that
+				# reads as protection and provides none. The document's *name* is the
+				# disclosure, and that is what is gated.
+				"erp_doctype": row["erp_doctype"],
+				**({"erp_document": row["erp_document"]} if may_name.get(row["erp_doctype"]) else {}),
+			}
+			for row in stale
 		]
 
 	return disclosed
