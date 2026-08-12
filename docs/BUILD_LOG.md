@@ -3909,3 +3909,269 @@ property-board contract. Two Lead positions were overruled by review and are
 recorded as such: the history permission gate, and the unlocked inventory write.
 
 Result: **PASS** (security: APPROVED WITH NOTES)
+
+---
+
+## 16.7.3 — Guest 360 & Guest Privacy Consolidation
+
+Baseline: **`0804047`** — `version-16` with 16.7.2 merged locally, `--no-ff`,
+history preserved. Pre-merge `version-16` was `3ab5a74`; the 16.7.2 head was
+`acfeb5c`; merge-base equalled `version-16`, so 16.7.2 was exactly one commit
+ahead with **no divergent commits**. Post-merge validation before any 16.7.3 work:
+467 frontend tests, 7/7 Node checks, 547 backend tests. Nothing was pushed, pulled
+or fetched at any point.
+
+This build gives the front desk the guest relationship without opening Desk, and
+closes **three defects carried from 16.7.2** plus one found during the build. It
+also declines two things the brief allowed it to decline, on evidence recorded
+below.
+
+### The rule this build is shaped around
+
+`Guest.read` is not authority for anything except the guest record. Thirteen roles
+hold it; twenty-three hold `Reservation.read` and `Stay.read`; thirteen hold
+`Guest Folio.read`, and the ten in the gap are exactly the roles 16.7.1 handed a
+folio balance. A guest workspace is the widest aggregate in the product and is
+therefore the easiest place to dissolve those boundaries by joining freely from a
+single gate.
+
+So `api/guest_workspace.py` gates every field group on the DocType that owns it,
+and an uncleared caller gets **no key** rather than a blanked one. `[]` would tell
+a reservation agent that a guest who handed over a passport at check-in has no
+papers; `0` would tell someone who may not read Stay that the guest has never
+stayed. Both are false statements about a person, which is worse than silence.
+`disclosure` reports what the caller's roles allow and never what the record
+holds, which is what lets a tab be absent rather than empty and lets the screen
+say the honest thing about which it is.
+
+### Guest search was answering questions it had no authority for
+
+`search_guests` returned nine fields to any holder of `Guest.read`, among them
+`total_stays` and `last_stay_on` — a *stay* summary delivered under a *guest*
+permission, to ten roles that cannot read Stay. It also returned `nationality`,
+which does nothing to tell two guests apart, in a GET that fires on every
+keystroke.
+
+`SEARCH_FIELDS` is now the identifiers plus the one piece of standing that changes
+how a guest is greeted at the moment of picking: `name`, `guest_name`, `email_id`,
+`mobile_no`, `vip_status`. Minimum query length 2 (one character is an enumeration
+surface, not a search), default 10, ceiling 25 — the old ceiling of 50 was set when
+the row was nine fields wide. The blacklist is still neither selected nor filtered
+on, so a blacklisted guest remains findable: hiding the row is a *conclusive*
+one-bit disclosure where returning it discloses nothing, and that reasoning is
+unchanged from 16.7.1.
+
+Those two stay counters were also permanently **zero**. `Guest.total_stays`,
+`total_nights`, `last_stay_on` and `lifetime_value` are read-only columns that
+nothing in the app writes, and `GuestProfile.vue` rendered `total_stays ?? 0` — a
+fabricated fact, published for two builds. The workspace derives the real figures
+from `Stay`, under `Stay.read`, scoped to permitted properties, so the header
+agrees with the table beneath it.
+
+### Corporate property authorisation: wider than recorded
+
+16.7.2 recorded `corporate.get_credit_position` as lacking a property gate. It was
+four more than that. Every endpoint in `api/corporate.py` that takes an
+account name from the client checked only `require_permission("Corporate Account",
+...)`, which answers "may this user ever read corporate accounts" — twenty-three
+roles may, estate-wide, including **Room Attendant and Kitchen User**. `Corporate
+Account` carries a required `property` Link, so the question was always answerable.
+
+`get_account`, `get_credit_position`, `check_credit`, `production_report` and
+`set_credit_status` now call `authorise_document`. The last of those is a **write**:
+a Corporate Sales Manager at one property could suspend an account at another. The
+recorded finding was the least severe of the five, and fixing only it would have
+left a cross-property write open next to a patched read.
+
+No corporate context reaches the guest workspace at all — `corporate_account` and
+`customer` are absent from every allow list — so this is a fix in front of a door
+Guest 360 does not open.
+
+### The cross-type room move
+
+`change_room` moved the Stay, both rooms' statuses, the folio and (since 16.7.2)
+`Reservation Room.assigned_room`, and left `Reservation Room.room_type` naming the
+type the booking was made for. Availability was then wrong **twice on every
+remaining night**: `_sold_by_night` counts a line against the row's `room_type`
+while supply comes from `Hotel Room.room_type`, so the origin type held back a room
+it no longer had and the destination type offered one with a guest asleep in it.
+Occupancy is not an input to `get_availability`, so nothing downstream caught it.
+`_assert_room_free` protects the specific room, so the clash surfaced at the next
+assignment — by which time the desk had sold it.
+
+The fix is one `set_value` carrying `room_type` alongside `assigned_room`.
+Deliberately not `doc.save()`: `room_type` is in `LOCKED_ROOM_LINE_FIELDS` and the
+controller would refuse it, and `set_value` also keeps `price_reservation` out of
+the path. **A room move does not reprice a guest who has already been quoted** —
+`Stay.room_rate` is what the night audit posts, and it is untouched, as are the
+line's rate, the plan and the header totals.
+
+`change_room` was also the only inventory service that wrote nothing to
+`Reservation Log`, so a line could change type invisibly. It now logs, but only
+when the type actually moves, so ordinary same-type moves add no row that says
+nothing.
+
+### The lock chain: characterised, not normalised
+
+HPMS-QA-16.7.2-C is real and the cycle is provable from the code. Every commit path
+takes `lock_and_get_doc(Reservation)` — which locks the reservation **and every one
+of its `Reservation Room` children** — then the Room Type row, then a ranged
+`SELECT ... FOR UPDATE` over `tabReservation Room` that locks every row it
+*examines*, including other bookings'. `exclude_reservation` is a WHERE predicate,
+not an index restriction, and it excludes the caller's own rows, never the rival's.
+Two confirmations of one room type therefore hold each other's line rows while each
+waits for what the other has.
+
+The documented remedy is to hoist the Room Type lock above the Reservation. **This
+build reviewed that and did not take it**, for a reason that is not caution:
+`confirm`, `_lock_line_chain` and `change_room` cannot know which Room Type to lock
+until they have read a mutable column — `confirm`'s type set comes from `doc.rooms`
+*after* `normalise_room_lines` may have added rows, and `change_room`'s destination
+type is only knowable by reading the room it has not locked yet. Hoisting means
+choosing the lock target from a plain read of a value another transaction may be
+changing, which is precisely the stale-read pattern `services/base.py` and
+`test_final_integrity.py` exist to refuse. Trading a deadlock for an oversell on
+the flagship inventory path is the wrong way round.
+
+What was missing was a test. The suite raced two moves of *one* line, and raced two
+reservations for the *last* room — where a refusal is expected and a deadlock hides
+inside it. `test_two_confirmations_of_one_room_type_hold_inventory_true` leaves the
+house half empty, so both bookings should commit and the only thing that can stop
+either is the lock order. It asserts the invariant unconditionally (a deadlock is a
+refusal and a refusal never oversells) and records the deadlock as a finding. On
+this bench it did not fire in the recorded run: the cycle is **latent and
+timing-dependent**, not fixed, and the test is what will say so when it does.
+
+**Disposition: HPMS-QA-16.7.2-C remains open, now with an executable invariant and
+a written reason for not reordering.** Carried to 16.7.4+.
+
+### Guest 360
+
+`pages/GuestProfile.vue` was evolved in place and is still `GuestProfile` at
+`/guests/:id`. GlobalSearch, the guest list, the reservation Guests tab, the
+in-house drawer and both guest form pages navigate here by route name; a parallel
+route would have orphaned all of them. GlobalSearch needed no edit at all, and its
+seven-field projection is unchanged.
+
+Seven tabs, each backed by real data and its own gate: **Profile**, **Identity**
+(permlevel 1), **Preferences**, **Alerts**, **Reservations**, **Stays**, **Folios**.
+Four requests, not eleven — one aggregate on open, then a page of each history when
+its tab is first selected, so the tabs cannot disagree about which moment they show
+and a lifetime of bookings is never fetched to paint a header. Pagination is
+`limit`/`start` in, `has_more` out, matching every other list endpoint; there is no
+`total`, and `OperationalDataTable` is built for its absence.
+
+Reservation history spans both the header link and `Reservation Guest`, because a
+history that drops the bookings a guest travelled on reads as "no history" rather
+than as a partial one. The companion lookup is unscoped by necessity and is
+re-filtered by property at the publishing `get_list` — verified end to end by the
+security review.
+
+Editing stays with the existing `GuestEdit` route and its shared `GuestForm`,
+which already owns the write allow list the server enforces. A second editor here
+would be a second place for those two lists to drift.
+
+### Two things this build declined to ship
+
+**Documents — DEFERRED: DOCUMENT SECURITY DESIGN.** Not a scheduling decision. In
+Frappe v16, `File.has_permission` delegates to `ref_doc.has_permission("read")`,
+and `permissions.py` applies document-level permission at **permlevel 0 only**. A
+passport attached to a Guest is therefore readable by every holder of plain
+`Guest.read`, and the permlevel-1 gate on `identifications` cannot reach it.
+Requirement (c) of the brief — download gated by Guest read *and* an identity
+privilege — is **not expressible** in the core File model. A safe design exists (a
+`Guest Document` DocType with its own DocPerms, forced-private upload, an
+own-permission download and a retention job) and is new modelling that deserves its
+own decision record, not a tab.
+
+**Recorded, pre-existing, outside this diff:** `Guest Identification.id_image` files
+attach to `Guest`, so any Guest reader can download a passport scan through
+`/private/files/`, bypassing permlevel 1. Reservation Agent is the concrete role.
+It is mitigated today only by the frontend offering no upload path — by the absence
+of data, not by a control. `guests.get_guest` still returns the raw URL to
+permlevel-1 holders. This should be a **blocking item** for the document build.
+
+**History — DEFERRED.** Front Office Agent, this screen's primary user, can read
+none of `Reservation Log` (9 roles), `Folio Log` (9) or `Guest Merge Log` (7). And
+the events an operator most expects — check-in and checkout — are not logged
+anywhere: `stays.transition` writes a status and no audit row. A tab that is empty
+for the person it was built for is worse than an absent one. Wants a Stay lifecycle
+log first.
+
+### Merge
+
+`guests.merge` already existed, correctly, and was not redesigned: role-gated on
+`MERGE_ROLES` (Hospitality Administrator, System Manager, Hotel Manager, Guest
+Relations Officer), reason-mandatory, self-merge refused, guests locked in sorted
+order, audited to `Guest Merge Log`, source retired rather than deleted. This build
+bound it to a UI for the first time, behind `disclosure.merge` — which is
+navigation comfort, never the boundary. The direction is fixed and stated in words:
+the guest whose workspace is open is always the one kept.
+
+`merged_fields` — an unredacted permlevel-0 JSON dump of the source guest,
+including its identifications and blacklist reason — is written but **never read
+back** by any endpoint or component. Verified across the repo.
+
+**Noted, not fixed:** `merge_guests` returns `references_moved`, per-DocType counts
+computed with a permission-free unscoped query, so a merging manager learns how
+many folios and stays the guest has estate-wide. Narrow (four roles, and it costs a
+destructive audited action), and unchanged by this diff — but this build made it
+reachable from a browser. Worth scoping when the merge surface is next touched.
+
+### Validation
+
+- **Frontend:** 17 files, **505 tests** (467 at 16.7.2), +38 for Guest 360.
+- **Node checks:** 7/7, unmodified.
+- **Backend:** **592 tests** (547 at 16.7.2), green on consecutive full runs.
+- **Concurrency:** 15/15, including the new HPMS-QA-16.7.2-C invariant test.
+- **Production build:** passes, no new warnings. `GuestProfile` 9.9 kB → 24.4 kB,
+  which is the seven tabs and the merge dialog.
+- **Security review:** **APPROVED WITH NOTES**. All twelve required items reviewed;
+  no leak found; the companion-reservation path traced end to end. Eight notes, of
+  which one (a client-supplied negative `limit` faulting the query as `LIMIT -1`)
+  was **fixed in this build** with a test; the rest are pre-existing or
+  informational and are recorded above and below.
+- **Generic CRUD:** none. Four read-only endpoints; every mutation goes through an
+  existing hardened service.
+- **Cashier scope:** none. No refund, ERP posting, gateway, reconciliation or
+  settlement. Folio history is read-only context, pinned by a test that asserts no
+  posting state reaches it. 16.7.5 owns the actions.
+- **Services scope:** none. 16.7.4 owns that consolidation.
+- **Business date:** unchanged. No `nowdate()`/`today()`/`new Date()` in any new
+  file; no Night Audit movement; no configuration mutation; no financial residue.
+
+### Deferred
+
+**16.7.4+** — Documents (with the `id_image` exposure as a blocking item); a Guest
+History tab, behind a Stay lifecycle log; the HPMS-QA-16.7.2-C lock reorder, now
+with an executable invariant; `merge_guests.references_moved` scoping; a
+`frappe.qb` aggregate in `_stay_statistics` whose scope is only equivalent to
+`get_list` while `permission_query_conditions` stays empty for `Stay`; workspace
+alerts filtered on `is_active` but not against `valid_upto`, unlike
+`get_active_alerts`; a caller holding `Stay.read` with zero permitted properties
+sees a Stays tab it cannot populate. Carried unchanged from 16.7.2: a pre-arrival
+`extend_reservation`; `assert_assignable` refusing a future move for a room dirty
+today; line-scoped `adults`/`children`; reservation history's overbooking evidence;
+ten older dialogs passing `rows="3"` as a string.
+
+### Subagent usage
+
+Seven read-only specialists under a Lead, dispatched in parallel with file
+ownership assigned first and no two agents holding the same file: a guest backend
+domain expert; a Vue/frontend surface mapper; a concurrency specialist for the lock
+chain; a reservations expert for the room-move desync; a security reviewer for the
+corporate gap; a Frappe File/attachment security analyst; and a permissions expert
+for the history sources. A separate security/privacy reviewer's sign-off was
+mandatory. Every deliverable was verified by the Lead against the source rather
+than accepted on report — the File permission chain, the Guest permlevel matrix and
+the `authorise_document` behaviour were each re-read directly before being acted on.
+
+Three specialist findings changed the build materially: the attachment analysis
+turned Documents from a tab into a deferral with a source-level proof; the lock-chain
+analysis turned a planned reorder into a characterisation plus the missing test;
+and the corporate review widened a one-endpoint fix to five, one of them a
+cross-property write. Two specialist observations were acted on beyond the brief —
+the dead stay-statistic columns, and the `id_image` exposure — and one security
+note was fixed rather than recorded.
+
+Result: **PASS** (security: APPROVED WITH NOTES)

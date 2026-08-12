@@ -485,20 +485,45 @@ def change_room(stay: str, new_room: str, reason: str, *, allow_unready: bool = 
 	# deadlocked against `change_line_interval`; the reasoning that no lock was
 	# needed is recorded and corrected in the comment at the top.
 	#
-	# Not corrected here: `Reservation Room.room_type` is left naming the type the
-	# booking was made for, even when the guest has been moved into a room of a
-	# different one. Availability then counts the night against the old type and
-	# the new type looks freer than it is. That is a separate defect with a
-	# separate decision behind it - what a cross-type move does to the rate the
-	# guest was quoted - and it is deliberately out of scope for this change.
+	# `room_type` moves with the room (16.7.3). Leaving it naming the type the
+	# booking was made for, while the guest sleeps in a room of another one, made
+	# the two records contradict each other and made availability wrong twice over
+	# every remaining night: `_sold_by_night` counts the line against the *old*
+	# type, so the origin type is held back from sale, and the destination type
+	# reports a room free that has a guest in it. `_assert_room_free` protects the
+	# specific room, so the clash surfaces at the next assignment rather than as a
+	# double-booked door - but by then the desk has already sold it.
+	#
+	# Written with `set_value`, exactly as `assigned_room` above is. `room_type` is
+	# one of `LOCKED_ROOM_LINE_FIELDS`, so a `doc.save()` here would be refused by
+	# `_guard_room_line_immutability` - the guard exists to stop the type being
+	# edited on the reservation form, and directs the caller to the front office
+	# operation, which is this one. `set_value` also keeps `price_reservation` out
+	# of it: a room move is operational and must not reprice a guest who has
+	# already been quoted. It cannot run in any case, because a checked-in
+	# booking is past `_is_editable()`, but the booked rate stays on the line and
+	# on the Stay either way, and `Stay.room_rate` is what the night audit posts.
 	if doc.reservation_room_line:
 		frappe.db.set_value(
 			reservation_service.RESERVATION_ROOM_DOCTYPE,
 			doc.reservation_room_line,
-			"assigned_room",
-			new_room,
+			{"assigned_room": new_room, "room_type": new_type},
 			update_modified=False,
 		)
+
+		# A cross-type move changes what the booking holds, and until now that was
+		# invisible in the reservation's own history: `change_room` is the only
+		# inventory service that wrote nothing to `Reservation Log`. Logged only
+		# when the type actually moves, so same-type moves - the ordinary case -
+		# do not add a row that says nothing.
+		if line and line["room_type"] != new_type:
+			reservation_service.log_room_type_move(
+				line["parent"],
+				room_line=doc.reservation_room_line,
+				from_type=line["room_type"],
+				to_type=new_type,
+				assigned_room=new_room,
+			)
 
 	return {"stay": stay, "from_room": previous_room, "to_room": new_room}
 

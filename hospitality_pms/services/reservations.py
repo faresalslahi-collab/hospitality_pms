@@ -1113,6 +1113,61 @@ def _assert_modifiable(doc, allowed: tuple[str, ...], what: str):
 	)
 
 
+def log_room_type_move(
+	reservation: str,
+	*,
+	room_line: str,
+	from_type: str,
+	to_type: str,
+	assigned_room: str,
+):
+	"""Record that a room move carried an inventory line onto another room type.
+
+	Called by `stays.change_room`, which is the one operation that may move a
+	guest who has already arrived and so the one that can change what a booking
+	holds without going through any of the reservation modification services.
+	Until 16.7.3 it wrote nothing here at all: the booking's own history showed a
+	line silently changing type, with the reason recorded only on the Stay.
+
+	Written from scalars rather than through `_log_modification`, because
+	`change_room` holds the Reservation Room row and the Hotel Rooms but
+	deliberately never locks the Reservation (see the chain comment at the top of
+	`change_room`). Loading the reservation document here to satisfy a logging
+	helper would add a read this path has no other reason to take, and the
+	status is wanted only as the descriptive context an audit row carries.
+
+	`from`/`to` name the room types; the keys published by the workspace history
+	endpoint are the allow-listed `room_line`, `room_type` and `assigned_room`.
+	"""
+	status = frappe.db.get_value(RESERVATION_DOCTYPE, reservation, ["property", "reservation_status"], as_dict=True)
+
+	if not status:
+		return
+
+	frappe.get_doc(
+		{
+			"doctype": RESERVATION_LOG_DOCTYPE,
+			"property": status["property"],
+			"reservation": reservation,
+			"from_status": status["reservation_status"],
+			"to_status": status["reservation_status"],
+			"changed_by": frappe.session.user,
+			"changed_at": now_datetime(),
+			"reason": _("Guest moved to a room of another type"),
+			"details": json.dumps(
+				{
+					"room_line": room_line,
+					"room_type": to_type,
+					"assigned_room": assigned_room,
+					"from": from_type,
+					"to": to_type,
+				},
+				default=str,
+			),
+		}
+	).insert(ignore_permissions=True)
+
+
 def _log_modification(doc, reason: str, details: dict):
 	"""Record a change that is not a state transition.
 

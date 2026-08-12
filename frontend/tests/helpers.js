@@ -47,6 +47,10 @@ export const OPERATIONAL_ROUTES = [
   { path: '/guests', name: 'Guests', component: Blank },
   { path: '/rooms', name: 'RoomRack', component: Blank },
   { path: '/walk-in', name: 'WalkIn', component: Blank },
+  // Added in 16.7.3: Guest 360's quick actions start a booking, a walk-in or a
+  // correction for the guest whose workspace is open.
+  { path: '/reservations/new', name: 'ReservationNew', component: Blank },
+  { path: '/guests/:id/edit', name: 'GuestEdit', component: Blank },
 ]
 
 export function testRouter() {
