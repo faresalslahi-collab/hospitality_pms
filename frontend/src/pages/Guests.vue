@@ -5,6 +5,14 @@
   reserves that for `find_matches`, gated on a higher permission level); this
   screen only searches name, email and mobile, matching what the server will
   actually accept (guests.search_guests).
+
+  The columns are the identifiers and nothing else, because that is all
+  `search_guests` returns since 16.7.3. Nationality, guest type and the stay
+  counters were dropped from the endpoint - the counters answered a question
+  about a guest's *stays* to every holder of `Guest.read`, and were in any case
+  always zero, since nothing writes them. The real figures are on the guest
+  workspace, under `Stay.read`. Do not re-add a column here expecting the
+  server to fill it.
 -->
 <template>
   <div>
@@ -42,10 +50,6 @@
               <th class="p-2 text-start">{{ t('page.guests.name') }}</th>
               <th class="p-2 text-start">{{ t('page.guests.email') }}</th>
               <th class="p-2 text-start">{{ t('page.guests.mobile') }}</th>
-              <th class="p-2 text-start">{{ t('page.guests.nationality') }}</th>
-              <th class="p-2 text-start">{{ t('page.guests.vip') }}</th>
-              <th class="p-2 text-start">{{ t('page.guests.total_stays') }}</th>
-              <th class="p-2 text-start">{{ t('page.guests.last_stay') }}</th>
               <th class="p-2 text-end">{{ t('common.actions') }}</th>
             </tr>
           </thead>
@@ -62,10 +66,6 @@
               </td>
               <td class="p-2">{{ row.email_id || '—' }}</td>
               <td class="p-2">{{ row.mobile_no || '—' }}</td>
-              <td class="p-2">{{ row.nationality || '—' }}</td>
-              <td class="p-2">{{ row.guest_type || '—' }}</td>
-              <td class="p-2">{{ row.total_stays ?? 0 }}</td>
-              <td class="p-2 whitespace-nowrap">{{ row.last_stay_on ? formatDate(row.last_stay_on) : '—' }}</td>
               <!-- The row itself opens the profile; the buttons stop the click so
                    "Edit" does not first navigate to the profile it is bypassing. -->
               <td class="p-2 whitespace-nowrap text-end">
@@ -94,7 +94,6 @@ import EmptyState from '@/components/states/EmptyState.vue'
 import ErrorState from '@/components/states/ErrorState.vue'
 import LoadingState from '@/components/states/LoadingState.vue'
 import { searchGuestsResource, vipStatusTheme } from '@/resources/guests'
-import { formatDate } from '@/utils/format'
 import { t } from '@/utils/i18n'
 
 const router = useRouter()
@@ -104,8 +103,10 @@ const query = ref('')
 
 const guests = computed(() => search.data || [])
 
+// No `limit`: the server owns the bound now, and asking for more than its
+// ceiling only got the ceiling back anyway.
 function run() {
-  search.fetch({ query: query.value.trim() || undefined, limit: 50 })
+  search.fetch({ query: query.value.trim() || undefined })
 }
 
 run()

@@ -14,7 +14,7 @@ service; this module only reports the resulting position.
 import frappe
 
 from hospitality_pms.services import corporate as service
-from hospitality_pms.services.base import require_permission
+from hospitality_pms.services.base import authorise_document, require_permission
 from hospitality_pms.services.property import resolve_property
 
 ACCOUNT_DOCTYPE = "Corporate Account"
@@ -112,10 +112,7 @@ def list_accounts(
 @frappe.whitelist(methods=["GET"])
 def get_account(account: str) -> dict:
 	"""One account with its negotiated rates and credit position."""
-	require_permission(ACCOUNT_DOCTYPE, "read")
-
-	doc = frappe.get_doc(ACCOUNT_DOCTYPE, account)
-	doc.check_permission("read")
+	doc = authorise_document(ACCOUNT_DOCTYPE, account, "read")
 
 	return {
 		"account": {field: doc.get(field) for field in ACCOUNT_FIELDS},
@@ -138,7 +135,7 @@ def get_account(account: str) -> dict:
 @frappe.whitelist(methods=["GET"])
 def get_credit_position(account: str) -> dict:
 	"""Limit, used and available for one account."""
-	require_permission(ACCOUNT_DOCTYPE, "read")
+	authorise_document(ACCOUNT_DOCTYPE, account, "read")
 
 	return service.get_credit_position(account)
 
@@ -149,7 +146,7 @@ def check_credit(account: str, amount: float, reservation: str | None = None) ->
 
 	Read-only report, not a decision: it never changes `credit_used`.
 	"""
-	require_permission(ACCOUNT_DOCTYPE, "read")
+	authorise_document(ACCOUNT_DOCTYPE, account, "read")
 
 	return service.check_credit(account, float(amount), reservation=reservation)
 
@@ -157,7 +154,7 @@ def check_credit(account: str, amount: float, reservation: str | None = None) ->
 @frappe.whitelist(methods=["POST"])
 def set_credit_status(account: str, status: str, reason: str) -> dict:
 	"""Suspend, restore or flag an account for exception approval."""
-	require_permission(ACCOUNT_DOCTYPE, "write")
+	authorise_document(ACCOUNT_DOCTYPE, account, "write")
 
 	service.set_credit_status(account, status, reason)
 
@@ -167,6 +164,6 @@ def set_credit_status(account: str, status: str, reason: str) -> dict:
 @frappe.whitelist(methods=["GET"])
 def production_report(account: str, from_date: str, to_date: str) -> dict:
 	"""Room nights and revenue produced by the account in a period."""
-	require_permission(ACCOUNT_DOCTYPE, "read")
+	authorise_document(ACCOUNT_DOCTYPE, account, "read")
 
 	return service.get_production_report(account, from_date, to_date)

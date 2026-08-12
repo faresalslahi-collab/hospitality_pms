@@ -19,17 +19,51 @@ from hospitality_pms.utils.params import clean_bool, clean_int, clean_str
 GUEST_DOCTYPE = "Guest"
 
 #: Fields safe for a guest search result. No identification, no blacklist.
+#:
+#: Narrowed in 16.7.3. A search result exists to let an agent pick the right
+#: person out of a list of similar names, and nothing more: the identifiers they
+#: disambiguate on, plus the one piece of standing that changes how the guest is
+#: greeted at the moment of picking. Everything else about a guest lives behind
+#: `get_workspace`, which gates each field group on the DocType that owns it.
+#:
+#: Removed, and why each was wrong here rather than merely unnecessary:
+#:
+#: - `total_stays` / `last_stay_on` are a *stay* history summary reached through
+#:   a `Guest` read. Ten roles hold `Guest.read` without `Stay.read`, so this
+#:   answered a question about the guest's stays for callers who may not read
+#:   Stay at all - the same class of defect 16.7.1 shipped on the boards. They
+#:   are also permanently 0: nothing in the app writes them (see the workspace's
+#:   `_stay_statistics`, which derives the real figures under `Stay.read`).
+#: - `nationality` is personal data with no role in telling two guests apart,
+#:   and it travels in a URL-shaped GET to every caller who can type a letter.
+#: - `guest_type` is commercial segmentation, not an identifier.
+#:
+#: `vip_status` stays: it is permlevel 0 on a record the caller has already
+#: proved they may read, and it is what the desk acts on when the picker opens.
 SEARCH_FIELDS = (
 	"name",
 	"guest_name",
 	"email_id",
 	"mobile_no",
-	"nationality",
 	"vip_status",
-	"guest_type",
-	"total_stays",
-	"last_stay_on",
 )
+
+#: Shortest query that may run a wildcard scan over the guest table.
+#:
+#: A single character matches a large fraction of the estate's guests, which is
+#: an enumeration surface rather than a search, and it is never what an agent
+#: meant to ask. Below this the endpoint returns nothing rather than refusing:
+#: a typeahead fires on every keystroke and an error on the first one is noise.
+MIN_SEARCH_LENGTH = 2
+
+#: Default and ceiling for a search result.
+#:
+#: An operational picker shows a handful of candidates; if the right guest is not
+#: among them the agent types more, which is cheaper for everyone than shipping
+#: fifty rows nobody reads. The old ceiling of 50 was set when the row was nine
+#: fields wide.
+SEARCH_LIMIT = 10
+MAX_SEARCH_LIMIT = 25
 
 #: The only fields the operational frontend may write on a guest.
 #:
@@ -121,7 +155,7 @@ IDENTIFICATION_COLUMNS = (
 
 
 @frappe.whitelist(methods=["GET"])
-def search_guests(query: str | None = None, limit: int = 20) -> list[dict]:
+def search_guests(query: str | None = None, limit: int = SEARCH_LIMIT) -> list[dict]:
 	"""Type-ahead guest search for the front desk.
 
 	Searches name, email and mobile. Identification numbers are deliberately
@@ -134,12 +168,25 @@ def search_guests(query: str | None = None, limit: int = 20) -> list[dict]:
 	"undefined", and matching `%undefined%` would return an empty list on every
 	first load.
 
+	A query of one character returns nothing rather than scanning the estate;
+	see `MIN_SEARCH_LENGTH`. The empty-query list view is unaffected, because
+	"show me the desk's recent guests" is a bounded question and a real one.
+
+	Returns `SEARCH_FIELDS` and nothing else. The narrowing is the point: this
+	is the surface that answers "which of these people did you mean", and every
+	other question about a guest belongs to `get_workspace`, where each field
+	group is gated on the DocType that owns it. Adding a field here re-exports
+	it to every holder of `Guest.read`, which is a wider set than the holders of
+	`Stay.read` or `Guest Folio.read`.
+
 	The blacklist flag is not selected and not filtered on — see the note below
 	this function for the two defects that removing it fixed.
 	"""
 	require_permission(GUEST_DOCTYPE, "read")
 
-	limit = min(clean_int(limit, 20) or 20, 50)
+	# Floored as well as capped: a negative limit reaches `limit_page_length` as
+	# `LIMIT -1` and faults the query rather than being refused.
+	limit = max(min(clean_int(limit, SEARCH_LIMIT) or SEARCH_LIMIT, MAX_SEARCH_LIMIT), 1)
 	query = clean_str(query)
 
 	if not query:
@@ -150,6 +197,9 @@ def search_guests(query: str | None = None, limit: int = 20) -> list[dict]:
 			limit_page_length=limit,
 		)
 	else:
+		if len(query) < MIN_SEARCH_LENGTH:
+			return []
+
 		pattern = f"%{query}%"
 
 		records = frappe.get_list(

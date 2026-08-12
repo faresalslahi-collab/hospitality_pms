@@ -21,6 +21,7 @@ from frappe.tests import IntegrationTestCase
 from hospitality_pms.services import reservations as reservation_service
 from hospitality_pms.services import rooms as room_service
 from hospitality_pms.services import stays as stay_service
+from hospitality_pms.services.availability import get_availability
 from hospitality_pms.services.exceptions import HospitalityPMSError, RoomNotAssignableError
 from hospitality_pms.tests.inventory_world import InventoryWorld
 
@@ -194,3 +195,245 @@ class TestRoomMoveKeepsInventoryTrue(IntegrationTestCase):
 
 		self.assertEqual(result["to_room"], vacant)
 		self.assertEqual(frappe.db.get_value("Stay", stay, "room"), vacant)
+
+
+class TestCrossTypeRoomMove(IntegrationTestCase):
+	"""A move into a room of another type has to move the type with it.
+
+	16.7.2 fixed `assigned_room` and deliberately left `room_type` behind, because
+	what a cross-type move does to the *rate* was an open question. The answer
+	16.7.3 gives is "nothing": a room move is operational, the guest has already
+	been quoted, and `Stay.room_rate` - which is what the night audit posts - is
+	not derived from the line's type. That settles the pricing question without
+	touching a price, and lets the inventory record tell the truth.
+
+	The stale type was wrong twice on every remaining night. `_sold_by_night`
+	counts a line against `Reservation Room.room_type`, while supply comes from
+	`Hotel Room.room_type`, so the origin type kept a room it no longer held and
+	the destination type offered one that had a guest asleep in it. Occupancy is
+	not an input to `get_availability`, so nothing downstream caught it.
+	"""
+
+	SUITE_RATE = 250.0
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+
+		# Sized for the whole class: the world is built once and the fixtures
+		# commit, so a guest checked in by one test is still in that room for the
+		# next. Every case takes fresh rooms rather than unpicking those commits.
+		cls.world = InventoryWorld("RMXT", "RX", rooms=12)
+
+		# A second type, and rooms of it. `InventoryWorld` builds a single-type
+		# house, which is why every 16.7.2 move test was a same-type move and why
+		# this defect had no coverage at all.
+		cls.suite_type = cls.world.fixtures.room_type(
+			cls.world.property, "SUITE", base_rate=cls.SUITE_RATE
+		)
+		cls.suites = cls.world.fixtures.rooms(cls.world.property, cls.suite_type, count=8)
+
+		frappe.db.commit()
+
+	@classmethod
+	def tearDownClass(cls):
+		cls.world.fixtures.teardown()
+		super().tearDownClass()
+
+	_allocated = 0
+	_suites_allocated = 0
+
+	@classmethod
+	def _take_room(cls) -> str:
+		assert cls._allocated < len(cls.world.rooms), "the fixture world needs more rooms"
+
+		room = cls.world.rooms[cls._allocated]
+		cls._allocated += 1
+
+		return room
+
+	@classmethod
+	def _take_suite(cls) -> str:
+		assert cls._suites_allocated < len(cls.suites), "the fixture world needs more suites"
+
+		suite = cls.suites[cls._suites_allocated]
+		cls._suites_allocated += 1
+
+		return suite
+
+	def _in_house(self):
+		"""A guest checked into a standard room, and a free suite to move into."""
+		room = self._take_room()
+
+		reservation = self.world.confirmed(nights=3)
+		line = self.world.lines(reservation)[0]["name"]
+
+		reservation_service.assign_room(reservation, line, room)
+		self.world.check_in(reservation, line=line, room=room)
+
+		stay = frappe.db.get_value("Stay", {"reservation_room_line": line}, "name")
+
+		return reservation, line, stay, room
+
+	def _line(self, line: str) -> dict:
+		return frappe.db.get_value(
+			"Reservation Room",
+			line,
+			["assigned_room", "room_type", "room_rate", "total_amount", "rate_plan", "nights"],
+			as_dict=True,
+		)
+
+	def _available(self, room_type: str) -> int:
+		"""Lowest availability of one type across the booked interval."""
+		availability = get_availability(
+			self.world.property, self.world.day(0), self.world.day(3), room_type
+		)
+
+		return int(availability["room_types"][room_type]["min_available"])
+
+	def test_cross_type_room_move_updates_reservation_room_type(self):
+		"""Stay, physical room and inventory row must describe one room."""
+		_, line, stay, room = self._in_house()
+		suite = self._take_suite()
+
+		self.assertEqual(self._line(line)["room_type"], self.world.room_type)
+
+		stay_service.change_room(stay, suite, "Upgraded after a fault in the standard room")
+
+		physical_type = frappe.db.get_value("Hotel Room", suite, "room_type")
+		stay_row = frappe.db.get_value("Stay", stay, ["room", "room_type"], as_dict=True)
+		row = self._line(line)
+
+		self.assertEqual(stay_row["room"], suite)
+		self.assertEqual(stay_row["room_type"], physical_type)
+		self.assertEqual(row["assigned_room"], suite)
+		self.assertEqual(
+			row["room_type"],
+			physical_type,
+			msg="the inventory row still names the type the booking was made for",
+		)
+		self.assertNotEqual(row["room_type"], self.world.room_type)
+
+	def test_cross_type_move_does_not_reprice_booking(self):
+		"""Operational move, quoted price. Nothing about the money may shift."""
+		reservation, line, stay, _ = self._in_house()
+		suite = self._take_suite()
+
+		before = self._line(line)
+		reservation_before = frappe.db.get_value(
+			"Reservation", reservation, ["total_amount", "room_charges_total"], as_dict=True
+		)
+		stay_rate_before = frappe.db.get_value("Stay", stay, "room_rate")
+
+		stay_service.change_room(stay, suite, "Moved into a suite, at the booked rate")
+
+		after = self._line(line)
+
+		# The line's own rate snapshot, which the suite's higher base rate must
+		# not have reached.
+		self.assertEqual(after["room_rate"], before["room_rate"])
+		self.assertEqual(after["total_amount"], before["total_amount"])
+		self.assertEqual(after["rate_plan"], before["rate_plan"])
+		self.assertNotEqual(
+			after["room_rate"],
+			self.SUITE_RATE,
+			msg="the guest was repriced onto the suite's rate",
+		)
+
+		# The header totals.
+		self.assertEqual(
+			frappe.db.get_value(
+				"Reservation", reservation, ["total_amount", "room_charges_total"], as_dict=True
+			),
+			reservation_before,
+		)
+
+		# And the figure the night audit actually posts.
+		self.assertEqual(frappe.db.get_value("Stay", stay, "room_rate"), stay_rate_before)
+
+	def test_cross_type_move_preserves_inventory(self):
+		"""The night moves from one type's sold count to the other's."""
+		_, _, stay, _ = self._in_house()
+		suite = self._take_suite()
+
+		standard_before = self._available(self.world.room_type)
+		suite_before = self._available(self.suite_type)
+
+		stay_service.change_room(stay, suite, "Moved for a maintenance fault")
+
+		self.assertEqual(
+			self._available(self.world.room_type),
+			standard_before + 1,
+			msg="the standard room the guest left is still counted as sold",
+		)
+		self.assertEqual(
+			self._available(self.suite_type),
+			suite_before - 1,
+			msg="the suite the guest is asleep in is still being offered for sale",
+		)
+
+	def test_cross_type_move_conflict_is_refused(self):
+		"""A suite already promised to somebody is not free to move into."""
+		_, _, first_stay, _ = self._in_house()
+		_, second_line, second_stay, second_room = self._in_house()
+		suite = self._take_suite()
+
+		stay_service.change_room(first_stay, suite, "First guest upgraded")
+
+		with self.assertRaises(HospitalityPMSError):
+			stay_service.change_room(second_stay, suite, "Second guest wants the same suite")
+
+		# The refusal left the second guest exactly where they were, type included.
+		row = self._line(second_line)
+
+		self.assertEqual(frappe.db.get_value("Stay", second_stay, "room"), second_room)
+		self.assertEqual(row["assigned_room"], second_room)
+		self.assertEqual(row["room_type"], self.world.room_type)
+
+	def test_cross_type_move_history_is_coherent(self):
+		"""The move is recorded against the stay and against the booking."""
+		reservation, _, stay, room = self._in_house()
+		suite = self._take_suite()
+
+		stay_service.change_room(stay, suite, "Suite offered after a long delay at check-in")
+
+		move = frappe.get_doc("Stay", stay).room_moves[-1]
+
+		self.assertEqual(move.from_room, room)
+		self.assertEqual(move.to_room, suite)
+		self.assertEqual(move.reason, "Suite offered after a long delay at check-in")
+
+		# `change_room` was the one inventory service that wrote nothing to the
+		# booking's own history, so a line silently changed type.
+		logs = frappe.get_all(
+			"Reservation Log",
+			filters={"reservation": reservation},
+			fields=["details", "reason"],
+			order_by="creation desc",
+			limit=1,
+		)
+
+		self.assertTrue(logs, msg="the cross-type move left no trace on the reservation")
+
+		details = frappe.parse_json(logs[0]["details"])
+
+		self.assertEqual(details["from"], self.world.room_type)
+		self.assertEqual(details["to"], frappe.db.get_value("Hotel Room", suite, "room_type"))
+		self.assertEqual(details["assigned_room"], suite)
+
+	def test_a_same_type_move_writes_no_room_type_history(self):
+		"""The ordinary move is unchanged, and adds no row that says nothing."""
+		reservation, line, stay, _ = self._in_house()
+		destination = self._take_room()
+
+		before = frappe.db.count("Reservation Log", {"reservation": reservation})
+
+		stay_service.change_room(stay, destination, "Quieter room, same type")
+
+		self.assertEqual(
+			frappe.db.count("Reservation Log", {"reservation": reservation}),
+			before,
+			msg="a same-type move logged a room type change that did not happen",
+		)
+		self.assertEqual(self._line(line)["room_type"], self.world.room_type)
+		self.assertEqual(self._line(line)["assigned_room"], destination)

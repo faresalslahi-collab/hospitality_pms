@@ -888,6 +888,105 @@ class TestConcurrentConfirmations(ModificationRaceTestCase):
 			msg=f"exactly one confirmation may take the last room; got {results}",
 		)
 
+	def test_two_confirmations_of_one_room_type_hold_inventory_true(self):
+		"""HPMS-QA-16.7.2-C, pinned: the cycle the ranged locking read can close.
+
+		The test above races for the *last* room, so a refusal is the expected
+		outcome and a deadlock hides inside it - a worker that raised is a worker
+		that did not oversell, whichever exception it raised. This one leaves the
+		house half empty, so both confirmations *should* commit and the only
+		thing that can stop either is the lock order itself.
+
+		The cycle, from the code rather than from observation. `confirm` takes
+		`lock_and_get_doc(Reservation)` at reservations.py:276, which locks the
+		reservation row *and every one of its Reservation Room children*. It then
+		takes the Room Type row at :301, and only then counts, through
+		`check_demand` -> `_sold_by_night`, whose `current=True` read is a
+		`SELECT ... FOR UPDATE` over `tabReservation Room` filtered on property
+		and date range (availability.py:239-250). MariaDB picks the index, so
+		that read locks every row it *examines*, including the other booking's.
+		`exclude_reservation` is a WHERE predicate, not an index restriction, and
+		it excludes the caller's own rows - never the rival's, which are the ones
+		it blocks on.
+
+		So: A holds its own room lines and the Room Type row, and waits for B's
+		room lines. B holds its own room lines and waits for the Room Type row.
+		Two resources, acquired in opposite orders, and InnoDB raises 1213.
+
+		What this test fixes in place is the *invariant*, not the deadlock. A
+		deadlock is a refusal, and a refusal never oversells; the count is
+		therefore asserted unconditionally and first. The deadlock itself is
+		recorded as a finding rather than asserted away, exactly as the two-moves
+		test does, because 16.7.3 reviewed the documented remedy - hoisting the
+		Room Type lock above the Reservation - and did not take it: `confirm`
+		cannot know which types to lock until it has read `doc.rooms`, and
+		`normalise_room_lines` may add rows to that set before the lock point, so
+		hoisting means deciding the lock target from a plain read of a mutable
+		column. That is the stale-read pattern this whole suite exists to refuse,
+		and trading a deadlock for an oversell on the flagship inventory path is
+		the wrong way round. See docs/BUILD_LOG.md, 16.7.3.
+		"""
+		first = self.world.reservation(
+			nights=self.END - self.START, arrival=self.world.day(self.START)
+		)
+		second = self.world.reservation(
+			nights=self.END - self.START, arrival=self.world.day(self.START)
+		)
+		frappe.db.commit()
+
+		results = run_workers(
+			[
+				Worker(
+					f"{__name__}._confirm_worker",
+					{
+						"property_name": self.world.property,
+						"reservation": first,
+						"tag": "a",
+						"partner": "b",
+					},
+				),
+				Worker(
+					f"{__name__}._confirm_worker",
+					{
+						"property_name": self.world.property,
+						"reservation": second,
+						"tag": "b",
+						"partner": "a",
+					},
+				),
+			]
+		)
+		assert_all_ran(results)
+
+		# The invariant, whatever the lock order does. Every booking that
+		# committed is counted once, and nothing that refused left inventory
+		# behind it.
+		committed = self.committed(results)
+		sold = len(committed)
+
+		self.assertSoldNights(self.START, self.END, {self.START: sold, self.START + 1: sold})
+
+		self.assertGreaterEqual(
+			sold,
+			1,
+			msg=f"a half-empty house must take at least one of two bookings; got {results}",
+		)
+
+		deadlocked = self.deadlocks(results)
+
+		self.assertLessEqual(
+			len(deadlocked),
+			1,
+			msg=f"both workers deadlocked, which is not a lock-ordering cycle; got {results}",
+		)
+
+		if deadlocked:
+			print(
+				"\nHPMS-QA-16.7.2-C reproduced: two confirmations of one room type "
+				"closed a lock cycle on the ranged inventory read. Inventory stayed "
+				f"true ({sold} of 2 committed, {sold} sold per night). {deadlocked}"
+			)
+
 
 # ---------------------------------------------------------------------------
 # 3. The stale read, with the timing question removed
