@@ -44,6 +44,61 @@ REQUEST_FIELDS = (
 	"currency",
 )
 
+#: Fields on a Guest Request that belong to another DocType, and the DocType each
+#: one belongs to (16.7.5-R1B).
+#:
+#: The same shape as `api/kitchen.py`'s `_ORDER_FIELD_SOURCE`, and for the same
+#: reason: Guest Request is read by every operational role in the estate, and ten
+#: of them - Room Attendant, the housekeeping and maintenance lines, the kitchen
+#: roles, Revenue Manager, Corporate Sales Manager - hold neither Guest nor Guest
+#: Folio read. `Guest Request.read` is not a licence to disclose whatever the
+#: request happens to point at.
+#:
+#: `guest` is a Guest identifier. It resolves to nothing for these roles - every
+#: guest endpoint refuses them - which is exactly why handing it over is a
+#: disclosure rather than a convenience: accumulated across a season's requests it
+#: is the correlation key the Guest permission was drawn around. `kitchen.py` had
+#: already settled the principle for the identifier beside it: "The stay is a Stay
+#: identifier like any other, and follows the same rule as the guest and the folio
+#: beside it."
+#:
+#: `recovery_folio_charge` is a Folio Charge child-row name, so a pointer into a
+#: Guest Folio; `kitchen.py` pops its equivalent `folio_charge_row` already.
+#: `recovery_amount` and `recovery_approved_by` join it: "this guest was given
+#: QAR 400, approved by that manager" is a statement about a guest's money and a
+#: colleague's authority, and nobody cleaning a room needs either.
+#:
+#: `requires_service_recovery` and `recovery_type` are deliberately **not** here.
+#: "This complaint is being made good, by a voucher" is the operational fact a
+#: service team acts on, and it names no money.
+#:
+#: `stay`, `room`, `reservation`, `department` and `currency` are deliberately not
+#: here either, and that is not an oversight. Every one of those DocTypes has a
+#: reader set identical to Guest Request's own, so a check on them would never
+#: refuse anybody - it would be dead code that reads as protection and misleads
+#: the next reviewer into thinking the question had been asked.
+_REQUEST_FIELD_SOURCE = {
+	"guest": "Guest",
+	"recovery_folio_charge": "Guest Folio",
+	"recovery_amount": "Guest Folio",
+	"recovery_approved_by": "Guest Folio",
+}
+
+
+def _request_disclosure() -> set[str]:
+	"""Which request fields this caller may be told, asked once per request.
+
+	Once, not once per row: the answer cannot differ between rows of a single
+	response, and asking per row would add a permission lookup per row to a board.
+	"""
+	allowed = {field for field in REQUEST_FIELDS if field not in _REQUEST_FIELD_SOURCE}
+
+	for field, doctype in _REQUEST_FIELD_SOURCE.items():
+		if frappe.has_permission(doctype, "read"):
+			allowed.add(field)
+
+	return allowed
+
 
 def _allowed_transitions(status: str) -> list[str]:
 	"""States reachable from `status`, straight from the service.
@@ -74,8 +129,13 @@ def get_request(request: str) -> dict:
 	# carries a required `property`, so the third check always fires.
 	doc = authorise_document(REQUEST_DOCTYPE, request, "read")
 
+	# Omitted, never blanked. An empty `guest` would read as "no guest raised this
+	# request", which for a request raised from a stay is false, and a `0`
+	# `recovery_amount` would read as "nothing was paid out".
+	allowed = _request_disclosure()
+
 	return {
-		"request": {field: doc.get(field) for field in REQUEST_FIELDS},
+		"request": {field: doc.get(field) for field in REQUEST_FIELDS if field in allowed},
 		"allowed_transitions": _allowed_transitions(doc.request_status),
 	}
 

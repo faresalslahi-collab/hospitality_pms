@@ -124,6 +124,52 @@ def authorise_document(doctype: str, name: str, ptype: str = "read"):
 	return doc
 
 
+def may_read_doctype(doctype: str | None) -> bool:
+	"""Whether the session user may read `doctype`, failing closed on an unknown one.
+
+	For the endpoints that gate a *polymorphic* reference - an audit exception's
+	`reference_doctype`, a posting result's `erp_doctype` - where the DocType name
+	is **stored data rather than code**. Two things follow from that, and this
+	helper exists because both were got wrong independently in 16.7.5-R1B:
+
+	* An unrecognised name must be a refusal, not a reveal. This bench has renamed
+	  DocTypes (`patches/v1_0/rename_doctypes_to_commercial_names.py`), so a
+	  historical row can name something that no longer exists.
+	* It must not raise. `frappe.has_permission` reaches `get_meta`, which throws
+	  `DoesNotExistError` for an unknown DocType - and these gates sit on the path
+	  of every Night Audit endpoint, so one stale row would turn the screen into a
+	  500 for everybody including the auditor trying to close the day.
+
+	Memoised for the life of the request. Callers ask per row over a handful of
+	distinct doctypes, and `frappe.db.exists` does not cache by default, so the
+	naive form paid one round trip per row to answer four questions.
+
+	**Keyed by user as well as by doctype**, which is not defensive book-keeping.
+	`frappe.local` is per request, but the session user is not fixed for the life
+	of a request: `posting.erp_posting_authority` sets the posting service user
+	mid-operation and restores it in a `finally`, and tests switch users freely. A
+	cache keyed on the doctype alone answers the second caller with the first
+	caller's permissions - which is the wrong answer in the dangerous direction if
+	the first was the more privileged of the two.
+	"""
+	if not doctype:
+		return False
+
+	cache = getattr(frappe.local, "hpms_doctype_read_cache", None)
+
+	if cache is None:
+		cache = frappe.local.hpms_doctype_read_cache = {}
+
+	key = (frappe.session.user, doctype)
+
+	if key not in cache:
+		cache[key] = bool(frappe.db.exists("DocType", doctype)) and frappe.has_permission(
+			doctype, "read"
+		)
+
+	return cache[key]
+
+
 def require_role(roles: str | Iterable[str]):
 	"""Raise unless the session user holds at least one of `roles`.
 

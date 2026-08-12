@@ -47,7 +47,23 @@ const MIGRATED_BOARDS = ['Arrivals.vue', 'Departures.vue', 'InHouse.vue'].map((n
  * builds outside the direction and translation-key guards. */
 const GUEST_WORKSPACE = join(SRC, 'components', 'guest')
 
-const OTHER_PAGES = [join(SRC, 'pages', 'Reservation.vue'), join(SRC, 'pages', 'Folio.vue')]
+/**
+ * `Dashboard.vue` and `Checkout.vue` registered in 16.7.5-R1B.
+ *
+ * Both were edited for the Guest Folio disclosure fix and neither was in this
+ * list, so the Command Center — the screen every role lands on — and the checkout
+ * screen had never been held to the direction or translation-key guards. Both
+ * passed on registration, which is the same story as the nine guest components
+ * registered in 16.7.5: they were built to the rules and simply unguarded, and an
+ * unguarded file is one edit away from breaking them.
+ */
+const OTHER_PAGES = [
+  join(SRC, 'pages', 'Reservation.vue'),
+  join(SRC, 'pages', 'Folio.vue'),
+  join(SRC, 'pages', 'Dashboard.vue'),
+  join(SRC, 'pages', 'Checkout.vue'),
+  join(SRC, 'pages', 'NightAudit.vue'),
+]
 
 /**
  * Only `.vue` files. A resource module carries no markup and no `t()` call, so it

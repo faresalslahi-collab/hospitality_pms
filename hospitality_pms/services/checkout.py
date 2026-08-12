@@ -35,6 +35,31 @@ STAY_DOCTYPE = "Stay"
 REVERSAL_ROLES = stay_service.CHECKOUT_REVERSAL_ROLES
 
 
+#: What a departure blocker is *about*, as a stable identifier.
+#:
+#: The blocker messages themselves are translated and several of them interpolate
+#: an amount, which makes them unusable as a basis for any decision: matching on
+#: the word "balance" stops working on an Arabic session, and Arabic is a
+#: first-release requirement. These kinds are the machine-readable form of the
+#: same list, in the same order, and they name a category without naming a figure.
+#:
+#: Their first consumer is `api.checkout.summary`, which uses them to decide which
+#: sentences a caller who may not read Guest Folio is entitled to (16.7.5-R1B).
+BLOCKER_STAY_STATUS = "stay_status"
+BLOCKER_FOLIO_DISPUTED = "folio_disputed"
+BLOCKER_OUTSTANDING_BALANCE = "outstanding_balance"
+BLOCKER_RELATED_FOLIO_BALANCE = "related_folio_balance"
+
+#: The kinds whose sentence is about the folio rather than the stay. Everything
+#: here is Guest Folio's to disclose - including the disputed flag, which is a
+#: `folio_status` and not a fact about the guest's stay.
+FOLIO_BLOCKER_KINDS = (
+	BLOCKER_FOLIO_DISPUTED,
+	BLOCKER_OUTSTANDING_BALANCE,
+	BLOCKER_RELATED_FOLIO_BALANCE,
+)
+
+
 def get_departure_blockers(stay_status: str, folio, related_folios: list[dict]) -> list[str]:
 	"""What stands between this stay and the door, worst first.
 
@@ -47,24 +72,47 @@ def get_departure_blockers(stay_status: str, folio, related_folios: list[dict]) 
 	`folio` is anything with `folio_status` and `balance` — a Document or a
 	plain row from a bulk query.
 	"""
-	blockers = []
+	return [message for message, _kind in _departure_blockers(stay_status, folio, related_folios)]
+
+
+def _departure_blockers(stay_status: str, folio, related_folios: list[dict]) -> list[tuple[str, str]]:
+	"""Every blocker as `(message, kind)`, worst first.
+
+	The single construction of the list. `get_departure_blockers` and
+	`get_checkout_summary` are both views of it, which is what keeps a message and
+	its kind from ever disagreeing about what they describe - a message paired with
+	the wrong kind would redact the wrong sentence.
+	"""
+	blockers: list[tuple[str, str]] = []
 
 	if stay_status not in (stay_service.IN_HOUSE, stay_service.DUE_OUT):
-		blockers.append(_("The stay is {0}.").format(_(stay_status)))
+		blockers.append((_("The stay is {0}.").format(_(stay_status)), BLOCKER_STAY_STATUS))
 
 	folio_status = folio.get("folio_status") if isinstance(folio, dict) else folio.folio_status
 	balance = folio.get("balance") if isinstance(folio, dict) else folio.balance
 
 	if folio_status == folio_service.DISPUTED:
-		blockers.append(_("The folio is disputed and must be resolved first."))
+		blockers.append(
+			(_("The folio is disputed and must be resolved first."), BLOCKER_FOLIO_DISPUTED)
+		)
 
 	if abs(flt(balance)) > 0.005:
-		blockers.append(_("The folio has an outstanding balance of {0}.").format(flt(balance, 2)))
+		blockers.append(
+			(
+				_("The folio has an outstanding balance of {0}.").format(flt(balance, 2)),
+				BLOCKER_OUTSTANDING_BALANCE,
+			)
+		)
 
 	for row in related_folios or []:
 		if abs(flt(row["balance"])) > 0.005:
 			blockers.append(
-				_("Split folio {0} still has a balance of {1}.").format(row["name"], flt(row["balance"], 2))
+				(
+					_("Split folio {0} still has a balance of {1}.").format(
+						row["name"], flt(row["balance"], 2)
+					),
+					BLOCKER_RELATED_FOLIO_BALANCE,
+				)
 			)
 
 	return blockers
@@ -100,7 +148,8 @@ def get_checkout_summary(stay: str) -> dict:
 		fields=["name", "folio_type", "balance", "folio_status"],
 	)
 
-	blockers = get_departure_blockers(doc.stay_status, folio_doc, related)
+	detail = _departure_blockers(doc.stay_status, folio_doc, related)
+	blockers = [message for message, _kind in detail]
 
 	return {
 		"stay": stay,
@@ -115,6 +164,11 @@ def get_checkout_summary(stay: str) -> dict:
 		"balance": flt(folio_doc.balance, 2),
 		"related_folios": related,
 		"blockers": blockers,
+		# Paired positionally with `blockers`, so a caller that may not be told the
+		# amounts can still say which sentences are about money. `api.checkout.summary`
+		# is what needs it; see `_disclose_checkout` there for why the redaction is
+		# done at the boundary and not in this function.
+		"blocker_kinds": [kind for _message, kind in detail],
 		"can_check_out": not blockers,
 	}
 
@@ -148,7 +202,22 @@ def check_out(
 	folio = summary["folio"]
 
 	if summary["blockers"]:
-		outstanding_only = all(_("balance") in blocker for blocker in summary["blockers"])
+		# Decided on the blocker *kinds*, not on the rendered sentences
+		# (16.7.5-R1B). This used to be `all(_("balance") in blocker ...)`, which
+		# is a substring test against translated text and wrong in both
+		# directions: on a locale where the standalone word does not appear inside
+		# the whole-sentence translation, a manager with a valid reason is refused
+		# a legitimate corporate city-ledger checkout; on one where it appears in
+		# the disputed-folio sentence, a *disputed* folio walks out on the city
+		# ledger. Arabic is a first-release requirement, so neither is theoretical.
+		#
+		# `BLOCKER_FOLIO_DISPUTED` is deliberately absent from this set. The city
+		# ledger moves a balance to accounts receivable; it is not a way to leave
+		# with a dispute unresolved.
+		outstanding_only = bool(summary["blocker_kinds"]) and all(
+			kind in (BLOCKER_OUTSTANDING_BALANCE, BLOCKER_RELATED_FOLIO_BALANCE)
+			for kind in summary["blocker_kinds"]
+		)
 
 		if not (allow_open_balance and outstanding_only):
 			throw(

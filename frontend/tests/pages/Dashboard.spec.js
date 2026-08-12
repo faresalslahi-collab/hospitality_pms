@@ -609,6 +609,90 @@ describe('Command Center house state, work and money', () => {
   })
 })
 
+/**
+ * Guest Folio disclosure (16.7.5-R1B).
+ *
+ * The server omits the whole `revenue` block for a caller who may not read Guest
+ * Folio — ten roles hold Stay read without it, and every one of them lands here,
+ * because this screen's navigation entry carries no role filter.
+ *
+ * The screen must hide the strip rather than render the absence. `?? 0` would
+ * print "Payments received 0.00 / Outstanding balance 0.00", which reads as a
+ * quiet day on which everyone has paid: a claim about the hotel's money that this
+ * caller was specifically not told, and one that may be flatly untrue.
+ */
+describe('Command Center financial disclosure', () => {
+  /** A dashboard payload with the folio-derived block genuinely absent. */
+  function undisclosed() {
+    const payload = dashboardData()
+    delete payload.revenue
+
+    return payload
+  }
+
+  it('hides the financial section when the server did not disclose it', async () => {
+    dashboard.data = undisclosed()
+
+    const wrapper = await mountDashboard()
+
+    expect(panel(wrapper, 'Recorded today')).toBeUndefined()
+  })
+
+  it('renders no zero in place of a withheld figure', async () => {
+    dashboard.data = undisclosed()
+
+    const wrapper = await mountDashboard()
+    const text = wrapper.text()
+
+    // Asserted on the figures rather than on the labels. "Outstanding balance"
+    // is also the In-House panel's column heading, and that panel is gated
+    // separately and correctly — it takes its rows from `stays.in_house`, which
+    // passes them through `_folio_position`. Asserting on the label would have
+    // pinned an unrelated panel's wording into this test.
+    expect(text).not.toMatch(/8[,.]450/)
+    expect(text).not.toMatch(/12[,.]750/)
+
+    // The caveat sentence goes with the strip it explains.
+    expect(text).not.toContain('Room charges are posted by the Night Audit')
+
+    // And no confident zero appeared where a withheld figure used to be.
+    expect(panel(wrapper, 'Recorded today')).toBeUndefined()
+  })
+
+  it('still renders the operational queues and counters', async () => {
+    dashboard.data = undisclosed()
+
+    const wrapper = await mountDashboard()
+    const text = wrapper.text()
+
+    // The screen is this role's landing page: redaction, never an outage.
+    expect(text).toContain("Today's arrivals")
+    expect(text).toContain('In house')
+    expect(panel(wrapper, 'Room status board')).toBeDefined()
+    expect(text).toContain('Doha Grand')
+  })
+
+  it('keeps the audited performance line, which Night Audit owns and not the folio', async () => {
+    dashboard.data = undisclosed()
+
+    const wrapper = await mountDashboard()
+
+    // ADR and RevPAR come from the Night Audit that computed them, whose readers
+    // are not Guest Folio's. Hiding them with the money would blind a Revenue
+    // Manager on a boundary that does not exist.
+    expect(wrapper.text()).toMatch(/420[,.]5/)
+  })
+
+  it('shows the strip again for a caller who was told the money', async () => {
+    dashboard.data = dashboardData()
+
+    const wrapper = await mountDashboard()
+
+    expect(panel(wrapper, 'Recorded today')).toBeDefined()
+    expect(wrapper.text()).toMatch(/12[,.]750/)
+  })
+})
+
 describe('Command Center quick actions', () => {
   it('offers the walk-in and the guest search alongside the existing actions', async () => {
     const wrapper = await mountDashboard()

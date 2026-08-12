@@ -112,7 +112,19 @@ def resolve_business_date(property_name: str, on_date=None):
 
 
 def get_room_states(property_name: str, rooms: list[str] | None = None) -> dict[str, dict]:
-	"""Every room's four dimensions, keyed by room name, in one query."""
+	"""Every room's four dimensions, keyed by room name, in two queries.
+
+	`assignable` answers "may the desk give this room away right now", which is a
+	question about the guest in it and not only about the room's own flags. R1A
+	made active Stay occupancy authoritative for every path that *places* a
+	guest and deliberately left this board reading the flag alone, so a room
+	whose `occupancy_status` had gone stale was still shown as assignable -
+	nobody could be checked into it, but the desk was being offered it. R1B
+	derives the display from the same authority the mutations use.
+
+	Two queries, not one per room: the rooms, and one bulk read of which rooms an
+	active Stay physically occupies.
+	"""
 	filters = {"property": property_name}
 	if rooms is not None:
 		if not rooms:
@@ -127,8 +139,12 @@ def get_room_states(property_name: str, rooms: list[str] | None = None) -> dict[
 		limit_page_length=0,
 	)
 
+	occupied_now = room_service.rooms_with_active_stays(property_name)
+
 	for row in records:
-		row["assignable"] = room_service.is_assignable(row["name"], state=row)
+		row["assignable"] = room_service.is_assignable_now(
+			row["name"], state=row, occupied_rooms=occupied_now
+		)
 		row["ready"] = bool(row.get("housekeeping_status") in room_service.READY_HOUSEKEEPING)
 
 	return {row["name"]: row for row in records}
@@ -312,6 +328,37 @@ def get_dashboard(property_name: str, on_date=None) -> dict:
 
 	in_house = stay_service.get_in_house(property_name)
 
+	# The dashboard's money comes from Guest Folio, and this screen never asked
+	# whether the caller may read it.
+	#
+	# `_board_disclosure` and `_folio_position` were written for exactly this and
+	# then applied only to the three boards. `_board_disclosure`'s own docstring
+	# names the Command Center as the landing page of the ten roles that hold Stay
+	# read and not Guest Folio read - Room Attendant, the housekeeping and
+	# maintenance lines, the kitchen roles, Revenue Manager, Corporate Sales
+	# Manager - because the navigation entry for it carries no role filter. The
+	# rule was correct; the screen the docstring cites was the one it was not
+	# applied to.
+	#
+	# `_revenue_today` sums Folio Charge, Folio Payment and Guest Folio through
+	# raw SQL, which applies no DocType permission, no permlevel filter and no
+	# user permission. `outstanding_balance` is the sharpest of the three: a
+	# property-wide sum over every unsettled folio, which is the hotel's open
+	# receivables position. The departures and in-house panels on this same screen
+	# already refuse to publish that figure in aggregate - `_departures_summary`
+	# says in as many words that "totalling withheld figures would put the money
+	# back on the screen with the rows' names stripped off" - while this published
+	# a larger version of it above them.
+	#
+	# Spliced, so the whole `revenue` key is absent for an uncleared caller rather
+	# than present and zeroed. A `0.00` room revenue reads as "a quiet day" and an
+	# `0.00` outstanding balance reads as "everyone has paid"; both are claims the
+	# caller is not entitled to and neither is true.
+	#
+	# Guarded before the call and not after it, so an uncleared caller does not
+	# pay for three aggregate queries whose answer is then thrown away.
+	may_read = _board_disclosure()
+
 	return {
 		"property": property_name,
 		"property_name": property_doc.property_name,
@@ -319,7 +366,24 @@ def get_dashboard(property_name: str, on_date=None) -> dict:
 		"currency": property_doc.currency,
 		"rooms": _room_counts(rooms),
 		"front_office": _front_office_counts(property_name, business_date, in_house),
-		"revenue": _revenue_today(property_name, business_date, property_doc.currency),
+		**_folio_position(
+			{"revenue": _revenue_today(property_name, business_date, property_doc.currency)}
+			if may_read["folio"]
+			else {},
+			may_read["folio"],
+		),
+		# `performance` is deliberately **not** gated here, and the reason is worth
+		# recording so it is not "tidied up" later.
+		#
+		# It looks like folio money and is not: `_last_closed_performance` reads
+		# figures the Night Audit computed and stored on itself, so Night Audit is
+		# the DocType that owns them and the disclosure boundary was drawn there on
+		# purpose (HPMS-DEC-097). On this matrix Night Audit's reader set is
+		# identical to Stay's, so every caller who got past this endpoint's
+		# `Stay.read` gate already holds it, and a check here would be dead code
+		# that reads as protection. Gating it on *Guest Folio* would be actively
+		# wrong: it would blind the Revenue Manager, whose job is ADR and RevPAR,
+		# on a boundary Night Audit's own permission does not draw.
 		"performance": _last_closed_performance(property_name),
 		"workload": _workload_counts(property_name, business_date),
 	}
@@ -535,6 +599,25 @@ def _last_closed_performance(property_name: str) -> dict:
 	do not exist yet and are not guessed here — the dashboard labels these with
 	the business date they belong to (HPMS-DEC-030).
 	"""
+	# The three ratios and no absolute totals (16.7.5-R1B).
+	#
+	# `room_revenue`, `total_revenue` and `payments_received` were selected here
+	# and published to every caller who got past this endpoint's `Stay.read` gate.
+	# They are Guest Folio aggregates that the audit stores, so withholding
+	# `revenue` above and then handing over last night's version of the same three
+	# numbers closed nothing. No consumer wanted them: the Command Center renders
+	# occupancy, ADR and RevPAR and nothing else from this block.
+	#
+	# The ratios stay ungated, and that is deliberate rather than an oversight.
+	# Night Audit computed them and owns them (HPMS-DEC-097), and the Revenue
+	# Manager - whose job is exactly these three - holds Night Audit read and no
+	# Guest Folio read. Gating them would blind the one role they exist for.
+	#
+	# ADR times occupied rooms does approximate room revenue, and occupied rooms
+	# is on the same response. That is an accepted consequence of the product's
+	# decision to give the Revenue Manager ADR at all, not a hole this build
+	# opened; it is recorded here so the next reader does not have to rediscover
+	# the trade.
 	records = frappe.get_all(
 		NIGHT_AUDIT_DOCTYPE,
 		filters={"property": property_name, "audit_status": "Closed"},
@@ -544,9 +627,6 @@ def _last_closed_performance(property_name: str) -> dict:
 			"occupancy_percentage",
 			"adr",
 			"revpar",
-			"room_revenue",
-			"total_revenue",
-			"payments_received",
 			"currency",
 		],
 		order_by="business_date desc",

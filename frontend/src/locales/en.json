@@ -432,6 +432,7 @@
   "page.checkout.reverse_warning": "This re-opens the folio and puts the guest back in house. Any invoice already submitted to ERPNext is left standing for finance to handle.",
   "page.checkout.reverse_confirm": "Reverse checkout",
   "page.checkout.reverse_success": "Checkout reversed.",
+  "page.checkout.standing_invoices": "{count} submitted invoice(s) are left standing for finance.",
   "page.checkout.go_to_folio": "Go to folio",
   "page.checkout.reason": "Reason",
   "page.checkout.city_ledger": "Check out on city ledger",

@@ -19,6 +19,11 @@ from hospitality_pms.services.exceptions import (
 REQUEST_DOCTYPE = "Guest Request"
 LOG_DOCTYPE = "Guest Request Log"
 
+#: Named here so `get_board` can ask whether its caller may be told which guest a
+#: request belongs to. Not imported from `services.guests`, which would make this
+#: module depend on guest identity handling to load.
+GUEST_DOCTYPE = "Guest"
+
 OPEN = "Open"
 ASSIGNED = "Assigned"
 IN_PROGRESS = "In Progress"
@@ -421,6 +426,25 @@ def get_board(property_name: str, *, include_closed: bool = False) -> dict:
 		order_by="priority desc, due_by asc",
 		limit_page_length=0,
 	)
+
+	# The board carries a Guest identifier, and `frappe.get_all` above applies no
+	# permission at all - not the DocType's, not permlevel, not user permissions.
+	# Guest Request is read by every operational role in the estate and ten of them
+	# cannot read Guest, so the board was handing a stable guest key to roles that
+	# can resolve it nowhere (16.7.5-R1B; the same rule `kitchen.py` applies to the
+	# guest, stay and folio on a room-service order).
+	#
+	# Popped, not blanked: an empty `guest` would read as "nobody's request".
+	#
+	# Asked once for the whole board rather than per row - the answer cannot differ
+	# between rows of one response - and it adds no query, because
+	# `frappe.has_permission` is answered from the request's cached role set.
+	#
+	# Done here rather than at the endpoint because this function *is* the board's
+	# assembly, and `frappe.get_all`'s permission-free read is what needs covering.
+	if not frappe.has_permission(GUEST_DOCTYPE, "read"):
+		for row in requests:
+			row.pop("guest", None)
 
 	now = now_datetime()
 

@@ -4573,3 +4573,155 @@ failure as a configuration one — cosmetic, since both categories are retryable
 and `queue_status` dominates.
 
 Result: **PASS** (security: APPROVED WITH NOTES)
+
+## 16.7.5-R1B — Security Authorization + Room-State Presentation
+
+Second remediation slice under 16.7.5. Product version deliberately **not**
+bumped: R1A and R1B are remediation of an unreleased 16.7.5, and the version
+moves when the full UAT remediation completes.
+
+Closes the seven authorization/disclosure defects independent Codex UAT raised
+against 16.7.5, plus the Room Rack display gap R1A left open on purpose, plus
+five more of the same class found while fixing them.
+
+### The rule, applied
+
+Permission on a root DocType does not authorize fields joined from another. Each
+aggregate authorises one DocType and then assembles a response out of several,
+reading the rest with `frappe.get_all` or raw SQL — neither of which applies any
+permission. Every fix omits the key rather than blanking it, because `0`, `""`,
+`[]` and `false` are claims about a guest or the hotel's money that the caller
+was specifically not told and that may be untrue.
+
+**Hotel Room, cross-property (HIGH).** `get_room` and `set_room_status` used
+`require_permission` + `doc.check_permission`, the two-step form the app itself
+declared insufficient in 16.7.5 — a User Permission without
+`apply_to_all_doctypes` restricts only the DocTypes it names. Both now use
+`authorise_document`, whose third check resolves the property *from the record*.
+`set_room_status` was the sharper of the two: it writes, and
+`require_dimension_role` beside it has no property dimension at all, so a
+Housekeeping Manager restricted to property A could mark a room clean in B and
+leave a Room Status Log row naming an operator with no business in it.
+
+**Room Rack presentation.** R1A made active-Stay occupancy authoritative for
+every path that *places* a guest and deliberately left the boards computing their
+badge from `occupancy_status`. So room 402 and the five Due Out rooms the estate
+audit found were still advertised as assignable — nobody could be checked in,
+the desk was simply offered a room it could not have. `rooms.is_assignable_now`
+derives the display from the same authority the mutations use, via **one** bulk
+`rooms_with_active_stays` query per board (rack, dashboard room states, and the
+Room Status report, which imports `_blocking_reason` precisely so it can never
+disagree with the rack).
+
+**Command Center.** `revenue.room_revenue_posted`, `payments_received` and
+`outstanding_balance` are summed out of Folio Charge, Folio Payment and Guest
+Folio by raw SQL. `outstanding_balance` is the property's whole open receivables
+position. Ten roles hold Stay read without Guest Folio read and every one lands
+on this screen — its navigation entry carries no role filter, a fact
+`_board_disclosure`'s own docstring records, on the helper written to prevent
+this and applied only to the three boards. The `revenue` key is now spliced away
+and the three queries skipped. `performance` is **not** gated: those figures are
+Night Audit's, whose reader set is identical to Stay's, and gating them on Guest
+Folio would blind the Revenue Manager on a boundary that does not exist. Its
+absolute totals were dropped from the selection instead — no consumer wanted them.
+
+**Checkout summary.** Gated on Stay, returned the folio's name, currency, charge
+and payment totals, balance, the split folios' names *and balances*, the
+departure verdict, and blocker sentences with the amounts inside them. The
+departures board already refused all of it. Disclosure applied at the API
+boundary, not in the service: `check_out` reads the blockers itself to decide the
+city-ledger case, and a service that redacted by session would make a credit
+decision depend on who was looking. Amount-bearing blockers collapse to one fixed
+sentence, classified by new stable `blocker_kinds` rather than by matching
+translated text — and the same change fixed `check_out`'s own city-ledger test,
+which was `_("balance") in blocker` and wrong in both directions on Arabic.
+
+**Room Status Log.** `get_room` returned `changed_by`, `reason` and `reference_*`
+on Hotel Room read alone. Hotel Room is read by 23 roles, the log by 9; the 14 in
+between — Room Attendant, Kitchen User, Accounts User among them — were being
+told who took a room out of order and why, in free text a manager wrote. The
+`history` key is omitted; the room still opens.
+
+**Guest Services.** Narrower than reported. There is no Guest *detail* join and
+Stay's reader set is an identical superset, so those parts are refuted. The real
+leaks were the raw `guest` identifier on board and detail, and
+`recovery_folio_charge` / `recovery_amount` / `recovery_approved_by`.
+`requires_service_recovery` and `recovery_type` stay: "this complaint is being
+made good" is operational and names no money.
+
+**Kitchen (was low-confidence) — CONFIRMED.** `issue_requisition` creates a
+`Stock Entry` and returned its name; `record_wastage` likewise. Stock Entry is
+read by four ERPNext roles and by none of the kitchen ones. The identifier is
+gated and `is_posted_to_stock` substituted, the same trade `get_folio` makes with
+`is_posted_to_erp`.
+
+**Night Audit (was low-confidence) — CONFIRMED, wrong principal.** Codex named
+the Night Auditor, who *is* authorised for Financial Posting Log. The exposure
+was to the other 15 Night Audit readers, through every exception's `reference`.
+Also fixed: the stored exception descriptions interpolated a guest's name, and a
+folio id with its variance amount, into text rendered on screen — those cannot be
+gated afterwards, so they are no longer put there. **Pre-existing rows keep their
+old text**; no historical data was rewritten.
+
+### Found while fixing, same class, not in the Codex list
+
+`check_out`, `post_folio`, `retry_posting` and `reverse_checkout` all returned
+ERP identifiers — Financial Posting Log names, Sales Invoice names, the ERPNext
+Customer, and on the replay path a raw `error_message` — to callers holding none
+of those reads. `api/folio.py` already refuses the same invoice name to the same
+Front Office Agent, so its gate was being defeated from four other endpoints.
+`night_audit.history` published the four folio money fields for up to a hundred
+audits. `reconcile_folio` published `currency_mismatch` (Sales Invoice names) and
+raw failure text.
+
+### Validation
+
+- **Backend:** two new suites — `test_room_authorization` (21) and
+  `test_aggregate_disclosure` (65, 1 skipped). Red-green verified: with the fixes
+  reverted, 9 and 26 tests fail respectively. 38 existing suites re-run green,
+  including all R1A room-authority and concurrency tests and HPMS-QA-16.7.2-C.
+- **Frontend:** **597 tests** (566 at 16.7.5), 20 files. New `Checkout.spec.js`
+  (17). `Dashboard.vue`, `Checkout.vue` and `NightAudit.vue` registered in the RTL
+  and translation-key guards, which none of them was in.
+- **Node:** 7/7. **Production build:** passes, no new warnings.
+- **Security review:** four adversarial passes by an independent reviewer.
+  BLOCKED, BLOCKED, BLOCKED, then **APPROVED WITH NOTES**. Each block was a real
+  sibling endpoint publishing the same payload the round had just gated — the
+  reviewer's own rule, "fixing one of two endpoints that return the same payload
+  fixes neither", applied three times running.
+- **Estate:** business date 2026-08-11 unchanged, `HPMS-NA-2026-00004` still
+  Posting, room 402 and both stays byte-identical. No historical record repaired.
+- **Core apps:** `apps/frappe` and `apps/erpnext` clean, HEADs unmoved.
+
+### Carried forward — Lead decision required
+
+1. **`setup/posting_service.py` revokes ERPNext's own permissions.** It grants
+   the posting service user read on Sales Invoice, Account, Item and Customer via
+   bare `Custom DocPerm` rows. Frappe replaces a DocType's *entire* permission
+   list once any Custom DocPerm exists for it, so those four inserts discard every
+   standard grant on those DocTypes site-wide, for all roles — Accounts
+   Manager/User lose Sales Invoice and Account; Stock, Sales, Item, Purchase and
+   Manufacturing roles lose Item and Customer. `install.py` re-runs it on every
+   migrate. `frappe.permissions.add_permission` copies existing rows forward
+   first, which is the fix. Release-blocking for any site also running ERPNext
+   accounting or stock. Out of R1B scope; found by the security reviewer.
+2. **Two contradictory positions on the raw `Guest` link name.** This build pops
+   it for a non-Guest-reader in `guest_services` and `kitchen`, while the
+   arrivals, departures and in-house boards, `stays.get_stay` and
+   `reservations.list_reservations` publish it — and arrivals publishes
+   `guest_mobile` — on Reservation/Stay read alone. `test_guest_privacy` pins the
+   board behaviour as settled, so this is a product decision, not a bug to fix
+   quietly. Decide one rule and make all of them agree.
+3. `stays.get_stay` returns `folio` and `currency` on the same Stay authority
+   `checkout.summary` now withholds them under.
+4. `DeparturesPanel.vue` badges a row "Blocked" when `can_check_out` is withheld —
+   a confident claim standing in for an omitted field, the mirror of the confident
+   zero this build removed.
+5. The positive side of the Sales Invoice and Customer identifier gates is
+   unreachable on any current bench (item 1 is why) and therefore untested;
+   Payment Entry and Stock Entry are reachable and untested.
+6. R1A's estate list is unchanged and unrepaired: 6 active-Stay/room-state
+   inconsistencies including room 402 and five Due Out rooms, 1 Stay/Reservation
+   Room desync, 3 Checked Out stays with no checkout timestamp.
+
+Result: **PASS** (security: APPROVED WITH NOTES)

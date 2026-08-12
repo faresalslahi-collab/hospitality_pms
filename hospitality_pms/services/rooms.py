@@ -460,6 +460,10 @@ def is_assignable(room: str, *, allow_unready_housekeeping: bool = False, state:
 	Pass `state` when the caller already holds the room's four dimensions —
 	a rack or a board reads every room at once, and re-fetching each one turns
 	a single query into five hundred (SAD section 13).
+
+	Answers from the room's own four dimensions only. That makes it the wrong
+	question for a *board*, which is asking "may the desk give this room away
+	right now" - see `is_assignable_now`, which is what the boards call.
 	"""
 	try:
 		assert_assignable(room, allow_unready_housekeeping=allow_unready_housekeeping, state=state)
@@ -467,6 +471,50 @@ def is_assignable(room: str, *, allow_unready_housekeeping: bool = False, state:
 		return False
 
 	return True
+
+
+def is_assignable_now(
+	room: str,
+	*,
+	allow_unready_housekeeping: bool = False,
+	state: dict | None = None,
+	occupied_rooms: set[str] | None = None,
+) -> bool:
+	"""Whether a board may show this room as assignable right now.
+
+	`is_assignable` and the active-Stay authority, together, because a board that
+	answers only the first tells the desk something the mutations will refuse.
+
+	R1A made active Stay occupancy authoritative for every path that *places* a
+	guest, and deliberately stopped there: the rack still computed its badge from
+	`occupancy_status` alone, so a room whose flag had gone stale - room 402, and
+	the five Due Out rooms the estate audit found - was still advertised as
+	assignable. Nobody could be checked into it, because `check_in` refuses. The
+	desk was simply being shown a room it could not have, which is how the
+	original defect was found in the first place.
+
+	This is presentation derived from authoritative occupancy. It does **not**
+	write the stored `occupancy_status`; the flag stays whatever it is, and R1B
+	repairs no data (the estate list is carried forward for a separate decision).
+
+	`occupied_rooms` is the precomputed set from `rooms_with_active_stays`, and
+	board callers must pass it: this function is called once per room, and a
+	board that let it fall through to its own query would issue one per room on
+	every render (SAD section 13). Left `None` - the single-room detail case - it
+	asks about this room alone, which is one query for one room.
+
+	Only "right now". Future availability stays with the date-aware
+	`availability.get_assignable_rooms`, which owns that rule; a room occupied
+	tonight is still assignable for next Tuesday and this function is not asked
+	about next Tuesday.
+	"""
+	if not is_assignable(room, allow_unready_housekeeping=allow_unready_housekeeping, state=state):
+		return False
+
+	if occupied_rooms is not None:
+		return room not in occupied_rooms
+
+	return not active_stay_in_room(room, property_name=(state or {}).get("property"))
 
 
 # ---------------------------------------------------------------------------

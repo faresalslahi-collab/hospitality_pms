@@ -432,6 +432,7 @@
   "page.checkout.reverse_warning": "سيعيد هذا فتح الفاتورة ويعيد النزيل إلى داخل الفندق. تبقى أي فاتورة سبق إرسالها إلى ERPNext قائمة ليتولى القسم المالي معالجتها.",
   "page.checkout.reverse_confirm": "عكس تسجيل المغادرة",
   "page.checkout.reverse_success": "تم عكس تسجيل المغادرة.",
+  "page.checkout.standing_invoices": "{count} فاتورة مُرسلة متروكة للقسم المالي.",
   "page.checkout.go_to_folio": "الانتقال إلى الفاتورة",
   "page.checkout.reason": "السبب",
   "page.checkout.city_ledger": "تسجيل المغادرة على الحساب الآجل",
