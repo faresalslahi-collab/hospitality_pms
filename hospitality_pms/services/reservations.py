@@ -325,6 +325,20 @@ def confirm(reservation: str, *, allow_overbooking: bool = False, reason: str | 
 		current=True,
 	)
 
+	# Validate any room a line was pre-assigned with (RES-4). `assigned_room` can be
+	# set on a draft through the create payload, a channel import or Desk without
+	# ever passing the clash, property and type checks - and confirm otherwise checks
+	# only room-type demand, so two lines could hold one physical room, or a line
+	# could hold a room of the wrong type or another property, surfacing only at the
+	# desk on arrival. assign_room applies exactly those checks under the room's lock
+	# and writes the same value back when it is unchanged; it is legal here because
+	# the reservation is still in an interval-editable state. Room-type locks are
+	# already held above, so this preserves the Reservation -> Room Type -> Hotel Room
+	# order.
+	for line in doc.rooms:
+		if line.assigned_room:
+			assign_room(reservation, line.name, line.assigned_room)
+
 	# A corporate booking draws on the account's credit. This runs inside the
 	# same locked transaction as the availability check, so the credit movement
 	# and the booking decision commit together or not at all.

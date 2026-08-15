@@ -194,9 +194,13 @@ def check_in(
 	# so there is no date on which today's occupant is somebody else's problem.
 	room_service.assert_room_unoccupied(room, property_name=reservation_doc.property)
 
-	# Assigning through the reservation service re-checks the clash rules.
-	if line.assigned_room != room:
-		reservation_service.assign_room(reservation, room_line, room, allow_unready=allow_unready_room)
+	# Assigning through the reservation service re-checks the clash, property and
+	# type rules. Run it even when the line was already assigned this room (RES-4):
+	# a pre-set assigned_room can arrive through the create payload, a channel
+	# import or Desk without ever passing those checks, and the old fast path
+	# skipped them exactly when the room had not been validated. assign_room writes
+	# the same value back when it is unchanged, so this is a no-op beyond the checks.
+	reservation_service.assign_room(reservation, room_line, room, allow_unready=allow_unready_room)
 
 	# Every precondition above has now passed, so this is the one moment at
 	# which a Stay may legitimately come into existence. The context is opened
@@ -413,7 +417,14 @@ def _all_lines_checked_in(reservation: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def change_room(stay: str, new_room: str, reason: str, *, allow_unready: bool = False) -> dict:
+def change_room(
+	stay: str,
+	new_room: str,
+	reason: str,
+	*,
+	allow_unready: bool = False,
+	allow_overbooking: bool = False,
+) -> dict:
 	"""Move an in-house guest to another room.
 
 	Takes the inventory row first, then the Stay, then both Hotel Rooms in a
@@ -463,6 +474,24 @@ def change_room(stay: str, new_room: str, reason: str, *, allow_unready: bool = 
 
 	if new_room == doc.room:
 		throw(_("The guest is already in room {0}.").format(new_room))
+
+	# A cross-type move consumes a room in the destination *type*, and until now
+	# nothing checked that type had one to give (RES-3). `assert_assignable` and
+	# `_assert_room_free` below prove the specific physical room is free, but a room
+	# held for a future arrival is physically free today - so a move into it left
+	# the destination type oversold for the nights the line still holds, with no
+	# `check_availability` and no overbooking authority anywhere on this path. The
+	# type is locked here, before either Hotel Room, in the documented chain
+	# position (Reservation Room -> Room Type -> Hotel Room), and the availability
+	# itself is checked below once the interval is known.
+	old_type = line["room_type"] if line else doc.room_type
+	target_type = frappe.db.get_value("Hotel Room", new_room, "room_type")
+	cross_type = target_type != old_type
+
+	if cross_type:
+		if allow_overbooking:
+			authorise_overbooking(reason)
+		lock_room_type(doc.property, sorted({old_type, target_type}))
 
 	for room in sorted([doc.room, new_room]):
 		lock_document("Hotel Room", room)
@@ -518,6 +547,25 @@ def change_room(stay: str, new_room: str, reason: str, *, allow_unready: bool = 
 	# Under the Hotel Room locks taken above, with a current read, for the reason
 	# recorded on `_assert_room_free`: the lock serialises but does not refresh.
 	room_service.assert_room_unoccupied(new_room, exclude_stay=stay, property_name=doc.property)
+
+	# The destination type must actually have a room to give for the nights the
+	# line still holds (RES-3). Checked over today-forward - past nights are already
+	# consumed - with a current read under the room-type lock taken above, and
+	# honouring the overbooking authority granted at the top. Same-type moves skip
+	# this: the line already counts against that type, so its own count is unchanged.
+	if cross_type:
+		check_start = max(getdate(get_business_date(doc.property)), interval_start)
+		if check_start < interval_end:
+			check_availability(
+				doc.property,
+				target_type,
+				check_start,
+				interval_end,
+				rooms=1,
+				allow_overbooking=allow_overbooking,
+				exclude_reservation=line["parent"] if line else doc.reservation,
+				current=True,
+			)
 
 	previous_room = doc.room
 
