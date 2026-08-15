@@ -9,6 +9,31 @@
   <Dialog v-model="open" :options="{ title: t('page.night_audit.close_title'), size: 'md' }">
     <template #body-content>
       <div v-if="audit" class="space-y-3">
+        <!--
+          The two dates, labelled and side by side rather than buried in the
+          sentence below them. This is the one irreversible action on the screen
+          and the operator has to be able to check both at a glance: the day
+          being finalised, and the day the property wakes up on.
+        -->
+        <dl class="grid gap-3 sm:grid-cols-2">
+          <div class="rounded-lg border border-outline-gray-1 px-3 py-2">
+            <dt class="text-xs uppercase tracking-wide text-ink-gray-5">
+              {{ t('page.night_audit.close_closing') }}
+            </dt>
+            <dd class="mt-0.5 text-p-base font-semibold text-ink-gray-9">
+              {{ formatDate(audit.business_date) }}
+            </dd>
+          </div>
+          <div class="rounded-lg border border-outline-gray-1 px-3 py-2">
+            <dt class="text-xs uppercase tracking-wide text-ink-gray-5">
+              {{ t('page.night_audit.next_business_date') }}
+            </dt>
+            <dd class="mt-0.5 text-p-base font-semibold text-ink-gray-9">
+              {{ formatDate(audit.next_business_date) }}
+            </dd>
+          </div>
+        </dl>
+
         <p class="text-p-sm text-ink-gray-6">
           {{ t('page.night_audit.close_warning', {
             date: formatDate(audit.business_date),
@@ -68,8 +93,11 @@ async function submit() {
   errorMessage.value = ''
 
   try {
-    await closeResource.submit({ audit: props.audit.name })
-    emit('closed')
+    // The server's own answer is handed up, so the success state names the dates
+    // the close actually produced rather than the ones the screen was holding.
+    const result = await closeResource.submit({ audit: props.audit.name })
+
+    emit('closed', result?.message ?? result ?? null)
     open.value = false
   } catch (error) {
     errorMessage.value = normaliseError(error).message

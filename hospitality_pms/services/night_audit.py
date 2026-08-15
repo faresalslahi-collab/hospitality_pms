@@ -334,7 +334,26 @@ def mark_no_shows(audit: str) -> list[str]:
 				message=str(exc),
 			)
 
-	frappe.db.set_value(AUDIT_DOCTYPE, audit, "no_shows", len(marked), update_modified=False)
+	# Record that the step ran, separately from what it found.
+	#
+	# `no_shows` is a count, and a count of zero is a real outcome — a night with
+	# nobody to mark looks exactly like a night nobody swept. Without this stamp
+	# the screen cannot tell "done, nothing to do" from "not done", so it either
+	# stays silent or guesses; the old rail guessed from `audit_status` and showed
+	# a green tick for a step that had never run. Evidence, not inference.
+	#
+	# Deliberately not a guard: nothing reads this to decide whether the day may
+	# close. `_assert_steps_complete` is unchanged.
+	frappe.db.set_value(
+		AUDIT_DOCTYPE,
+		audit,
+		{
+			"no_shows": len(marked),
+			"no_shows_completed_on": now_datetime(),
+			"no_shows_completed_by": frappe.session.user,
+		},
+		update_modified=False,
+	)
 
 	return marked
 
@@ -422,7 +441,22 @@ def mark_due_outs(audit: str) -> list[str]:
 	"""Flag tomorrow's departures so the morning shift sees them."""
 	doc = frappe.get_doc(AUDIT_DOCTYPE, audit)
 
-	return stay_service.mark_due_out(doc.property, add_days(getdate(doc.business_date), 1))
+	flagged = stay_service.mark_due_out(doc.property, add_days(getdate(doc.business_date), 1))
+
+	# Stamped for the same reason as the no-show sweep above: a night with no
+	# departures tomorrow produces an empty list, which is indistinguishable from
+	# a step nobody ran. Record-keeping only — no guard reads it.
+	frappe.db.set_value(
+		AUDIT_DOCTYPE,
+		audit,
+		{
+			"due_outs_completed_on": now_datetime(),
+			"due_outs_completed_by": frappe.session.user,
+		},
+		update_modified=False,
+	)
+
+	return flagged
 
 
 def reconcile(audit: str) -> dict:

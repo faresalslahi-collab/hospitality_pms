@@ -47,8 +47,12 @@
   "completion_section",
   "review_completed_on",
   "review_completed_by",
+  "no_shows_completed_on",
+  "no_shows_completed_by",
   "posting_completed_on",
   "posting_completed_by",
+  "due_outs_completed_on",
+  "due_outs_completed_by",
   "reconciliation_completed_on",
   "reconciliation_completed_by",
   "reconciliation_population",
@@ -329,6 +333,19 @@
    "options": "User"
   },
   {
+   "fieldname": "no_shows_completed_on",
+   "fieldtype": "Datetime",
+   "label": "No-Shows Completed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "no_shows_completed_by",
+   "fieldtype": "Link",
+   "label": "No-Shows Completed By",
+   "read_only": 1,
+   "options": "User"
+  },
+  {
    "fieldname": "posting_completed_on",
    "fieldtype": "Datetime",
    "label": "Posting Completed On",
@@ -338,6 +355,19 @@
    "fieldname": "posting_completed_by",
    "fieldtype": "Link",
    "label": "Posting Completed By",
+   "read_only": 1,
+   "options": "User"
+  },
+  {
+   "fieldname": "due_outs_completed_on",
+   "fieldtype": "Datetime",
+   "label": "Due-Outs Completed On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "due_outs_completed_by",
+   "fieldtype": "Link",
+   "label": "Due-Outs Completed By",
    "read_only": 1,
    "options": "User"
   },
