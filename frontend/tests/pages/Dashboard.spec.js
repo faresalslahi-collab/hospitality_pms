@@ -281,22 +281,58 @@ beforeEach(() => {
 })
 
 describe('Command Center header', () => {
-  it('leads with the property and the business date the server is working', async () => {
+  it('leads with the property and the real date at that property', async () => {
+    vi.setSystemTime(new Date('2026-08-15T09:00:00Z'))
+
     const wrapper = await mountDashboard()
 
     expect(wrapper.text()).toContain('Doha Grand')
-    expect(wrapper.text()).toContain('08 Aug 2026')
+    // The civil date, with its weekday: the question this header answers is
+    // "what day is it", which the rail's business date cannot.
+    expect(wrapper.text()).toContain('Saturday')
+    expect(wrapper.text()).toContain('15 Aug 2026')
   })
 
-  it('never reads the browser clock for the business date', async () => {
-    // The payload's date, not today's: a property mid-Night-Audit is still
-    // working an earlier day, and this is the assertion that catches a regression
-    // to `new Date()`.
-    dashboard.data = dashboardData({ business_date: '2026-08-01' })
+  it('reads the calendar date in the property zone, not the runtime zone', async () => {
+    // 22:30 UTC on the 15th is already the 16th in Doha. A bench in London must
+    // not make a Doha desk read yesterday.
+    vi.setSystemTime(new Date('2026-08-15T22:30:00Z'))
 
     const wrapper = await mountDashboard()
 
-    expect(wrapper.text()).toContain('01 Aug 2026')
+    expect(wrapper.text()).toContain('16 Aug 2026')
+  })
+
+  it('no longer repeats the business date the sidebar already shows', async () => {
+    // The rail is the one authoritative place for the operating day, and it now
+    // carries the lag warning beside it. Two copies of one figure is not
+    // emphasis - it is a screen with nothing to say about the real date.
+    vi.setSystemTime(new Date('2026-08-15T09:00:00Z'))
+    dashboard.data = dashboardData({ business_date: '2026-08-08' })
+
+    const wrapper = await mountDashboard()
+
+    // Scoped to the header: "business date" still appears in body copy, where it
+    // is describing what a board is filtered on. What must not come back is the
+    // header repeating the figure the rail already owns.
+    const header = wrapper.findComponent({ name: 'PageHeader' })
+
+    expect(header.exists()).toBe(true)
+    expect(header.text()).not.toContain('business date')
+    expect(header.text()).not.toContain('08 Aug 2026')
+    expect(header.text()).toContain('15 Aug 2026')
+  })
+
+  it('never takes an operational figure from the clock', async () => {
+    // The header's date is civil and decorative. Every fetch this screen makes
+    // still goes out on the property alone, never on a browser-derived date.
+    vi.setSystemTime(new Date('2026-08-15T09:00:00Z'))
+
+    await mountDashboard()
+
+    for (const [params] of dashboard.fetch.mock.calls) {
+      expect(Object.keys(params)).toEqual(['property'])
+    }
   })
 
   it('fetches every board on the property alone, and refetches when it changes', async () => {
@@ -318,10 +354,40 @@ describe('Command Center header', () => {
   })
 })
 
+describe('Command Center search', () => {
+  it('leads with the header and puts the search box under it', async () => {
+    const wrapper = await mountDashboard()
+
+    const html = wrapper.html()
+    const header = html.indexOf('Doha Grand')
+    const search = html.indexOf('data-global-search')
+
+    expect(header).toBeGreaterThan(-1)
+    expect(search).toBeGreaterThan(-1)
+    expect(search).toBeGreaterThan(header)
+  })
+
+  it('mounts exactly one search box, as the shell did', async () => {
+    const wrapper = await mountDashboard()
+
+    expect(wrapper.findAll('[data-global-search]')).toHaveLength(1)
+  })
+
+  it('offers the search before the boards have answered', async () => {
+    // A desk looking for a guest should not have to wait for a rack.
+    dashboard.loading = true
+    dashboard.data = null
+
+    const wrapper = await mountDashboard()
+
+    expect(wrapper.find('[data-global-search]').exists()).toBe(true)
+  })
+})
+
 describe('Command Center work counters', () => {
   it('counts the work in rooms, including the unassigned arrivals', async () => {
     const wrapper = await mountDashboard()
-    const counters = panel(wrapper, 'Front desk today')
+    const counters = panel(wrapper, 'Front Desk Today')
 
     expect(counters.text()).toContain('Pending check-ins')
     expect(counters.text()).toContain('9')
@@ -330,16 +396,19 @@ describe('Command Center work counters', () => {
     expect(counters.text()).toContain('Pending check-outs')
     expect(counters.text()).toContain('Due out')
     expect(counters.text()).toContain('Rooms not ready')
-    expect(counters.text()).toContain('Available now')
-    expect(counters.text()).toContain('In-house rooms')
-    // The sentence that says what "unassigned" costs: a line with no room chosen
-    // cannot be made ready, keyed or checked in.
-    expect(wrapper.text()).toContain('Arriving on this business date with no room assigned yet.')
+    expect(counters.text()).toContain('Assignable now')
+    expect(counters.text()).toContain('In-house stays')
+    // The explanatory sentence under the row was dropped in 16.7.6: each card
+    // carries its own helper line now ("Need room assignment"), and a paragraph
+    // repeating one of them under all seven was a second voice saying the same
+    // thing.
+    expect(wrapper.text()).not.toContain('Arriving on this business date')
+    expect(counters.text()).toContain('Need room assignment')
   })
 
   it('drops the totals and the head count: a total is a report, not work', async () => {
     const wrapper = await mountDashboard()
-    const counters = panel(wrapper, 'Front desk today')
+    const counters = panel(wrapper, 'Front Desk Today')
 
     expect(counters.text()).not.toContain('Arrivals today')
     expect(counters.text()).not.toContain('Departures today')
@@ -352,7 +421,7 @@ describe('Command Center work counters', () => {
     const wrapper = await mountDashboard()
     // The tile itself, not the grid around it: every counter is a link to the
     // board behind it, so the anchor is the tile.
-    const tile = panel(wrapper, 'Front desk today')
+    const tile = panel(wrapper, 'Front Desk Today')
       .findAll('a')
       .find((node) => node.text().includes('Rooms not ready'))
 
@@ -369,7 +438,7 @@ describe('Command Center work counters', () => {
     dashboard.data = payload
 
     const wrapper = await mountDashboard()
-    const tile = panel(wrapper, 'Front desk today')
+    const tile = panel(wrapper, 'Front Desk Today')
       .findAll('a')
       .find((node) => node.text().includes('Rooms not ready'))
 
@@ -383,7 +452,7 @@ describe('Command Center work counters', () => {
     dashboard.data = payload
 
     const wrapper = await mountDashboard()
-    const tile = panel(wrapper, 'Front desk today')
+    const tile = panel(wrapper, 'Front Desk Today')
       .findAll('a')
       .find((node) => node.text().includes('Unassigned arrivals'))
 
@@ -392,7 +461,7 @@ describe('Command Center work counters', () => {
 
   it('links each counter to the board behind it', async () => {
     const wrapper = await mountDashboard()
-    const hrefs = panel(wrapper, 'Front desk today')
+    const hrefs = panel(wrapper, 'Front Desk Today')
       .findAll('a')
       .map((anchor) => anchor.attributes('href'))
 
@@ -400,6 +469,78 @@ describe('Command Center work counters', () => {
     expect(hrefs).toContain('/departures')
     expect(hrefs).toContain('/in-house')
     expect(hrefs).toContain('/rooms')
+  })
+
+  /**
+   * The operational card (16.7.6).
+   *
+   * Seven cards, each one an icon, a count, a line saying what the count is of,
+   * and a chip naming the screen that clears it. The chip is a span inside the
+   * card's own anchor rather than a second anchor: a link inside a link is
+   * invalid markup that assistive technology announces twice, and the whole card
+   * is the target a receptionist aims at.
+   */
+  it('renders one card per counter, each naming where it goes', async () => {
+    const wrapper = await mountDashboard()
+    const cards = panel(wrapper, 'Front Desk Today').findAll('a')
+
+    expect(cards).toHaveLength(7)
+
+    // Nested anchors would mean the chip became a link of its own.
+    for (const card of cards) expect(card.findAll('a')).toHaveLength(0)
+
+    const text = panel(wrapper, 'Front Desk Today').text()
+
+    for (const action of [
+      'View arrivals',
+      'Assign rooms',
+      'View departures',
+      'Due out list',
+      'View inventory',
+      'View in-house',
+    ]) {
+      expect(text).toContain(action)
+    }
+  })
+
+  it('says what each number is counting, without restating a total', async () => {
+    const wrapper = await mountDashboard()
+    const text = panel(wrapper, 'Front Desk Today').text()
+
+    expect(text).toContain('Not yet checked in')
+    expect(text).toContain('Need room assignment')
+    expect(text).toContain('Not ready for check-in')
+    expect(text).toContain('Not yet checked out')
+    // "Due out" is a stay the desk has *marked* as leaving, which is not the
+    // same figure as everybody whose departure date is today — and a helper line
+    // reading "Departures today" would put back the total this section dropped.
+    expect(text).toContain('Marked to leave today')
+    expect(text).toContain('Can be given out now')
+    expect(text).toContain('Guests in the house')
+  })
+
+  it('sends a not-ready room to housekeeping for a role that may open it', async () => {
+    stubSession(['Housekeeping Supervisor'])
+
+    const wrapper = await mountDashboard()
+    const card = panel(wrapper, 'Front Desk Today')
+      .findAll('a')
+      .find((node) => node.text().includes('Rooms not ready'))
+
+    expect(card.text()).toContain('View housekeeping')
+    expect(card.attributes('href')).toBe('/housekeeping')
+  })
+
+  it('sends the front desk to the rack instead, rather than to /forbidden', async () => {
+    // A Front Office Agent holds no Housekeeping role, and the route guard would
+    // bounce them. The rack shows the same rooms and refuses nobody.
+    const wrapper = await mountDashboard()
+    const card = panel(wrapper, 'Front Desk Today')
+      .findAll('a')
+      .find((node) => node.text().includes('Rooms not ready'))
+
+    expect(card.text()).toContain('View rooms')
+    expect(card.attributes('href')).toBe('/rooms')
   })
 })
 
@@ -566,10 +707,10 @@ describe('Command Center house state, work and money', () => {
   it('restates the live house in rooms, with what can be sold now', async () => {
     const wrapper = await mountDashboard()
 
-    expect(wrapper.text()).toContain('Occupied now')
+    expect(wrapper.text()).toContain('Occupied rooms now')
     expect(wrapper.text()).toContain('70.0%')
     expect(wrapper.text()).toContain('42 / 60 rooms')
-    expect(wrapper.text()).toContain('Available now')
+    expect(wrapper.text()).toContain('Assignable now')
     expect(wrapper.text()).toContain('7')
   })
 
@@ -605,7 +746,7 @@ describe('Command Center house state, work and money', () => {
     const wrapper = await mountDashboard()
     const html = wrapper.html()
 
-    expect(html.indexOf("Today's arrivals")).toBeLessThan(html.indexOf('Room status board'))
+    expect(html.indexOf("Today's arrivals")).toBeLessThan(html.indexOf('Rooms Status Board'))
   })
 })
 
@@ -668,7 +809,7 @@ describe('Command Center financial disclosure', () => {
     // The screen is this role's landing page: redaction, never an outage.
     expect(text).toContain("Today's arrivals")
     expect(text).toContain('In house')
-    expect(panel(wrapper, 'Room status board')).toBeDefined()
+    expect(panel(wrapper, 'Rooms Status Board')).toBeDefined()
     expect(text).toContain('Doha Grand')
   })
 

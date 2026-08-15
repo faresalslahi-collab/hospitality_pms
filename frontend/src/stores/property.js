@@ -9,14 +9,43 @@
 import { computed, reactive } from 'vue'
 
 import { apiResource } from '@/resources'
+import { currentCalendarDate, daysBetween } from '@/utils/operationalDate'
 
 const STORAGE_KEY = 'hpms:active-property'
+
+/** How often the shared clock asks whether the calendar day has turned. */
+const CLOCK_INTERVAL_MS = 60_000
 
 const state = reactive({
   properties: [],
   active: null,
   loaded: false,
+  /**
+   * Bumped by the clock below. Nothing reads its value — it exists so the
+   * `today` computed has something to invalidate on, which is what lets a
+   * terminal left open across midnight notice.
+   */
+  clockTick: 0,
 })
+
+let clock = null
+
+/**
+ * Start the one clock the app needs.
+ *
+ * One timer for the whole session rather than one per component: two screens
+ * ask what today's date is, and two intervals answering the same question is
+ * two chances to disagree. It only bumps a counter; the day is re-derived
+ * lazily, and the computed below re-renders only when the string it produces
+ * actually changes.
+ */
+function startClock() {
+  if (clock || typeof window === 'undefined') return
+
+  clock = window.setInterval(() => {
+    state.clockTick += 1
+  }, CLOCK_INTERVAL_MS)
+}
 
 export const propertyResource = apiResource('properties.get_property_context', {
   method: 'GET',
@@ -53,7 +82,45 @@ export const property = {
    */
   businessDate: computed(() => property.active.value?.business_date || null),
 
+  /**
+   * The property's own IANA zone, from the Property record.
+   *
+   * Required on every Property and already in the context payload, so a screen
+   * that needs to know what day it *is* never has to ask the browser. A hotel
+   * in Doha administered from a laptop in London is on Doha's calendar.
+   */
+  timeZone: computed(() => property.active.value?.time_zone || null),
+
+  /**
+   * Today's calendar date at the property — the civil date, not the hotel's.
+   *
+   * Never an operational default. Screens post to, filter on and default from
+   * `businessDate`; this is here so the two can be *compared*, and so a screen
+   * can say what the real date is.
+   */
+  today: computed(() => {
+    void state.clockTick
+
+    return currentCalendarDate(property.timeZone.value)
+  }),
+
+  /**
+   * How many days the operating day is behind the property's calendar day.
+   *
+   * Zero on a property whose audit ran, and this is a *report* of the gap, not
+   * a cause of it: nothing here advances a business date, which only the Night
+   * Audit service may do. Negative values — a business date ahead of the
+   * calendar — are floored to zero rather than announced as a negative lag.
+   */
+  businessDateLag: computed(() => {
+    const behind = daysBetween(property.businessDate.value, property.today.value)
+
+    return behind && behind > 0 ? behind : 0
+  }),
+
   load() {
+    startClock()
+
     if (state.loaded) return Promise.resolve(state)
     return propertyResource.fetch()
   },

@@ -41,6 +41,7 @@ import frappe
 from frappe.tests import IntegrationTestCase
 from frappe.utils import add_days
 
+from hospitality_pms.services import front_office as front_office_service
 from hospitality_pms.services import reservations as reservation_service
 from hospitality_pms.services import rooms as room_service
 from hospitality_pms.services import stays as stay_service
@@ -518,3 +519,106 @@ class TestOccupancyAuthorityHelper(RoomAuthorityTestCase):
 		frappe.db.commit()
 
 		self.assertIsNone(room_service.active_stay_in_room(room))
+
+
+class TestCommandCentreCountsFollowTheAuthority(RoomAuthorityTestCase):
+	"""The Command Center's house figures, against the same authority.
+
+	R1B derived the *assignable* count from the active Stay and left the
+	*occupied* count reading `occupancy_status`. On the estate that produced two
+	wrong figures at once, from one property's real data:
+
+	* a room flagged `Due Out` is in neither `OCCUPIED_STATES` nor `Vacant`, so
+	  it fell out of the occupied counter *and* the vacant counter - the house
+	  simply lost it, and DOHA01 lost five rooms that way;
+	* a room whose flag had gone stale to `Vacant` mid-stay was counted vacant
+	  and clean while a guest was asleep in it.
+
+	The two counters answer different questions and are meant to: "in-house
+	stays" counts Stay records, "occupied rooms" counts rooms. What they may not
+	do is disagree about whether a room has somebody in it.
+	"""
+
+	WORLD_CODE = "CC"
+
+	def _counts(self) -> dict:
+		return front_office_service.get_dashboard(self.world.property)["rooms"]
+
+	def _front_office(self) -> dict:
+		return front_office_service.get_dashboard(self.world.property)["front_office"]
+
+	def test_a_due_out_room_is_still_an_occupied_room(self):
+		"""The guest has not left. Due Out is a departure plan, not a departure."""
+		room = self.world.rooms[0]
+		self._guest_due_out_today(room)
+
+		counts = self._counts()
+
+		self.assertEqual(counts["occupied"], 1, msg=f"the due-out room was lost: {counts}")
+		self.assertEqual(
+			counts["occupied"] + counts["vacant"],
+			counts["total"],
+			msg="a room is in neither the occupied nor the vacant column",
+		)
+
+	def test_a_stale_vacant_flag_does_not_empty_the_room(self):
+		"""Room 402's exact persisted state, counted."""
+		room = self.world.rooms[0]
+		self._guest_due_out_today(room, force_room_vacant=True)
+
+		counts = self._counts()
+
+		self.assertEqual(counts["occupied"], 1)
+		self.assertEqual(
+			counts["vacant"], counts["total"] - 1, msg="the occupied room was counted as vacant"
+		)
+
+	def test_a_stale_vacant_clean_room_is_not_assignable_now(self):
+		"""The regression this class exists for.
+
+		The flag says Vacant and Clean; a guest is in the room. It must not be
+		offered as something the desk can give away, and it must not be counted
+		as clean and vacant either - the count feeds a tile that reads as supply.
+		"""
+		room = self.world.rooms[0]
+		self._guest_due_out_today(room, force_room_vacant=True)
+
+		frappe.db.set_value("Hotel Room", room, "housekeeping_status", "Clean", update_modified=False)
+		frappe.db.commit()
+
+		self.assertFalse(
+			room_service.is_assignable_now(room),
+			msg="a room with an active stay was reported assignable because its flag said Vacant",
+		)
+
+		counts = self._counts()
+
+		self.assertEqual(
+			counts["assignable"],
+			counts["total"] - 1,
+			msg=f"the occupied room was counted as assignable: {counts}",
+		)
+		self.assertEqual(
+			counts["vacant_clean"],
+			counts["total"] - 1,
+			msg=f"the occupied room was counted as vacant and clean: {counts}",
+		)
+
+	def test_in_house_stays_and_occupied_rooms_are_different_questions(self):
+		"""Both are true at once, and the labels say which is which.
+
+		One stay, one room. They agree here - and they are still counted from
+		different records, which is why the screen names them differently.
+		"""
+		room = self.world.rooms[0]
+		self._guest_in_house_mid_stay(room)
+
+		self.assertEqual(self._front_office()["in_house_rooms"], 1)
+		self.assertEqual(self._counts()["occupied"], 1)
+
+	def test_an_empty_house_counts_nothing_as_occupied(self):
+		"""The guard must not collapse the other way."""
+		counts = self._counts()
+
+		self.assertEqual(counts["occupied"], 0)
+		self.assertEqual(counts["vacant"], counts["total"])

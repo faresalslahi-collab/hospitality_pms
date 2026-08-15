@@ -16,6 +16,20 @@ export default {
       },
 
       /**
+       * The 2xl breakpoint, put back.
+       *
+       * Frappe UI's preset *replaces* Tailwind's `screens` and stops at `xl`
+       * (1280px), which is the width of a laptop. A front desk runs on a 27"
+       * monitor, and the seven Front Desk Today cards only fit across one row
+       * once there is more than a laptop's width to put them in — at 1280px,
+       * with the navigation rail taken off, each card would be narrower than the
+       * words on it. Additive: every existing breakpoint keeps its value.
+       */
+      screens: {
+        '2xl': '1536px',
+      },
+
+      /**
        * Navigation navy.
        *
        * Frappe UI's palette is tuned for a light document surface and has no

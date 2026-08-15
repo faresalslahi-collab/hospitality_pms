@@ -41,6 +41,25 @@
       </template>
     </PageHeader>
 
+    <!--
+      The one global search box in the app, and it lives here.
+
+      It used to sit in the shell above every page's title - including screens
+      that already have their own, better-scoped search - so the Command Center
+      opened on a text box rather than on the hotel and the date. It is now the
+      page's, and only this page's: this is the screen somebody lands on without
+      yet knowing which board answers their question. Everywhere else the page's
+      own filter is the right control, and the shell renders nothing.
+
+      Under the header, not over it, and outside the sticky area: it scrolls away
+      with the page, available without competing with the counters below it.
+      Rendered before the loading branch, because a desk searching for a guest
+      should not have to wait for a rack.
+    -->
+    <div class="border-b border-outline-gray-1 bg-surface-white px-4 py-2.5 lg:px-5">
+      <GlobalSearch class="w-full md:max-w-md" />
+    </div>
+
     <LoadingState v-if="dashboard.loading && !dashboard.data" />
     <ErrorState v-else-if="dashboard.error" :error="dashboard.error" :on-retry="reload" />
     <EmptyState v-else-if="!dashboard.data" />
@@ -55,17 +74,21 @@
         head count is F&B's number, not the desk's.
       -->
       <section aria-labelledby="command-center-counters">
-        <h2 id="command-center-counters" class="mb-2.5 text-p-sm font-semibold text-ink-gray-7">
+        <!-- The one section heading given full weight: it names the row the
+             desk reads first, and the cards under it carry their own labels. -->
+        <h2 id="command-center-counters" class="mb-2.5 text-p-base font-bold text-ink-gray-9">
           {{ t('page.dashboard.section.front_desk') }}
         </h2>
 
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
-          <StatTile v-for="tile in frontDeskTiles" :key="tile.key" v-bind="tile" />
+        <!--
+          Seven across only where seven fit. The cards carry an action chip now,
+          so at 1280px they would each be narrower than the words on them; the
+          row breaks to four there and reaches seven at 2xl, and never scrolls
+          sideways.
+        -->
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-7">
+          <FrontDeskCard v-for="tile in frontDeskTiles" :key="tile.key" v-bind="tile" />
         </div>
-
-        <!-- The one counter that needs a sentence: an unassigned line cannot be
-             made ready, cannot be keyed and cannot be checked in. -->
-        <p class="mt-2 text-xs text-ink-gray-5">{{ t('page.dashboard.unassigned_arrivals_hint') }}</p>
       </section>
 
       <!--
@@ -258,12 +281,13 @@ import ArrivalsPanel from '@/components/dashboard/ArrivalsPanel.vue'
 import DashboardCard from '@/components/dashboard/DashboardCard.vue'
 import DeparturesPanel from '@/components/dashboard/DeparturesPanel.vue'
 import DonutChart from '@/components/dashboard/DonutChart.vue'
+import FrontDeskCard from '@/components/dashboard/FrontDeskCard.vue'
 import InHousePanel from '@/components/dashboard/InHousePanel.vue'
 import KpiCard from '@/components/dashboard/KpiCard.vue'
 import NightAuditCard from '@/components/dashboard/NightAuditCard.vue'
 import RoomAttentionPanel from '@/components/dashboard/RoomAttentionPanel.vue'
 import RoomStatusBoard from '@/components/dashboard/RoomStatusBoard.vue'
-import StatTile from '@/components/dashboard/StatTile.vue'
+import GlobalSearch from '@/components/operational/GlobalSearch.vue'
 import MoneyDisplay from '@/components/operational/MoneyDisplay.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import RoomDetailDialog from '@/components/RoomDetailDialog.vue'
@@ -333,12 +357,19 @@ const anyLoading = computed(() =>
 )
 
 /**
- * Property and business date, first and prominent.
+ * Property and today's date - the *calendar* date, in the property's own zone.
  *
- * The business date is the server's operational day and is read-only here: a
- * property that has not run its Night Audit is still working yesterday, and a
- * screen that took the date from the browser clock would disagree with every
- * posting the desk makes (CLAUDE.md, "Dates: which kind, and when").
+ * The business date used to be repeated here, and the navigation rail three
+ * inches away was already showing it. Two copies of one figure is not emphasis;
+ * it is a screen with nothing to say about what day it actually is, which is
+ * exactly the question a desk asks when the two have come apart. The rail keeps
+ * the operating day and now carries the lag warning beside it; the header
+ * answers the other question.
+ *
+ * This is a civil date and nothing operational reads it: every posting, filter
+ * and default on this screen still comes from the server's business date
+ * (CLAUDE.md, "Dates: which kind, and when"). The zone is the property's, never
+ * the browser's - a Doha hotel is on Doha's calendar whoever is looking at it.
  */
 const subtitle = computed(() => {
   const data = dashboard.data
@@ -346,7 +377,7 @@ const subtitle = computed(() => {
 
   return t('page.dashboard.subtitle_property', {
     property: data.property_name || data.property || '',
-    date: formatDate(data.business_date),
+    date: formatDate(property.today.value, { weekday: 'long' }),
   })
 })
 
@@ -428,9 +459,21 @@ const canSeeAudit = computed(() => reachable.value.has('night_audit'))
 /**
  * The work counters, in rooms.
  *
- * Every one of these is a queue somebody has to empty. `arrivals_unassigned` is
- * the most time-critical of them and is new in 16.7.1; it is read defensively
- * because a bench mid-deploy may still be serving the older payload.
+ * Every one of these is a queue somebody has to empty, so every one of them
+ * carries the screen that empties it rather than leaving the reader to find it
+ * in the sidebar. `arrivals_unassigned` is the most time-critical of them and is
+ * new in 16.7.1; it is read defensively because a bench mid-deploy may still be
+ * serving the older payload.
+ *
+ * The figures are exactly the ones this screen has always shown — the same
+ * `front_office` and `rooms` fields off the same aggregate call. What is new is
+ * the card: an icon, the count, one line saying what the count is of, and a chip
+ * naming where it goes.
+ *
+ * The number itself is ink rather than amber or red. Every card here is
+ * outstanding work by definition, so colouring some of the numbers said nothing
+ * the labels did not; the hue now identifies the *kind* of work, consistently
+ * across the icon and the chip, which is a distinction the eye can use.
  */
 const frontDeskTiles = computed(() => {
   const f = frontOffice.value
@@ -440,23 +483,38 @@ const frontDeskTiles = computed(() => {
   const inHouseTo = { name: 'InHouse' }
   const rackTo = { name: 'RoomRack' }
 
+  // Housekeeping is the screen that clears a not-ready room, but ten of the
+  // roles that land here — the front desk agent among them — cannot open it, and
+  // a chip that lands on /forbidden is worse than one that never promised. Those
+  // callers get the rack, which shows the same rooms and refuses nobody.
+  const housekeepingOpen = reachable.value.has('housekeeping')
+
   return [
     {
       key: 'arrivals_pending',
       label: t('page.dashboard.pending_check_ins'),
       value: f.arrivals_pending ?? 0,
-      icon: 'bell',
-      iconClass: 'bg-amber-50 text-amber-600',
-      tone: 'text-ink-amber-3',
+      hint: t('page.dashboard.hint.pending_check_ins'),
+      icon: 'briefcase',
+      iconClass: 'bg-blue-50 text-blue-600',
+      actionLabel: t('page.dashboard.action.view_arrivals'),
+      actionIcon: 'log-in',
+      actionClass: 'bg-blue-50 text-blue-700',
       to: arrivalsTo,
     },
     {
       key: 'arrivals_unassigned',
       label: t('page.dashboard.unassigned_arrivals'),
       value: f.arrivals_unassigned ?? 0,
-      icon: 'user-x',
-      iconClass: 'bg-red-50 text-red-600',
-      tone: 'text-ink-red-3',
+      hint: t('page.dashboard.hint.unassigned_arrivals'),
+      icon: 'user',
+      iconClass: 'bg-teal-50 text-teal-600',
+      // The arrivals board is where a room is chosen, so "assign rooms" and
+      // "view arrivals" are the same destination reached with two different
+      // jobs in mind.
+      actionLabel: t('page.dashboard.action.assign_rooms'),
+      actionIcon: 'grid',
+      actionClass: 'bg-teal-50 text-teal-700',
       to: arrivalsTo,
     },
     {
@@ -471,26 +529,38 @@ const frontDeskTiles = computed(() => {
       key: 'rooms_not_ready',
       label: t('page.dashboard.rooms_not_ready'),
       value: r.vacant_not_ready ?? r.vacant_dirty ?? 0,
-      icon: 'alert-triangle',
+      hint: t('page.dashboard.hint.rooms_not_ready'),
+      icon: 'bell',
       iconClass: 'bg-amber-50 text-amber-600',
-      tone: 'text-ink-amber-3',
-      to: rackTo,
+      actionLabel: housekeepingOpen
+        ? t('page.dashboard.action.view_housekeeping')
+        : t('page.dashboard.action.view_rooms'),
+      actionIcon: 'clipboard',
+      actionClass: 'bg-amber-50 text-amber-700',
+      to: housekeepingOpen ? { name: 'Housekeeping' } : rackTo,
     },
     {
       key: 'departures_pending',
       label: t('page.dashboard.pending_check_outs'),
       value: f.departures_pending ?? 0,
-      icon: 'clock',
-      iconClass: 'bg-amber-50 text-amber-600',
-      tone: 'text-ink-amber-3',
+      hint: t('page.dashboard.hint.pending_check_outs'),
+      icon: 'log-out',
+      iconClass: 'bg-pink-50 text-pink-600',
+      actionLabel: t('page.dashboard.action.view_departures'),
+      actionIcon: 'log-out',
+      actionClass: 'bg-pink-50 text-pink-700',
       to: departuresTo,
     },
     {
       key: 'due_out',
       label: t('page.dashboard.due_out'),
       value: f.due_out ?? 0,
-      icon: 'briefcase',
+      hint: t('page.dashboard.hint.due_out'),
+      icon: 'clock',
       iconClass: 'bg-violet-50 text-violet-600',
+      actionLabel: t('page.dashboard.action.due_out_list'),
+      actionIcon: 'users',
+      actionClass: 'bg-violet-50 text-violet-700',
       to: inHouseTo,
     },
     {
@@ -499,17 +569,26 @@ const frontDeskTiles = computed(() => {
       key: 'assignable',
       label: t('page.dashboard.available'),
       value: r.assignable ?? 0,
-      icon: 'check-circle',
+      hint: t('page.dashboard.hint.available_now'),
+      icon: 'key',
       iconClass: 'bg-green-50 text-green-600',
-      tone: 'text-ink-green-3',
+      // The rack, not the availability search: this is a live room count, and
+      // the rack is the screen that lists those rooms by number.
+      actionLabel: t('page.dashboard.action.view_inventory'),
+      actionIcon: 'grid',
+      actionClass: 'bg-green-50 text-green-700',
       to: rackTo,
     },
     {
       key: 'in_house_rooms',
       label: t('page.dashboard.in_house_rooms'),
       value: f.in_house_rooms ?? 0,
+      hint: t('page.dashboard.hint.in_house_rooms'),
       icon: 'home',
       iconClass: 'bg-blue-50 text-blue-600',
+      actionLabel: t('page.dashboard.action.view_in_house'),
+      actionIcon: 'users',
+      actionClass: 'bg-blue-50 text-blue-700',
       to: inHouseTo,
     },
   ]

@@ -145,6 +145,17 @@ def get_room_states(property_name: str, rooms: list[str] | None = None) -> dict[
 		row["assignable"] = room_service.is_assignable_now(
 			row["name"], state=row, occupied_rooms=occupied_now
 		)
+		# Physical occupancy from the same authority, for the same reason.
+		#
+		# `assignable` was derived from the active Stay in R1B and the occupancy
+		# *count* was left reading `occupancy_status`, which is a denormalised flag
+		# `rooms.OCCUPIED_STATES` says in as many words is "not the authority for
+		# whether somebody is in the room". Two consequences on live data: a room
+		# flagged `Due Out` is in neither `OCCUPIED_STATES` nor `Vacant`, so it fell
+		# out of both counters and the house simply lost it; and a room whose flag
+		# had gone stale to `Vacant` mid-stay was counted as vacant and clean while
+		# a guest was asleep in it.
+		row["occupied_now"] = row["name"] in occupied_now
 		row["ready"] = bool(row.get("housekeeping_status") in room_service.READY_HOUSEKEEPING)
 
 	return {row["name"]: row for row in records}
@@ -396,6 +407,12 @@ def _room_counts(rooms: list[dict]) -> dict:
 	and never merged: a room can be vacant, dirty and out of service at once,
 	and a single "status" number would hide two of those three facts
 	(SAS section 3.2).
+
+	`occupied` is the one count that is **not** read off a status field: it asks
+	which rooms an active Stay is physically in, which is what the desk means by
+	"occupied now" and what `assignable` has been derived from since R1B.
+	`vacant` and everything under it stay flag-derived, because those are
+	housekeeping and maintenance questions about the room itself.
 	"""
 	counts = {
 		"total": len(rooms),
@@ -422,7 +439,11 @@ def _room_counts(rooms: list[dict]) -> dict:
 		housekeeping = room.get("housekeeping_status")
 		maintenance = room.get("maintenance_status")
 
-		if occupancy in room_service.OCCUPIED_STATES:
+		# The active Stay first, the flag second. `occupied_now` is the authority
+		# and is present on every row `get_room_states` builds; the flag is kept as
+		# the fallback so a caller assembling room dicts another way - and a House
+		# Use room, which has no Stay at all - still counts.
+		if room.get("occupied_now") or occupancy in room_service.OCCUPIED_STATES:
 			counts["occupied"] += 1
 		elif occupancy == "Vacant":
 			counts["vacant"] += 1

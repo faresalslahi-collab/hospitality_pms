@@ -110,6 +110,10 @@ export function stubProperty(overrides = {}) {
     name: 'DOHA01',
     property_name: 'Doha Grand',
     currency: 'QAR',
+    // Required on every Property and sent in the context payload. Screens that
+    // need today's *calendar* date read it from here, never from the runtime,
+    // so a bench in another zone does not change what a Doha desk sees.
+    time_zone: 'Asia/Qatar',
     // Not today: a property mid-Night-Audit is still working an earlier day,
     // and a screen that defaults from the browser clock is the defect this
     // fixture exists to catch.
@@ -136,6 +140,9 @@ export function resetStores() {
   property.state.properties = []
   property.state.active = null
   property.state.loaded = false
+  // The shared clock's invalidation counter. Reset so a spec that pins the
+  // system time is not reading a `today` computed cached under the real one.
+  property.state.clockTick += 1
   session.state.user = null
   session.state.roles = []
   session.state.loaded = false

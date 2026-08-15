@@ -94,11 +94,30 @@
                 :disabled="!row.folio"
                 @click="goToFolio(row)"
               />
+              <!--
+                A blocked row gets a different affordance, not the same one with a
+                warning beside it.
+
+                The badge said "Cannot check out" and the button next to it still
+                said "Check out", in the solid theme every ready row uses. The
+                server refuses either way - the checkout screen renders the
+                blockers first and disables its own button while any remain - so
+                nothing was ever bypassed. What was wrong is that the desk could
+                not tell the two rows apart at a glance, which is the one thing a
+                departures list is for.
+
+                Same destination: the checkout screen *is* the blocker workflow.
+                Only the wording and the weight change.
+              -->
               <Button
                 v-else
-                variant="solid"
+                :variant="row.can_check_out ? 'solid' : 'subtle'"
                 size="sm"
-                :label="t('page.departures.action.checkout')"
+                :label="
+                  row.can_check_out
+                    ? t('page.departures.action.checkout')
+                    : t('page.departures.action.review_checkout')
+                "
                 @click="goToCheckout(row)"
               />
             </td>

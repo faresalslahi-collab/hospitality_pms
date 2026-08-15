@@ -114,6 +114,30 @@ export const ROOM_STATE_LEGEND = [
 ]
 
 /**
+ * The icon each state is summarised with, from the app's own Feather set.
+ *
+ * Kept beside the colour and the label rather than in the board, for the reason
+ * at the top of this file: a state that is amber in the grid and orange in its
+ * counter is a state the desk has to think about twice, and the same goes for
+ * its glyph. Feather has no bed and no broom, so an occupied room is marked by
+ * the person in it and a dirty one by the housekeeping task it becomes — which
+ * is also the icon the Open work panel already uses for housekeeping.
+ *
+ * `blocked` takes the slash its chip already carries, so the counter and the
+ * corner glyph on the tile say the same thing.
+ */
+export const ROOM_STATE_ICON = {
+  occupied: 'user',
+  vacant_clean: 'check-circle',
+  vacant_dirty: 'clipboard',
+  reserved: 'calendar',
+  out_of_order: 'alert-triangle',
+  out_of_service: 'tool',
+  blocked: 'slash',
+  other: 'help-circle',
+}
+
+/**
  * What each state is *called*, which is not the same list as the legend.
  *
  * A room chip names its own state in its tooltip and its accessible label, and

@@ -45,6 +45,26 @@ export function t(key, params) {
   return text
 }
 
+/**
+ * Translate a counted string, in the plural form its language requires.
+ *
+ * English has two forms and Arabic has six, so "3 days behind" cannot be one
+ * catalogue entry with a number substituted into it: Arabic needs يومين for two
+ * and أيام for three, and picking either in a component would put grammar in
+ * the wrong file. `Intl.PluralRules` names the category and the catalogue holds
+ * one entry per category, keyed `<key>.<category>`.
+ *
+ * A language that does not use a category simply has no entry for it, and the
+ * lookup falls back to `<key>.other` — which is the form every locale has.
+ */
+export function tCount(key, count, params) {
+  const catalogue = messages[state.locale] || messages.en
+  const category = new Intl.PluralRules(state.locale).select(count)
+  const specific = `${key}.${category}`
+
+  return t(specific in catalogue ? specific : `${key}.other`, { count, ...params })
+}
+
 /** Switch the active locale and mirror the document for RTL. */
 export function setLocale(next) {
   state.locale = messages[next] ? next : 'en'

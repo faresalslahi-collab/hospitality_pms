@@ -377,6 +377,7 @@ const STEP_COPY = {
 
 const STATE_LABEL = {
   done: 'page.night_audit.state_done',
+  recorded: 'page.night_audit.state_recorded',
   current: 'page.night_audit.state_current',
   blocked: 'page.night_audit.state_blocked',
 }
