@@ -41,7 +41,7 @@ from frappe import _
 from frappe.utils import flt, now_datetime, nowdate
 
 from hospitality_pms.services import durability
-from hospitality_pms.services.base import lock_and_get_doc, lock_and_read
+from hospitality_pms.services.base import lock_and_get_doc, lock_and_read, require_role
 from hospitality_pms.services.exceptions import (
 	ConfigurationError,
 	PostingError,
@@ -78,6 +78,22 @@ PAYMENT_MODE_MAP = {
 	"Cheque": "Cheque",
 	"Online Gateway": "Credit Card",
 }
+
+#: How many ERP document names one finality query asks about. The close-time
+#: check reads in batches rather than a row at a time, so the number of
+#: statements is bounded by the number of DocTypes involved and not by the size
+#: of the night's population (16.7.5-R1F).
+FINALITY_BATCH = 200
+
+#: Withdrawing the PMS's claim on a posting is a finance decision about the
+#: ledger, not an operational one. Deliberately narrower than
+#: `RECONCILIATION_ROLES`: a Night Auditor may *see* that a posting has gone
+#: stale and must not be the one who writes off the claim.
+WITHDRAWAL_ROLES = (
+	"Finance Manager",
+	"Hospitality Administrator",
+	"System Manager",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +209,553 @@ def _stale_rows(rows: list[dict]) -> list[dict]:
 		if row["posting_status"] in (POSTED, RECONCILED)
 		and not _erp_document_is_live(row["erp_doctype"], row["erp_document"])
 	]
+
+
+# ---------------------------------------------------------------------------
+# Finality (16.7.5-R1F)
+# ---------------------------------------------------------------------------
+#
+# `_erp_document_is_live` answers "is this document in the ledger", one document
+# at a time, from whatever snapshot the caller's transaction is holding. That is
+# the right shape for reconciliation, which is reading a folio it has just
+# loaded anyway.
+#
+# It is the wrong shape for the Night Audit's close. Close needs a *current*
+# answer about a *set* of documents, taken once, immediately before the business
+# date moves - and it must not pay a locking round trip per row to get it, which
+# is what R1E's reviewers refused. So the set is read in batches grouped by
+# DocType, in a deterministic order, and the whole check is over before the date
+# advances.
+#
+# It also needs a stronger question than liveness. A credit note is a Sales
+# Invoice with `is_return` set and `return_against` naming the original
+# (`sales_and_purchase_return.py:461-464`), with negated quantities, so its
+# `grand_total` is negative. Where its receivable lands depends on
+# `update_outstanding_for_self`: unset, ERPNext books the GL entry against
+# `return_against` (`sales_invoice.py:1673-1676`); set, against the credit note
+# itself. And ERPNext *forces* it set whenever the return exceeds what the
+# original still owes (`accounts_controller.py:220-223`) - which for a hotel
+# folio is the ordinary case, not the exception, because the folio was settled
+# at checkout and the invoice's outstanding is already zero.
+#
+# Either way the original keeps `docstatus == 1` while the money it charged has
+# been credited back, and either way the return carries `return_against`. So the
+# check keys on `return_against`, which survives the flip, and `docstatus == 1`
+# alone is not proof that an invoice still stands for what it stood for when
+# reconciliation accepted it.
+
+
+def submitted_returns(invoices: list[str], *, current: bool = False) -> list[dict]:
+	"""The submitted credit notes raised against these Sales Invoices.
+
+	Only submitted returns count - a draft credit note has reversed nothing,
+	exactly as a draft invoice has posted nothing.
+
+	Read in batches with a deterministic order. A folio's invoices are usually
+	one or two, but a night's population is not, and this is asked once for the
+	whole set rather than once per document.
+
+	`current=True` takes the read under a lock, and `close` needs it. A plain
+	`SELECT` is answered from the snapshot the transaction opened at its first
+	read, so a credit note committed after `close` started but before it checked
+	would be invisible - and the invoice it credits stays `docstatus == 1`, so
+	the liveness arm would not catch it either. Locking is the only version of
+	this read that can see it (N1, `base.lock_and_read`).
+	"""
+	if not invoices:
+		return []
+
+	rows: list[dict] = []
+
+	for chunk in _chunks(sorted(set(invoices))):
+		rows.extend(
+			frappe.db.get_values(
+				"Sales Invoice",
+				{"return_against": ("in", chunk), "docstatus": 1, "is_return": 1},
+				["name", "return_against", "grand_total"],
+				as_dict=True,
+				order_by="name asc",
+				for_update=bool(current),
+			)
+			or []
+		)
+
+	return rows
+
+
+def submitted_returns_against(invoices: list[str], *, current: bool = False) -> dict[str, float]:
+	"""What each of these Sales Invoices has had credited back against it.
+
+	The signed total, because that is what ERPNext stores: a return's
+	`grand_total` is negative.
+	"""
+	totals: dict[str, float] = {name: 0.0 for name in invoices}
+
+	for row in submitted_returns(invoices, current=current):
+		totals[row["return_against"]] = flt(totals.get(row["return_against"], 0.0)) + flt(
+			row["grand_total"]
+		)
+
+	return totals
+
+
+def posting_rows_for_finality(
+	property_name: str, *, since, folios: list[str] | None = None
+) -> list[dict]:
+	"""Every posting whose ERP document this audit period is accountable for.
+
+	Two clauses, mirroring `night_audit.reconciliation_population` - and
+	deliberately *not* joined to `Guest Folio`:
+
+	* postings dated into this audit window, whatever the folio behind them is
+	  doing now. This is the clause that closes 16.7.5-R1F. The window is the
+	  posting log's own `business_date`, which is stamped when the posting is
+	  claimed and never revised, so a folio moving to Under Review afterwards
+	  cannot take its accounting out of the set;
+	* postings belonging to the folios reconciliation examined, whatever date
+	  they carry. The safety net, so an older document supporting a folio still
+	  under examination is checked too.
+
+	Paginated on `name` to exhaustion, keyed on the primary key rather than on
+	`modified`, for the reason `reconciliation_population` is: a row changing
+	underneath the cursor must not be able to skip past it.
+	"""
+	rows: dict[str, dict] = {}
+
+	for page in _finality_pages(property_name, since=since):
+		for row in page:
+			rows[row["name"]] = row
+
+	for chunk in _chunks(sorted(set(folios or []))):
+		for row in frappe.get_all(
+			POSTING_LOG,
+			filters={
+				"property": property_name,
+				"folio": ("in", chunk),
+				"posting_status": ("in", (POSTED, RECONCILED)),
+				"erp_document": ("is", "set"),
+			},
+			fields=_FINALITY_FIELDS,
+			order_by="name asc",
+		):
+			rows[row["name"]] = row
+
+	return [rows[name] for name in sorted(rows)]
+
+
+#: What a finality row needs to know about itself. `amount` is carried so the
+#: evidence a close refused on can be read without re-joining the log.
+_FINALITY_FIELDS = [
+	"name",
+	"folio",
+	"posting_type",
+	"posting_status",
+	"erp_doctype",
+	"erp_document",
+	"amount",
+]
+
+
+def _finality_pages(property_name: str, *, since):
+	"""The window clause, paginated on `name`."""
+	cursor = ""
+
+	while True:
+		page = frappe.get_all(
+			POSTING_LOG,
+			filters={
+				"property": property_name,
+				"business_date": (">=", since),
+				"posting_status": ("in", (POSTED, RECONCILED)),
+				"erp_document": ("is", "set"),
+				"name": (">", cursor),
+			},
+			fields=_FINALITY_FIELDS,
+			order_by="name asc",
+			limit=FINALITY_BATCH,
+		)
+
+		if not page:
+			return
+
+		yield page
+		cursor = page[-1]["name"]
+
+
+def _chunks(values: list[str], size: int = FINALITY_BATCH):
+	for start in range(0, len(values), size):
+		yield values[start : start + size]
+
+
+def finality_evidence(rows: list[dict], *, accepted_folios: set[str] | None = None) -> list[dict]:
+	"""Turn posting-log rows into the evidence a close will be checked against.
+
+	The snapshot is taken *here*, while reconciliation is looking at the ledger,
+	so that close compares like with like rather than forming a second opinion.
+
+	`accepted_folios` is what stops that snapshot laundering an existing credit
+	note, and it is not an optimisation - it is the difference between a delta
+	test and an absolute one.
+
+	The liveness arm is absolute: `docstatus` must be 1, whenever it is asked. The
+	credited-back arm can only be a delta, because a folio may legitimately have
+	been credited and adjusted long before this audit ran, and refusing every one
+	of those would refuse days that are correct. So the baseline is recorded as
+	the ledger's current answer **only for folios this reconciliation actually
+	examined and found to agree** - for those, the credit note is already
+	accounted for in a variance of zero. For every other posting the baseline is
+	zero, so any return at all reads as a break.
+
+	Without that distinction the arm could never fire on a first run: the
+	baseline would be derived from the same read it is compared against, and a
+	folio moved out of the population - the exact escape R1F exists for - would
+	have its credit note recorded as the accepted state and never questioned
+	again.
+	"""
+	accepted = accepted_folios or set()
+	invoices = [
+		row["erp_document"] for row in rows if row["erp_doctype"] == "Sales Invoice" and row["erp_document"]
+	]
+	returned = submitted_returns_against(invoices)
+
+	return [
+		{
+			"posting_log": row["name"],
+			"folio": row["folio"],
+			"posting_type": row["posting_type"],
+			"erp_doctype": row["erp_doctype"],
+			"erp_document": row["erp_document"],
+			"amount": flt(row["amount"]),
+			"returned_total": (
+				flt(returned.get(row["erp_document"], 0.0)) if row["folio"] in accepted else 0.0
+			),
+		}
+		for row in rows
+	]
+
+
+def finality_breaks(evidence: list[dict], *, current: bool = False) -> list[dict]:
+	"""Which of the postings reconciliation accepted the ledger no longer supports.
+
+	Every answer is one of four, and each is a refusal:
+
+	* **withdrawn log row** - the claim itself is gone or unreadable. A row whose
+	  status is now `Cancelled` is *not* a break: that is finance having
+	  explicitly withdrawn the claim through `withdraw_stale_posting`, which is
+	  the supported recovery, and the folio variance it leaves behind is what
+	  then blocks the close until the money is put right;
+	* **redirected log row** - the log now names a different document than the
+	  one reconciliation accepted;
+	* **not in the ledger** - cancelled, deleted, or never submitted;
+	* **credited back** - still submitted, and reversed by a return raised since.
+
+	`current=True` takes the read under a lock, which is what close does after it
+	holds the audit and the property. Everything else reads the ordinary way.
+	"""
+	if not evidence:
+		return []
+
+	breaks: list[dict] = []
+	claimed = _current_log_claims([row["posting_log"] for row in evidence])
+	live: list[dict] = []
+
+	# Memoised per folio, not per evidence row. A folio with an invoice and two
+	# payments withdrawn would otherwise reconcile three times, and this runs on
+	# the close path while the audit and property rows are held.
+	settled_folios: dict[str | None, bool] = {}
+
+	for row in sorted(evidence, key=lambda item: item["posting_log"]):
+		claim = claimed.get(row["posting_log"])
+
+		if claim is None:
+			breaks.append({**row, "reason": "log_missing"})
+			continue
+
+		if claim["posting_status"] == CANCELLED:
+			# Withdrawn by finance. That records what happened; it does not undo
+			# it. The money this posting carried is still not in the ledger, so
+			# the withdrawal only stops being a break once the folio it belongs
+			# to agrees with the ledger again.
+			#
+			# Skipping it outright was wrong, and wrong in the one direction that
+			# matters: it made `withdraw_stale_posting` a way to close the day.
+			# Cancel the invoice, withdraw the claim, close - no re-reconciliation,
+			# no variance, and the charges still stamped against a document that
+			# is gone.
+			if row["folio"] not in settled_folios:
+				settled_folios[row["folio"]] = _folio_agrees_with_ledger(row["folio"])
+
+			if not settled_folios[row["folio"]]:
+				breaks.append({**row, "reason": "withdrawn_unsettled"})
+
+			continue
+
+		if claim["erp_document"] != row["erp_document"] or (
+			claim["erp_doctype"] or claim["posting_type"]
+		) != row["erp_doctype"]:
+			breaks.append({**row, "reason": "log_redirected"})
+			continue
+
+		live.append(row)
+
+	gone = _documents_not_in_ledger(live, current=current)
+	breaks.extend(gone)
+
+	# Keyed off the *liveness* breaks only. Built from every break, a row already
+	# refused for a missing or redirected log would have suppressed the returns
+	# check on a second, healthy row naming the same invoice.
+	missing = {(row["erp_doctype"], row["erp_document"]) for row in gone}
+	standing = [
+		row
+		for row in live
+		if row["erp_doctype"] == "Sales Invoice"
+		and (row["erp_doctype"], row["erp_document"]) not in missing
+	]
+
+	breaks.extend(_documents_credited_back(standing, current=current))
+
+	return breaks
+
+
+def _folio_agrees_with_ledger(folio: str | None) -> bool:
+	"""Whether this folio and ERPNext currently say the same thing.
+
+	Asked only about folios carrying a withdrawn claim, which are rare and
+	exceptional by construction, so the cost of a full `reconcile_folio` is paid
+	on a handful of rows rather than on the night's population.
+
+	A posting with no folio behind it cannot be settled by settling one, so it
+	is never treated as resolved.
+	"""
+	if not folio:
+		return False
+
+	return bool(reconcile_folio(folio)["is_reconciled"])
+
+
+def _current_log_claims(logs: list[str]) -> dict[str, dict]:
+	"""What the posting log says about these rows *now*, read in batches."""
+	claims: dict[str, dict] = {}
+
+	for chunk in _chunks(sorted(set(logs))):
+		for row in frappe.get_all(
+			POSTING_LOG,
+			filters={"name": ("in", chunk)},
+			fields=["name", "posting_status", "posting_type", "erp_doctype", "erp_document"],
+			order_by="name asc",
+		):
+			claims[row["name"]] = row
+
+	return claims
+
+
+def _documents_not_in_ledger(rows: list[dict], *, current: bool) -> list[dict]:
+	"""Batched `docstatus` read, grouped by DocType, in a deterministic order.
+
+	One statement per DocType per batch, rather than the per-row `FOR UPDATE`
+	R1E was refused for. The ordering - DocTypes alphabetically, names within a
+	DocType alphabetically - is what keeps two concurrent closes from taking the
+	same locks in opposite orders.
+	"""
+	grouped: dict[str, set[str]] = {}
+
+	for row in rows:
+		if not row["erp_doctype"] or not row["erp_document"]:
+			continue
+
+		grouped.setdefault(row["erp_doctype"], set()).add(row["erp_document"])
+
+	submitted: set[tuple[str, str]] = set()
+
+	for doctype in sorted(grouped):
+		for chunk in _chunks(sorted(grouped[doctype])):
+			# `ignore=True` for the reason `_erp_document_is_live` gives: `erp_doctype`
+			# is stored data, and a DocType a later patch renamed or removed leaves rows
+			# naming the old one. The read comes back `None`, nothing joins `submitted`,
+			# and every row against that DocType reads as not in the ledger - failing
+			# closed, which is the safe direction for a gate on the business date.
+			found = (
+				frappe.db.get_values(
+					doctype,
+					{"name": ("in", chunk)},
+					["name", "docstatus"],
+					as_dict=True,
+					order_by="name asc",
+					for_update=bool(current),
+					ignore=True,
+				)
+				or []
+			)
+
+			submitted.update(
+				(doctype, found_row["name"]) for found_row in found if found_row["docstatus"] == 1
+			)
+
+	return [
+		{**row, "reason": "not_in_ledger"}
+		for row in rows
+		if row["erp_doctype"]
+		and (row["erp_doctype"], row["erp_document"]) not in submitted
+	]
+
+
+def _documents_credited_back(rows: list[dict], *, current: bool = False) -> list[dict]:
+	"""Invoices still submitted, but reversed by a return raised since.
+
+	The case `docstatus` cannot see.
+
+	**More credited than the baseline, not merely different from it.** Returns
+	are stored negative, so the test is `<`. Inequality was wrong in a way that
+	had no exit: a credit note raised in error and then *cancelled* moves the
+	total back toward zero, which is the ledger becoming more correct, and it
+	refused the close for it. Reconciling again could not clear it, because the
+	baseline is written once; `withdraw_stale_posting` could not, because the
+	invoice is live again and no longer credited; and `reopen` needs a closed
+	audit. The business date would have been stuck permanently.
+	"""
+	if not rows:
+		return []
+
+	precision = frappe.get_precision("Sales Invoice", "grand_total") or 2
+	now = submitted_returns_against([row["erp_document"] for row in rows], current=current)
+
+	return [
+		{**row, "reason": "credited_back", "returned_now": flt(now.get(row["erp_document"], 0.0), precision)}
+		for row in rows
+		if flt(now.get(row["erp_document"], 0.0), precision) < flt(row["returned_total"], precision)
+	]
+
+
+def withdraw_stale_posting(log: str, reason: str) -> dict:
+	"""Withdraw the PMS's claim that a posting is in the ledger. Finance only.
+
+	The supported recovery for the condition every guard in this module refuses
+	on. Without it those guards are a trap: `mark_reconciled` will not stamp a
+	row whose document has left the ledger, `retry_posting` will not re-send it,
+	`post_folio_invoice` will not raise a replacement while the folio's rows are
+	still stamped, and the Night Audit will not close over it - so "re-run
+	reconciliation", which is what R1E told finance to do, could not have worked.
+
+	What it does is deliberately small, and deliberately not a repair:
+
+	* it refuses a posting whose document *is* still in the ledger. This is not
+	  a way to disown a live invoice;
+	* it moves the log row to `Cancelled` - the status this module already means
+	  "this row claims nothing" - and records who withdrew it and why;
+	* it leaves the folio's charge rows stamped and ERPNext untouched.
+
+	It therefore does not make the folio agree with the ledger, and must not:
+	the money that invoice carried is genuinely not in ERPNext any more, and
+	after the withdrawal `reconcile_folio` says so as a plain variance instead of
+	a stale posting.
+
+	**And the Night Audit keeps refusing until it does.** `finality_breaks` does
+	not treat a withdrawn claim as resolved; it asks whether the folio behind it
+	now agrees with the ledger, and only then lets it pass. Without that, this
+	function was a close button: cancel the invoice, withdraw the claim, close -
+	no re-reconciliation, no variance, and the charges still stamped against a
+	document that had gone. Recording that money left the ledger is not the same
+	as putting it back, and only one of the two entitles a business date to move.
+	"""
+	require_role(WITHDRAWAL_ROLES)
+
+	if not reason or not reason.strip():
+		throw(_("A reason is required to withdraw a posting."), exc=PostingError)
+
+	entry = lock_and_read(
+		POSTING_LOG,
+		log,
+		["name", "property", "folio", "posting_type", "posting_status", "erp_doctype", "erp_document", "amount"],
+	)
+
+	if not entry:
+		throw(_("Posting {0} does not exist.").format(log), exc=PostingError)
+
+	require_property_access(entry["property"])
+
+	if entry["posting_status"] not in (POSTED, RECONCILED):
+		throw(
+			_("Posting {0} does not claim an accounting document, so there is nothing to withdraw.").format(
+				log
+			),
+			exc=PostingError,
+		)
+
+	# Two conditions qualify, and they are the two `finality_breaks` refuses on.
+	# The document having left the ledger is the obvious one. The second is a
+	# Sales Invoice that is still submitted and has been credited back: ERPNext
+	# leaves the original standing and books the reversal against it, so the
+	# claim is just as empty and there is no cancellation to point at. Without
+	# this second case a credit-noted folio had no way out at all.
+	credited = (
+		flt(submitted_returns_against([entry["erp_document"]]).get(entry["erp_document"]))
+		if entry["erp_doctype"] == "Sales Invoice"
+		else 0.0
+	)
+
+	if _erp_document_is_live(entry["erp_doctype"], entry["erp_document"]) and not credited:
+		throw(
+			_(
+				"Posting {0} names a document that is still in the ledger and has not been "
+				"credited back. A posting that is live cannot be withdrawn."
+			).format(log),
+			exc=PostingError,
+		)
+
+	frappe.db.set_value(
+		POSTING_LOG,
+		log,
+		{
+			"posting_status": CANCELLED,
+			"error_message": _("Withdrawn by finance: {0}").format(reason.strip()),
+		},
+		update_modified=True,
+	)
+
+	_note_withdrawal(log, reason.strip())
+
+	if entry["folio"]:
+		# The folio's own audit trail, through the helper that already writes it.
+		# A withdrawal is a decision about that folio's money and belongs beside
+		# the reversals and adjustments, not only in a technical log.
+		from hospitality_pms.services import folio as folio_service
+
+		folio_service._log(
+			entry["folio"],
+			entry["property"],
+			"Posting claim withdrawn",
+			amount=flt(entry["amount"]),
+			reason=reason.strip(),
+			details={"posting_log": log, "posting_type": entry["posting_type"]},
+		)
+
+	return {
+		"log": log,
+		"folio": entry["folio"],
+		"posting_status": CANCELLED,
+		"withdrawn_by": frappe.session.user,
+	}
+
+
+def _note_withdrawal(log: str, reason: str):
+	"""Keep the withdrawal on the payload, beside `_authority`."""
+	try:
+		payload = json.loads(frappe.db.get_value(POSTING_LOG, log, "payload") or "{}")
+	except (ValueError, TypeError):
+		payload = {}
+
+	if not isinstance(payload, dict):
+		payload = {"payload": payload}
+
+	payload["_withdrawal"] = {
+		"withdrawn_by": frappe.session.user,
+		"withdrawn_on": str(now_datetime()),
+		"reason": reason,
+	}
+
+	frappe.db.set_value(
+		POSTING_LOG, log, "payload", json.dumps(payload, default=str, indent=1), update_modified=False
+	)
 
 
 def _stale_posting_message(log: str) -> str:
@@ -1206,7 +1769,19 @@ def reconcile_folio(folio: str) -> dict:
 	invoices = _submitted_invoices(folio)
 	entries = _submitted_payment_entries(folio)
 
-	erp_invoiced = sum(flt(row["grand_total"]) for row in invoices)
+	# Net of what has been credited back. An invoice that a credit note has
+	# reversed is still `docstatus == 1` and still sums into `grand_total`, so
+	# without this the folio and the ledger were reported as agreeing on money
+	# ERPNext had already taken out again - the original invoice standing in as
+	# proof of a posting it no longer represents (16.7.5-R1F).
+	#
+	# The credit note is found from ERPNext's own `return_against`, not from the
+	# posting log: finance raises it in ERPNext, so nothing in the PMS ever wrote
+	# a row for it and a log-side lookup would find nothing to net.
+	returns = submitted_returns([row["name"] for row in invoices])
+	erp_returned = sum(flt(row["grand_total"]) for row in returns)
+
+	erp_invoiced = sum(flt(row["grand_total"]) for row in invoices) + erp_returned
 	invoice_outstanding = sum(flt(row["outstanding_amount"]) for row in invoices)
 
 	# Signed: a refund is money leaving, and netting it here is what makes
@@ -1296,6 +1871,8 @@ def reconcile_folio(folio: str) -> dict:
 		"folio_charges": flt(doc.total_charges, precision),
 		"folio_payments": flt(doc.total_payments, precision),
 		"erp_invoiced": flt(erp_invoiced, precision),
+		"erp_returned": flt(erp_returned, precision),
+		"erp_credit_notes": [row["name"] for row in returns],
 		"erp_paid": flt(erp_paid, precision),
 		"erp_allocated_payments": flt(erp_allocated, precision),
 		"unallocated_payments": flt(erp_paid - erp_allocated, precision),

@@ -263,6 +263,13 @@ MATRIX = {
 	# Technical records (Roles Matrix section 5). Finance reads them to
 	# reconcile; nobody edits them through the UI.
 	"Financial Posting Log": build(readers=TECHNICAL_READERS + FINANCE),
+	# The Night Audit's record of which of those postings a reconciliation
+	# validated (16.7.5-R1F). Deliberately the *same* grant as the log it points
+	# at: every field it carries is a field of `Financial Posting Log`, so a
+	# wider grant would publish accounting document names to roles the log
+	# itself withholds them from, and a narrower one would withhold from finance
+	# the evidence a refused close is explained by.
+	"Night Audit Reconciled Posting": build(readers=TECHNICAL_READERS + FINANCE),
 	"Payment Provider": build(
 		readers=["Finance Manager", *MANAGEMENT, *ADMIN, *AUDITOR],
 		writers=ADMIN,

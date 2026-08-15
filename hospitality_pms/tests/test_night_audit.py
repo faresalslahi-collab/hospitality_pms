@@ -68,7 +68,12 @@ class NightAuditTestCase(IntegrationTestCase):
 		#
 		# `reset_property_records` routes through `_purge`, which resolves the parent
 		# names for the filter first and only then deletes child rows for those parents.
-		self.world.fixtures.reset_property_records(self.world.property, (AUDIT,))
+		# The reconciled-posting evidence goes first: it links to the audits, and a
+		# suite that cleared the audits alone would leave rows pointing at names that
+		# no longer exist (16.7.5-R1F).
+		self.world.fixtures.reset_property_records(
+			self.world.property, ("Night Audit Reconciled Posting", AUDIT)
+		)
 
 	def _audit(self) -> str:
 		return audit_service.start(self.world.property)

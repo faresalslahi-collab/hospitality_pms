@@ -1,0 +1,177 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-08-15 09:00:00.000000",
+ "description": "The exact set of Financial Posting Log rows one Night Audit reconciliation examined and accepted (16.7.5-R1F). Written only by NightAuditService.reconcile and read only by NightAuditService.close, which re-checks this same set against the live ledger immediately before the business date advances. It exists because the close-time set must not be re-derived from the folios' current status: a folio moved to Under Review after reconciliation dropped out of that derivation and took its accounting out of the close gate with it.",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "identity_section",
+  "night_audit",
+  "property",
+  "identity_col",
+  "posting_log",
+  "folio",
+  "posting_type",
+  "erp_section",
+  "erp_doctype",
+  "erp_document",
+  "erp_col",
+  "amount",
+  "returned_total"
+ ],
+ "fields": [
+  {
+   "fieldname": "identity_section",
+   "fieldtype": "Section Break",
+   "label": "Identity"
+  },
+  {
+   "fieldname": "night_audit",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Night Audit",
+   "options": "Night Audit",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "property",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Property",
+   "options": "Property",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "identity_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "posting_log",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Financial Posting Log",
+   "options": "Financial Posting Log",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "folio",
+   "fieldtype": "Link",
+   "label": "Guest Folio",
+   "options": "Guest Folio"
+  },
+  {
+   "fieldname": "posting_type",
+   "fieldtype": "Data",
+   "label": "Posting Type"
+  },
+  {
+   "fieldname": "erp_section",
+   "fieldtype": "Section Break",
+   "label": "Accounting Document"
+  },
+  {
+   "fieldname": "erp_doctype",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "ERP DocType",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "erp_document",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "ERP Document",
+   "options": "erp_doctype"
+  },
+  {
+   "fieldname": "erp_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount"
+  },
+  {
+   "description": "The value of the submitted returns booked against this accounting document when reconciliation accepted it. A credit note raised afterwards leaves the original invoice submitted while reversing what it charged, so docstatus alone is not proof of finality.",
+   "fieldname": "returned_total",
+   "fieldtype": "Currency",
+   "label": "Returned Total"
+  }
+ ],
+ "grid_page_length": 50,
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-08-15 09:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Hospitality Night Audit",
+ "name": "Night Audit Reconciled Posting",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hospitality Administrator"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "General Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Night Auditor"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Read-Only Auditor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Finance Manager"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "search_fields": "night_audit,posting_log,erp_document",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

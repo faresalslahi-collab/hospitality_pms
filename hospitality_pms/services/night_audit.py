@@ -41,6 +41,11 @@ from hospitality_pms.services.property import BUSINESS_DATE_FLAG, get_business_d
 
 AUDIT_DOCTYPE = "Night Audit"
 
+#: Where reconciliation writes down the exact set of financial postings it
+#: validated, so that `close` can re-check that same set rather than deriving a
+#: new one (16.7.5-R1F).
+RECONCILED_POSTING_DOCTYPE = "Night Audit Reconciled Posting"
+
 OPEN = "Open"
 REVIEWING = "Reviewing"
 POSTING = "Posting"
@@ -442,12 +447,33 @@ def reconcile(audit: str) -> dict:
 
 	population = reconciliation_population(doc.property, business_date)
 	variances = []
+	accepted = set()
 
 	for folio in population:
 		result = posting_service.reconcile_folio(folio)
 
-		if not result["is_reconciled"]:
+		if result["is_reconciled"]:
+			accepted.add(folio)
+		else:
 			variances.append(result)
+
+	# The financial postings this reconciliation is accountable for, and whether
+	# the ledger still supports them. Built from the Financial Posting Log rather
+	# than from the folios, so that a folio's *current* status cannot decide what
+	# gets checked - see `posting.posting_rows_for_finality` (16.7.5-R1F).
+	evidence = posting_service.finality_evidence(
+		posting_service.posting_rows_for_finality(
+			doc.property,
+			since=_previous_closed_audit_date(doc.property, business_date),
+			folios=population,
+		),
+		# Only a folio this run examined *and found to agree* may have its
+		# credit notes recorded as the accepted state. Everything else is
+		# baselined at zero, so an existing credit note on a folio that has left
+		# the population is a break rather than a new normal.
+		accepted_folios=accepted,
+	)
+	breaks = posting_service.finality_breaks(evidence)
 
 	# Rebuilt rather than appended to, so a variance that has since been fixed
 	# stops blocking the close instead of lingering from an earlier run.
@@ -491,6 +517,35 @@ def reconcile(audit: str) -> dict:
 			},
 		)
 
+	# A posting whose folio is already carrying a variance row is not reported
+	# twice. The folio row is the more useful of the two - it names the record
+	# finance works from - so the log-level row is raised only for postings whose
+	# folio this reconciliation did not examine, which is exactly the population
+	# the R1F escape lived in.
+	varied_folios = {variance["folio"] for variance in variances}
+
+	for row in breaks:
+		if row["folio"] and row["folio"] in varied_folios:
+			continue
+
+		doc.append(
+			"audit_exceptions",
+			{
+				"exception_type": "Unposted Charge",
+				"reference_doctype": posting_service.POSTING_LOG,
+				"reference_name": row["posting_log"],
+				# The accounting document is not in the sentence, for the reason the
+				# folio's name is not in the one above (16.7.5-R1B): this description
+				# is rendered on the Night Audit screen to every role that can open
+				# one. The posting log's identity travels in the gated `reference`.
+				"description": _(
+					"A posting this business date reconciled is no longer supported by the "
+					"ledger. It needs reconciliation."
+				),
+				"severity": BLOCKING,
+			},
+		)
+
 	_refresh_figures(doc, business_date, room_revenue=flt(doc.room_revenue))
 
 	fingerprint = _audit_date_fingerprint(doc.property, business_date)
@@ -498,9 +553,11 @@ def reconcile(audit: str) -> dict:
 	doc.reconciliation_completed_on = now_datetime()
 	doc.reconciliation_completed_by = frappe.session.user
 	doc.reconciliation_population = len(population)
-	doc.reconciliation_variances = len(variances)
+	doc.reconciliation_variances = len(variances) + len(breaks)
 	doc.reconciled_row_count = fingerprint["rows"]
 	doc.reconciled_row_total = flt(fingerprint["total"], 2)
+
+	_record_reconciled_postings(audit, doc.property, evidence)
 
 	if not _blocking_exceptions(doc):
 		_transition(doc, READY_TO_CLOSE)
@@ -510,10 +567,105 @@ def reconcile(audit: str) -> dict:
 	return {
 		"audit": audit,
 		"population": len(population),
+		"postings": len(evidence),
 		"variances": len(variances),
+		"stale_postings": len(breaks),
 		"blocking": len(_blocking_exceptions(doc)),
 		"audit_status": doc.audit_status,
 	}
+
+
+def _record_reconciled_postings(audit: str, property_name: str, evidence: list[dict]):
+	"""Write down the postings this reconciliation validated, once each.
+
+	**Write-once per (audit, posting).** A row records the state of the ledger
+	when this audit *first* accepted that posting, and a later reconciliation
+	never revises it. That is the whole mechanism: if revisiting were allowed,
+	re-running reconciliation after finance cancelled an invoice or raised a
+	credit note would quietly re-baseline the audit against the damaged state and
+	hand back exactly the close R1F exists to refuse.
+
+	**Additive.** A posting that enters the set on a later run is added. The set
+	only ever grows within one audit, and is cleared only by `reopen`, which
+	discards the reconciliation itself.
+	"""
+	if not evidence:
+		return
+
+	# A locking read, not a plain one. `reconcile` holds the audit row, which
+	# serialises two runs but does not refresh either one's snapshot: the second
+	# would still see the set as it stood before the first wrote to it and insert
+	# every row again. Duplicates fail safe - the original baseline survives and
+	# still fires at close - but they inflate `reconciliation_variances` and the
+	# count in the refusal, which is a number finance reads.
+	already = {
+		row["posting_log"]
+		for row in frappe.db.get_values(
+			RECONCILED_POSTING_DOCTYPE,
+			{"night_audit": audit},
+			["posting_log"],
+			as_dict=True,
+			order_by="posting_log asc",
+			for_update=True,
+		)
+		or []
+	}
+
+	for row in evidence:
+		if row["posting_log"] in already:
+			continue
+
+		with service_context(NIGHT_AUDIT_SERVICE):
+			frappe.get_doc(
+				{
+					"doctype": RECONCILED_POSTING_DOCTYPE,
+					"night_audit": audit,
+					"property": property_name,
+					"posting_log": row["posting_log"],
+					"folio": row["folio"],
+					"posting_type": row["posting_type"],
+					"erp_doctype": row["erp_doctype"],
+					"erp_document": row["erp_document"],
+					"amount": flt(row["amount"]),
+					"returned_total": flt(row["returned_total"]),
+				}
+			).insert(ignore_permissions=True)
+
+		already.add(row["posting_log"])
+
+
+def reconciled_postings(audit: str) -> list[dict]:
+	"""The evidence set a close will be checked against.
+
+	Ordered on the posting log's name so the close-time reads are deterministic
+	whatever order the rows were written in.
+
+	A locking read, like the two other reads in this scheme. It is the read that
+	decides whether there is anything to check at all, so a stale snapshot of it
+	does not weaken the gate - it skips it. `close` blocks on the audit row while
+	a reconciliation holds it; when the lock is released the evidence has been
+	committed, and a plain `SELECT` would still be answered from the read view
+	`close` opened before it waited. Empty set, early return, no finality check.
+	"""
+	return (
+		frappe.db.get_values(
+			RECONCILED_POSTING_DOCTYPE,
+			{"night_audit": audit},
+			[
+				"posting_log",
+				"folio",
+				"posting_type",
+				"erp_doctype",
+				"erp_document",
+				"amount",
+				"returned_total",
+			],
+			as_dict=True,
+			order_by="posting_log asc",
+			for_update=True,
+		)
+		or []
+	)
 
 
 def reconciliation_population(property_name: str, business_date) -> list[str]:
@@ -642,6 +794,17 @@ def close(audit: str) -> dict:
 			exc=NightAuditError,
 		)
 
+	# Last, and deliberately last. Everything above is read from the PMS's own
+	# records; this is the one check that asks the accounting system a question,
+	# and it asks it under the audit and property locks with nothing left to do
+	# afterwards but move the date. That is what makes the race safe: a
+	# cancellation either commits before this read, in which case it is seen and
+	# the close is refused, or it waits behind the locking read and lands after
+	# the business date has already moved over an ledger that was intact when it
+	# moved. What cannot happen is the date closing over accounting that was
+	# already invalid when the check ran.
+	_assert_reconciled_postings_are_final(doc)
+
 	next_date = add_days(business_date, 1)
 
 	_set_business_date(doc.property, next_date)
@@ -767,6 +930,61 @@ def _assert_no_unresolved_posting_failures(property_name: str):
 		)
 
 
+def _assert_reconciled_postings_are_final(doc):
+	"""Re-check the exact set reconciliation accepted, against the live ledger.
+
+	This is 16.7.5-R1F, and the thing it does differently from R1E is the whole
+	of it: the set is **read back from what reconciliation wrote down**, not
+	recomputed from the folios.
+
+	R1E recomputed it, from `reconciliation_population`, which selects folios by
+	their *current* `folio_status`. `checkout.reverse_checkout` is a supported
+	operation that moves a Settled folio to Under Review - so a folio could be
+	settled, be reconciled, be reversed out of the population, have its invoice
+	cancelled, and close: the guard no longer had anything to look at. The audit
+	was checking the set it could see rather than the set it had claimed.
+
+	So `close` now asks the question reconciliation's own evidence poses. Any
+	posting that evidence names, whose folio may since have gone anywhere at all,
+	must still be supported by the ledger:
+
+	* the log row must still claim the document reconciliation accepted, or have
+	  been explicitly withdrawn by finance;
+	* the document must still be submitted;
+	* and it must not have been credited back since.
+
+	The reads are batched by DocType and taken in a fixed order, once. Nothing is
+	written to ERPNext, here or anywhere else on this path.
+	"""
+	evidence = reconciled_postings(doc.name)
+
+	if not evidence:
+		return
+
+	breaks = posting_service.finality_breaks(evidence, current=True)
+
+	if not breaks:
+		return
+
+	# The posting log rows are named. Every role that can reach this refusal is in
+	# `AUDITOR_ROLES`, and all five of them may read `Financial Posting Log`; the
+	# accounting document is *not* named, because none of them may read one - the
+	# same division `posting._stale_posting_message` draws, for the same reason.
+	# Capped, because the sentence has to stay readable when a batch run has gone
+	# wrong wholesale, and the count carries the scale.
+	logs = sorted(row["posting_log"] for row in breaks)[:5]
+
+	throw(
+		_(
+			"{0} posting(s) this audit reconciled are no longer supported by the accounting "
+			"system: {1}. The business date cannot close over them. Finance must either put "
+			"the accounting back, or withdraw the posting claim and settle the folio, before "
+			"reconciliation is run again."
+		).format(len(breaks), ", ".join(logs)),
+		exc=NightAuditError,
+	)
+
+
 def reopen(audit: str, reason: str) -> dict:
 	"""Reopen a closed business date by exactly one day. Manager exception only.
 
@@ -848,6 +1066,13 @@ def reopen(audit: str, reason: str) -> dict:
 		},
 		update_modified=True,
 	)
+
+	# The evidence goes with the reconciliation it belongs to. Leaving it would
+	# mean the next close was gated on postings accepted before the day was
+	# reopened for changes, and the whole point of a reopen is that the day may
+	# now change. `reconcile` rebuilds the set from the log, so nothing is lost:
+	# a posting that still matters is claimed again on the next run.
+	frappe.db.delete(RECONCILED_POSTING_DOCTYPE, {"night_audit": audit})
 
 	return {"audit": audit, "business_date": str(business_date), "reason": reason.strip()}
 
