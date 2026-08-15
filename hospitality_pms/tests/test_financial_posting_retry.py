@@ -238,3 +238,61 @@ class TestPostingRetry(PostingRetryTestCase):
 			"No retry handler",
 			durability.get_operation("wave3:unknown:1")["last_error"],
 		)
+
+
+class TestPostingSuccessThenRollback(PostingRetryTestCase):
+	"""P0 (FIN-1/CONC-1) — a same-database ERP posting whose recording
+	transaction rolls back after `run_durably` committed the ledger row.
+
+	The durable ledger lives on its own connection, so it keeps its Resolved row
+	while the Sales Invoice / Payment Entry - created on the caller's connection -
+	rolls back with the caller. Before the fix, the retry read that Resolved row
+	and returned `duplicate: True` naming an invoice that was never committed: the
+	folio's charges stayed unstamped, so it could never invoice or close, and the
+	failure was invisible to every reconciliation query (the ledger said Resolved).
+	"""
+
+	def test_success_then_rollback_reposts_a_real_invoice_not_a_phantom(self):
+		self.world.charge(self.folio, "Room Charge", 100, 10, "roll1")
+		# Commit the charge so the rollback below discards only the invoice the
+		# posting raises, not the charge itself (which is the guest's real bill).
+		frappe.db.commit()
+
+		posting_service.post_folio_invoice(self.folio)
+
+		# The request dies after the invoice posted but before commit - a later
+		# checkout step throwing, a deadlock in the operational release. The invoice
+		# and its posting-log row roll back; the durable ledger row does not.
+		frappe.db.rollback()
+
+		self.assertEqual(
+			folio_invoices(self.folio), [], msg="the invoice should have rolled back"
+		)
+		op = durability.find_operations(
+			property_name=self.world.property, operation="post_folio_invoice"
+		)[0]
+		self.assertEqual(
+			op["queue_status"],
+			durability.RESOLVED,
+			msg="premise: the durable ledger survives the rollback as Resolved",
+		)
+
+		# The retry must produce a real, live invoice - not a phantom duplicate.
+		result = posting_service.post_folio_invoice(self.folio)
+		frappe.db.commit()
+
+		invoices = folio_invoices(self.folio)
+		self.assertEqual(
+			len(invoices), 1, msg="the retry did not raise a real invoice for the charges"
+		)
+		self.assertFalse(
+			result.get("duplicate"),
+			msg="the retry returned a phantom duplicate instead of re-posting",
+		)
+		self.assertMoney(invoice_totals(invoices[0])["grand_total"], 110)
+		self.assertTrue(
+			frappe.get_all(
+				"Folio Charge", filters={"parent": self.folio, "is_posted_to_erp": 1}, pluck="name"
+			),
+			msg="the charge rows must be stamped so the folio can close",
+		)

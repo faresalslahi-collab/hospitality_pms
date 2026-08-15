@@ -254,6 +254,55 @@ def complete_operation(operation_key: str, *, external_reference: str | None = N
 	)
 
 
+def reopen_absent_operation(operation_key: str, *, reason: str) -> bool:
+	"""Reopen a Resolved operation whose external artifact is proven not to exist.
+
+	Resolved is normally terminal, because reopening an operation with a real
+	external side effect is a licence to perform it twice. This is the single,
+	deliberately narrow exception, and the safety rests entirely on the caller.
+
+	It exists for a same-database ERP posting (Sales Invoice / Payment Entry)
+	whose recording transaction rolled back *after* `run_durably` committed the
+	ledger row on its own connection. ERPNext shares the caller's database, so
+	when the caller asks `_erp_document_is_live(external_reference)` and gets
+	False, that is authoritative proof the document does not exist and the work
+	genuinely did not happen - re-running cannot double-post because there is
+	nothing to double. NEVER call this for a payment gateway or any operation
+	whose outcome cannot be verified from our own database; for those, an unknown
+	outcome is `flag_for_reconciliation`, not a reopen.
+
+	Returns True if a Resolved row was reopened. A row that is not Resolved is
+	left untouched (another worker may already have re-posted it).
+	"""
+	with _durable_db():
+		existing = frappe.db.get_value(
+			OPERATION_LEDGER,
+			{"operation_key": operation_key},
+			["name", "queue_status"],
+			as_dict=True,
+		)
+
+		if not existing or existing["queue_status"] != RESOLVED:
+			return False
+
+		frappe.db.set_value(
+			OPERATION_LEDGER,
+			existing["name"],
+			{
+				"queue_status": PENDING,
+				"external_reference": None,
+				"resolved_on": None,
+				"resolved_by": None,
+				"next_attempt_on": None,
+				"claimed_on": None,
+				"last_error": (reason or "")[:2000],
+			},
+			update_modified=True,
+		)
+
+	return True
+
+
 def fail_operation(
 	operation_key: str, *, error: str, retryable: bool = True, retry_in_minutes: int | None = None
 ) -> str:

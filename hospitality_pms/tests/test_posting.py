@@ -561,3 +561,120 @@ class TestPostingParty(PostingTestCase):
 			str(frappe.db.get_value("Sales Invoice", result["erp_document"], "posting_date")),
 			str(business_date),
 		)
+
+
+class TestPostingProfileSetupValidation(PostingTestCase):
+	"""The tax misconfiguration that stops posting is refused at *setup*.
+
+	`_resolve_tax_head` refuses an unresolvable tax template at invoice-build
+	time - during checkout or Night Audit - long after the profile was saved and
+	away from whoever can fix it. `PostingProfile.validate` runs the *same*
+	resolution when the profile is saved, so the person configuring the mapping
+	is the person who sees the error, and the day's audit is not what discovers
+	it. It shares posting's own `resolve_single_tax_head`, so setup accepts every
+	mapping posting would accept and rejects only what posting would refuse.
+	"""
+
+	WORLD_CODE = "PV"
+
+	def _profile(self, code: str, charge_map: list[dict], default_tax_template: str | None = None):
+		"""Build (not insert) a throwaway Posting Profile on the world's property.
+
+		Inactive, so it never competes with the world's own postable profile for
+		the property; the validation under test does not depend on `is_active` of
+		the profile. Rolled back by `tearDown`, so it is not tracked.
+		"""
+		return frappe.get_doc(
+			{
+				"doctype": "Posting Profile",
+				"profile_code": code,
+				"profile_name": f"Setup validation {code}",
+				"property": self.world.property,
+				"company": self.world.company,
+				"is_active": 0,
+				"default_item": self.world.room_item,
+				"default_tax_template": default_tax_template,
+				"default_income_account": frappe.db.get_value(
+					"Account", {"company": self.world.company, "is_group": 0, "root_type": "Income"}, "name"
+				),
+				"default_cost_center": frappe.db.get_value(
+					"Cost Center", {"company": self.world.company, "is_group": 0}, "name"
+				),
+				"charge_items": [{"is_active": 1, **row} for row in charge_map],
+			}
+		)
+
+	def test_setup_refuses_active_mapping_with_unresolvable_tax_template(self):
+		"""A charge type mapped to a multi-head template cannot post, so save refuses.
+
+		This is the setup-time face of `test_multi_head_tax_template_is_refused`:
+		the very template posting refuses at invoice-build is refused here at save,
+		naming the template, before any charge is ever posted against it.
+		"""
+		multi = self.world.fixtures.multi_row_tax_template(
+			self.world.company,
+			"PV Split VAT",
+			[self.world.room_tax_account, self.world.minibar_tax_account],
+		)
+		doc = self._profile(
+			"PV-BAD",
+			[{"charge_type": "Minibar", "item": self.world.minibar_item, "tax_template": multi}],
+		)
+
+		with self.assertRaises(ConfigurationError) as caught:
+			doc.insert(ignore_permissions=True)
+
+		self.assertIn(multi, str(caught.exception), msg="the refusal must name the template")
+		self.assertFalse(frappe.db.exists("Posting Profile", "PV-BAD"))
+
+	def test_setup_refuses_unresolvable_profile_default_tax_template(self):
+		"""The profile default is used for unmapped charge types, so it too is checked."""
+		multi = self.world.fixtures.multi_row_tax_template(
+			self.world.company,
+			"PV Split Default VAT",
+			[self.world.room_tax_account, self.world.minibar_tax_account],
+		)
+		doc = self._profile(
+			"PV-BADDEF",
+			[{"charge_type": "Laundry", "item": self.world.laundry_item}],
+			default_tax_template=multi,
+		)
+
+		with self.assertRaises(ConfigurationError) as caught:
+			doc.insert(ignore_permissions=True)
+
+		self.assertIn(multi, str(caught.exception))
+		self.assertFalse(frappe.db.exists("Posting Profile", "PV-BADDEF"))
+
+	def test_setup_accepts_single_head_tax_mapping(self):
+		"""Positive control: a resolvable single-head mapping saves without complaint."""
+		doc = self._profile(
+			"PV-OK",
+			[
+				{
+					"charge_type": "Minibar",
+					"item": self.world.minibar_item,
+					"tax_template": self.world.minibar_tax_template,
+				}
+			],
+		)
+
+		doc.insert(ignore_permissions=True)
+
+		self.assertTrue(frappe.db.exists("Posting Profile", "PV-OK"))
+
+	def test_setup_accepts_mapping_that_carries_no_tax(self):
+		"""No false positive: a charge type with no tax template needs none.
+
+		A Laundry line that carries no tax posts without a template (the runtime
+		rule behind `test_taxed_charge_with_no_tax_account_is_refused`), so
+		requiring one at setup would reject a legitimate, postable configuration.
+		"""
+		doc = self._profile(
+			"PV-NOTAX",
+			[{"charge_type": "Laundry", "item": self.world.laundry_item}],
+		)
+
+		doc.insert(ignore_permissions=True)
+
+		self.assertTrue(frappe.db.exists("Posting Profile", "PV-NOTAX"))

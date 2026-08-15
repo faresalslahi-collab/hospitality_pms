@@ -979,6 +979,63 @@ def _latest_invoice_posting(folio: str) -> dict | None:
 	return rows[0] if rows else None
 
 
+def _run_durable_posting(erp_doctype: str, idempotency_key: str, run_kwargs: dict):
+	"""run_durably for a same-database ERP posting, healing a stale phantom resolve.
+
+	Returns `(durable_result, is_duplicate)`.
+
+	`run_durably` was built for a genuinely external side effect - a payment
+	gateway that keeps its record when our transaction rolls back. An ERPNext
+	document is not that: it is created on the caller's own connection, so it
+	rolls back with the caller while the durable ledger row, committed on a second
+	connection, survives. When that happens the ledger says Resolved for an invoice
+	or payment that no longer exists, and the old code returned it as a duplicate -
+	a phantom naming a document that was never committed. The folio's charges then
+	stay unstamped, so it can never invoice or close, and a payment phantom is worse
+	still: the folio closes (close gates on charges, not payments) with a Payment
+	Entry that never reached the ledger.
+
+	The heal is safe precisely because ERPNext shares our database: if the ledger
+	claims a document that `_erp_document_is_live` cannot find, that is proof the
+	work did not survive, so reopening the operation and re-posting cannot double
+	anything. This reasoning holds ONLY for same-database postings; it must never be
+	applied to a provider operation.
+	"""
+	durable = durability.run_durably(**run_kwargs)
+
+	if durable.performed:
+		return durable, False
+
+	# The ledger says already resolved. Trust it only if the document it names is
+	# actually in the ledger.
+	if _erp_document_is_live(erp_doctype, durable.external_reference):
+		return durable, True
+
+	# Resolved but the named document does not exist: the recording transaction
+	# rolled back. Reopen and re-post under the folio lock the caller already holds.
+	durability.reopen_absent_operation(
+		idempotency_key,
+		reason=_("Resolved {0} {1} was not in the ledger; re-posting.").format(
+			erp_doctype, durable.external_reference or ""
+		),
+	)
+
+	durable = durability.run_durably(**run_kwargs)
+
+	if not durable.performed:
+		# Another worker resolved it again between the reopen and here. Fail closed
+		# rather than return a phantom; the operator retries or finance reconciles.
+		throw(
+			_(
+				"Posting {0} could not be completed: its durable record is resolved but the "
+				"{1} it names is not in the ledger. Retry, or ask finance to reconcile."
+			).format(idempotency_key, erp_doctype),
+			exc=ReconciliationError,
+		)
+
+	return durable, False
+
+
 def post_folio_invoice(folio: str, *, business_date=None, submit: bool = True) -> dict:
 	"""Raise the ERPNext Sales Invoice for a folio's currently unposted lines.
 
@@ -1056,25 +1113,28 @@ def post_folio_invoice(folio: str, *, business_date=None, submit: bool = True) -
 		posting = get_posting(idempotency_key)
 		return {**posting, "duplicate": True}
 
-	durable = durability.run_durably(
-		property_name=doc.property,
-		integration_type="Other",
-		operation="post_folio_invoice",
-		operation_key=idempotency_key,
-		reference_doctype=FOLIO_DOCTYPE,
-		reference_name=folio,
-		payload={"folio": folio, "rows": [row.name for row in chargeable]},
-		call=lambda: _build_and_submit_invoice(
-			doc, chargeable, log, business_date=business_date, submit=submit
+	durable, is_duplicate = _run_durable_posting(
+		"Sales Invoice",
+		idempotency_key,
+		dict(
+			property_name=doc.property,
+			integration_type="Other",
+			operation="post_folio_invoice",
+			operation_key=idempotency_key,
+			reference_doctype=FOLIO_DOCTYPE,
+			reference_name=folio,
+			payload={"folio": folio, "rows": [row.name for row in chargeable]},
+			call=lambda: _build_and_submit_invoice(
+				doc, chargeable, log, business_date=business_date, submit=submit
+			),
+			reference_of=lambda result: result["erp_document"],
 		),
-		reference_of=lambda result: result["erp_document"],
 	)
 
-	if not durable.performed:
-		# The ledger says this batch already reached ERPNext. That can only
-		# happen if the invoice was raised and the transaction that recorded it
-		# then rolled back, so the posting log is refreshed from the ledger
-		# rather than a second invoice being raised for the same charges.
+	if is_duplicate:
+		# The ledger says this batch already reached ERPNext AND the named invoice
+		# is live, so the posting log is refreshed from the ledger rather than a
+		# second invoice being raised for the same charges.
 		return {
 			"log": log,
 			"erp_doctype": "Sales Invoice",
@@ -1329,6 +1389,20 @@ def _resolve_tax_head(mapping: dict, charge_type: str) -> dict:
 			exc=ConfigurationError,
 		)
 
+	return resolve_single_tax_head(template, charge_type)
+
+
+def resolve_single_tax_head(template: str, charge_type: str) -> dict:
+	"""The single tax account a configured template posts to, or refuse.
+
+	The resolvability half of `_resolve_tax_head`, split out so the Posting
+	Profile can apply the *same* rule when it is saved. Posting refuses a
+	template with more than one head at invoice-build time - during checkout or
+	Night Audit - because a folio line holds one tax figure and no breakdown, so
+	splitting it would invent an allocation between two liabilities. Sharing this
+	function means the profile refuses at save exactly what posting would refuse
+	later, with no second rule to drift from this one.
+	"""
 	rows = frappe.get_all(
 		"Sales Taxes and Charges",
 		filters={"parent": template, "parenttype": "Sales Taxes and Charges Template"},
@@ -1415,19 +1489,23 @@ def post_folio_payment(folio: str, payment_row: str, *, business_date=None) -> d
 		posting = get_posting(idempotency_key)
 		return {**posting, "duplicate": True}
 
-	durable = durability.run_durably(
-		property_name=doc.property,
-		integration_type="Other",
-		operation="post_folio_payment",
-		operation_key=idempotency_key,
-		reference_doctype=FOLIO_DOCTYPE,
-		reference_name=folio,
-		payload={"folio": folio, "payment_row": payment_row},
-		call=lambda: _build_and_submit_payment(doc, row, log, business_date=business_date),
-		reference_of=lambda result: result["erp_document"],
+	durable, is_duplicate = _run_durable_posting(
+		"Payment Entry",
+		idempotency_key,
+		dict(
+			property_name=doc.property,
+			integration_type="Other",
+			operation="post_folio_payment",
+			operation_key=idempotency_key,
+			reference_doctype=FOLIO_DOCTYPE,
+			reference_name=folio,
+			payload={"folio": folio, "payment_row": payment_row},
+			call=lambda: _build_and_submit_payment(doc, row, log, business_date=business_date),
+			reference_of=lambda result: result["erp_document"],
+		),
 	)
 
-	if not durable.performed:
+	if is_duplicate:
 		return {
 			"log": log,
 			"erp_doctype": "Payment Entry",

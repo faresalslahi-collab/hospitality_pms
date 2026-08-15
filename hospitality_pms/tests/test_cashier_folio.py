@@ -369,6 +369,121 @@ class TestFolioProjection(CashierWorld):
 			checkout_api.reconciliation(property=self.property_a)
 
 
+class TestPostingFrontDoorGates(CashierWorld):
+	"""FIN-3 / FIN-4: the whitelisted `post_charge` and `post_payment` front doors.
+
+	Corrections that move money have gated endpoints - `post_adjustment` demands
+	an elevated role and a reason, `payments.refund` demands the refund role, a
+	reason and a refundable-balance check. But an ordinary agent holds
+	`write` on Guest Folio, so before this fix the same agent could reach the
+	*ungated* front doors and post the very correction types those gates exist
+	for: a signed charge (`Adjustment`/`Discount`) that drains the balance, or a
+	`Refund` payment that flips the sign into a cash-out. The front doors must
+	refuse those types and send the caller to the gated path.
+	"""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+
+		# An ordinary front-desk operator: `Front Office Agent` holds write on
+		# Guest Folio (so `authorise_document(..., "write")` passes) but none of
+		# the ADJUSTMENT_ROLES / REFUND_ROLES the gated corrections require.
+		cls.agent = cls.fixtures.user(
+			"cash-agent", ["Front Office Agent"], properties=[cls.property_a]
+		)
+
+		cls.gate_folio = frappe.get_doc(
+			{
+				"doctype": "Guest Folio",
+				"property": cls.property_a,
+				"guest": cls.fixtures.guest("Gate"),
+				"folio_status": "Open",
+				"folio_type": "Master",
+			}
+		).insert(ignore_permissions=True)
+		frappe.db.commit()
+
+	def _key(self, label):
+		return f"gate-test:{label}:{frappe.generate_hash(length=8)}"
+
+	def test_agent_cannot_drain_balance_via_adjustment_charge(self):
+		"""FIN-3: `charge_type='Adjustment'` with a negative amount is refused.
+
+		This is the correction workflow wearing a charge's clothes: it moves the
+		balance exactly as `post_adjustment` would, but `post_charge` demands
+		neither an elevated role nor a recorded reason.
+		"""
+		frappe.set_user(self.agent)
+
+		with self.assertRaises(frappe.ValidationError):
+			folio_api.post_charge(
+				folio=self.gate_folio.name,
+				charge_type="Adjustment",
+				description="drain",
+				amount=-100,
+				idempotency_key=self._key("adj"),
+			)
+
+	def test_agent_cannot_discount_via_post_charge(self):
+		"""FIN-3: `Discount` is signed too, and reaches the balance ungated here."""
+		frappe.set_user(self.agent)
+
+		with self.assertRaises(frappe.ValidationError):
+			folio_api.post_charge(
+				folio=self.gate_folio.name,
+				charge_type="Discount",
+				description="freebie",
+				amount=50,
+				idempotency_key=self._key("disc"),
+			)
+
+	def test_agent_cannot_cash_out_via_refund_payment(self):
+		"""FIN-4: `payment_type='Refund'` flips the sign into a cash-out and skips
+		the closed-day fence, all without the refund role or a reason."""
+		frappe.set_user(self.agent)
+
+		with self.assertRaises(frappe.ValidationError):
+			folio_api.post_payment(
+				folio=self.gate_folio.name,
+				amount=100,
+				payment_method="Cash",
+				payment_type="Refund",
+				idempotency_key=self._key("refund"),
+			)
+
+	# -- positive controls: the ordinary front door still works ----------
+
+	def test_ordinary_room_charge_still_posts(self):
+		"""The refusal is narrow: a real Room Charge is unaffected."""
+		frappe.set_user(self.agent)
+
+		result = folio_api.post_charge(
+			folio=self.gate_folio.name,
+			charge_type="Room Charge",
+			description="Night 1",
+			amount=100,
+			idempotency_key=self._key("room"),
+		)
+
+		self.assertFalse(result["duplicate"])
+		self.assertEqual(result["amount"], 100)
+
+	def test_ordinary_payment_still_posts(self):
+		"""And an ordinary Payment is unaffected."""
+		frappe.set_user(self.agent)
+
+		result = folio_api.post_payment(
+			folio=self.gate_folio.name,
+			amount=50,
+			payment_method="Cash",
+			idempotency_key=self._key("pay"),
+		)
+
+		self.assertFalse(result["duplicate"])
+		self.assertEqual(result["amount"], 50)
+
+
 class TestWastageReplayIsDeferred(CashierWorld):
 	"""Characterised, not fixed — and executable so the characterisation cannot rot.
 
