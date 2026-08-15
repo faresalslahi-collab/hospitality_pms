@@ -737,6 +737,105 @@ def withdraw_stale_posting(log: str, reason: str) -> dict:
 	}
 
 
+#: The durable posting operations a stranded Night Audit may re-arm. Both are
+#: SAFE_RETRY in retry.HANDLERS - their failure mode is an explicit refusal
+#: (e.g. a tax template that was missing at build time), so nothing reached
+#: ERPNext and there is no side effect to double. RECONCILE_FIRST money
+#: operations are deliberately excluded: a re-arm of one of those would be a
+#: licence to move money twice, which is what reconciliation exists to prevent.
+REARMABLE_POSTING_OPERATIONS = {
+	"post_folio_invoice": "Sales Invoice",
+	"post_folio_payment": "Payment Entry",
+}
+
+
+def rearm_abandoned_posting(operation_key: str, reason: str) -> dict:
+	"""Re-arm an Abandoned folio-posting operation after its cause is fixed.
+
+	The supported exit from F-NA1: a folio posting that failed on a fixable
+	configuration error (the Minibar tax-template case is the live example)
+	exhausts its five attempts and becomes Abandoned. `run_durably` then refuses
+	the key for ever, `reschedule_now` will not revive a terminal row, and the
+	Night Audit's `_assert_no_unresolved_posting_failures` blocks close on it -
+	so correcting the configuration afterwards changes nothing and the day cannot
+	close. Without this there is no operator path from "posting abandoned" to
+	"day closes".
+
+	It is deliberately narrow, and distinct from the deferred Finance Recovery:
+
+	* finance only (`WITHDRAWAL_ROLES`), with a mandatory reason recorded on the
+	  ledger row for the audit trail;
+	* the property is re-checked from the operation's own record, so a key from
+	  another property cannot be re-armed here;
+	* only the two SAFE_RETRY folio postings qualify - never a money operation
+	  whose outcome could be ambiguous;
+	* it refuses if the operation names an ERP document that is still live, so it
+	  can never be a way to post a second invoice for one that already exists.
+	  For these operations the external side effect is a same-database document,
+	  so its absence is authoritative (the F-DURA reasoning).
+
+	After re-arming, the operation is dispatched once through its normal handler,
+	so a corrected configuration posts immediately rather than waiting on the
+	scheduler and leaving the auditor unsure whether it worked.
+	"""
+	require_role(WITHDRAWAL_ROLES)
+
+	if not reason or not reason.strip():
+		throw(_("A reason is required to re-arm a posting operation."), exc=PostingError)
+
+	record = durability.get_operation(operation_key)
+
+	if not record:
+		throw(_("Operation {0} does not exist.").format(operation_key), exc=PostingError)
+
+	require_property_access(record["property"])
+
+	erp_doctype = REARMABLE_POSTING_OPERATIONS.get(record["operation"])
+	if not erp_doctype:
+		throw(
+			_("Operation {0} is not a folio posting and cannot be re-armed here.").format(operation_key),
+			exc=PostingError,
+		)
+
+	if record["queue_status"] != durability.ABANDONED:
+		throw(
+			_("Operation {0} is {1}, not Abandoned; only an abandoned posting is re-armed.").format(
+				operation_key, record["queue_status"]
+			),
+			exc=PostingError,
+		)
+
+	# Side-effect ambiguity guard. A SAFE_RETRY posting that failed at build time
+	# carries no external_reference, but if one is present and still live the work
+	# did reach ERPNext and this is a reconciliation decision, not a re-arm.
+	if record.get("external_reference") and _erp_document_is_live(
+		erp_doctype, record["external_reference"]
+	):
+		throw(
+			_(
+				"Operation {0} names a {1} that is still in the ledger; it needs reconciliation, "
+				"not a re-arm."
+			).format(operation_key, erp_doctype),
+			exc=ReconciliationError,
+		)
+
+	durability.rearm_operation(
+		operation_key, reason=_("Re-armed by finance: {0}").format(reason.strip())
+	)
+
+	# Dispatch once now, through the same handler the scheduler uses, so the
+	# corrected posting is attempted immediately under the caller's action.
+	from hospitality_pms.services import retry as retry_service
+
+	outcome = retry_service.dispatch(durability.get_operation(operation_key))
+
+	return {
+		"operation": operation_key,
+		"status": outcome.get("status"),
+		"rearmed_by": frappe.session.user,
+	}
+
+
 def _note_withdrawal(log: str, reason: str):
 	"""Keep the withdrawal on the payload, beside `_authority`."""
 	try:

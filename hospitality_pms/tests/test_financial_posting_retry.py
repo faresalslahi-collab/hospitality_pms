@@ -296,3 +296,69 @@ class TestPostingSuccessThenRollback(PostingRetryTestCase):
 			),
 			msg="the charge rows must be stamped so the folio can close",
 		)
+
+
+class TestRearmAbandonedPosting(PostingRetryTestCase):
+	"""P1 (F-NA1) — an Abandoned folio posting must have a supported recovery.
+
+	A folio posting that fails on a fixable configuration error (the live Minibar
+	tax-template case) exhausts its attempts and becomes Abandoned. run_durably
+	then refuses the key for ever and the Night Audit's close gate blocks on it, so
+	fixing the configuration afterwards changed nothing. rearm_abandoned_posting is
+	the narrow, finance-gated exit: it re-arms only a safe-retry posting whose ERP
+	side effect is proven absent, then re-posts.
+	"""
+
+	def _abandon(self, key: str):
+		# Attempts only advance through begin_operation on a real retry, so drive
+		# the operation to Abandoned the way the scheduler would - fail, make due,
+		# dispatch - against this test property (never DOHA01's live queue).
+		for _attempt in range(durability.DEFAULT_MAX_ATTEMPTS + 2):
+			durability.fail_operation(key, error="still misconfigured", retry_in_minutes=0)
+			retry_service.retry_due_operations(self.world.property, limit=10)
+
+	def test_rearm_recovers_an_abandoned_posting_after_config_fix(self):
+		self._misconfigured_charge("na1")
+
+		with self.assertRaises(ConfigurationError):
+			posting_service.post_folio_invoice(self.folio)
+		frappe.db.rollback()
+
+		key = durability.find_operations(
+			property_name=self.world.property, operation="post_folio_invoice"
+		)[0]["operation_key"]
+
+		self._abandon(key)
+		self.assertEqual(durability.get_operation(key)["queue_status"], durability.ABANDONED)
+		# It now blocks the Night Audit close gate.
+		self.assertTrue(
+			durability.failed_posting_operations(self.world.property),
+			msg="an abandoned posting should block close before it is re-armed",
+		)
+
+		# Finance maps the missing tax template and re-arms the operation.
+		self._restore_laundry_tax(self.world.room_tax_template)
+		posting_service.rearm_abandoned_posting(key, "tax template mapped")
+		frappe.db.commit()
+
+		# The posting completed and no longer blocks close.
+		self.assertEqual(len(folio_invoices(self.folio)), 1, msg="the re-armed posting did not post")
+		self.assertEqual(durability.get_operation(key)["queue_status"], durability.RESOLVED)
+		self.assertFalse(
+			durability.failed_posting_operations(self.world.property),
+			msg="the close gate is still blocked after a successful re-arm",
+		)
+
+	def test_rearm_refuses_a_non_abandoned_operation(self):
+		self.world.charge(self.folio, "Room Charge", 100, 10, "na1b")
+		posting_service.post_folio_invoice(self.folio)
+		frappe.db.commit()
+
+		key = durability.find_operations(
+			property_name=self.world.property, operation="post_folio_invoice"
+		)[0]["operation_key"]
+		# It is Resolved, not Abandoned - re-arm must refuse (never a second invoice).
+		from hospitality_pms.services.exceptions import PostingError
+
+		with self.assertRaises(PostingError):
+			posting_service.rearm_abandoned_posting(key, "should be refused")

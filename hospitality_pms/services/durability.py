@@ -303,6 +303,51 @@ def reopen_absent_operation(operation_key: str, *, reason: str) -> bool:
 	return True
 
 
+def rearm_operation(operation_key: str, *, reason: str) -> bool:
+	"""Re-arm an Abandoned operation so it may be attempted again.
+
+	Abandoned is terminal - a human decided the operation had failed enough times
+	to stop. Reviving one is therefore a deliberate, audited act, and like
+	`reopen_absent_operation` the safety rests on the caller: this must only be
+	called for a *safe-retry* operation (one whose failure mode is an explicit
+	refusal, so nothing happened at the far end - `post_folio_invoice` /
+	`post_folio_payment`, never a RECONCILE_FIRST money op) and only after the
+	caller has proven no external side effect exists (`external_reference` empty or
+	not live). The attempt counter is reset so the corrected operation gets a fresh
+	budget, and the reason is recorded for the audit trail.
+
+	Returns True if an Abandoned row was re-armed; a row in any other state is left
+	untouched.
+	"""
+	with _durable_db():
+		existing = frappe.db.get_value(
+			OPERATION_LEDGER,
+			{"operation_key": operation_key},
+			["name", "queue_status"],
+			as_dict=True,
+		)
+
+		if not existing or existing["queue_status"] != ABANDONED:
+			return False
+
+		frappe.db.set_value(
+			OPERATION_LEDGER,
+			existing["name"],
+			{
+				"queue_status": PENDING,
+				"attempts": 0,
+				"resolved_on": None,
+				"resolved_by": None,
+				"next_attempt_on": None,
+				"claimed_on": None,
+				"last_error": (reason or "")[:2000],
+			},
+			update_modified=True,
+		)
+
+	return True
+
+
 def fail_operation(
 	operation_key: str, *, error: str, retryable: bool = True, retry_in_minutes: int | None = None
 ) -> str:

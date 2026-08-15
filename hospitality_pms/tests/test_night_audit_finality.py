@@ -732,3 +732,59 @@ class TestVarianceGuardStillHolds(FinalityTestCase):
 
 		message = self.assertRefusesClose(audit)
 		self.assertIn("exception", message.lower())
+
+
+class TestReconciliationVarianceResolution(FinalityTestCase):
+	"""P1 (F-NA2) — a reviewed and resolved folio variance must reach close.
+
+	reconcile() rebuilds its Unposted Charge exceptions every run. It used to wipe
+	resolved rows too, so a variance an auditor had explicitly resolved reappeared
+	unresolved on the next reconcile and the audit could never leave Posting for
+	Ready to Close. Resolutions for folio variances now survive the rerun; finality
+	breaks still re-block (verified by TestCloseRefusesBrokenFinality).
+	"""
+
+	def _folio_variance_rows(self, audit: str) -> list:
+		doc = frappe.get_doc(AUDIT, audit)
+		return [
+			row
+			for row in doc.audit_exceptions
+			if row.exception_type == "Unposted Charge"
+			and row.reference_doctype == folio_service.FOLIO_DOCTYPE
+		]
+
+	def test_unresolved_variance_still_blocks_close(self):
+		self.world.folio_with_unposted_charge(30)
+		audit = self._reconciled_audit()
+
+		self.assertTrue(self._folio_variance_rows(audit), msg="the variance was not raised")
+		self.assertRefusesClose(audit)
+
+	def test_resolved_variance_survives_reconcile_and_allows_close(self):
+		self.world.folio_with_unposted_charge(30)
+		audit = self._reconciled_audit()
+
+		rows = self._folio_variance_rows(audit)
+		self.assertTrue(rows)
+		self.assertRefusesClose(audit)
+
+		audit_service.resolve_exception(
+			audit, rows[0].name, "reviewed with finance; discrepancy accepted"
+		)
+
+		# The supported rerun of reconcile must keep the resolution and grant
+		# Ready to Close, instead of wiping it and trapping the day.
+		audit_service.reconcile(audit)
+
+		preserved = self._folio_variance_rows(audit)
+		self.assertTrue(preserved, msg="the variance row disappeared entirely")
+		self.assertTrue(
+			all(row.is_resolved for row in preserved),
+			msg="the resolution was wiped on the reconcile rerun (F-NA2)",
+		)
+		self.assertEqual(self._status(audit), audit_service.READY_TO_CLOSE)
+
+		closed_date = self.world.business_date
+		result = audit_service.close(audit)
+		self.assertEqual(self._status(audit), audit_service.CLOSED)
+		self.assertEqual(result["closed_business_date"], str(closed_date))
