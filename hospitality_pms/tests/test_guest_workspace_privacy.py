@@ -204,6 +204,51 @@ class TestWorkspaceFieldGroupPermissions(GuestWorkspaceMatrix):
 		# grant than the row carrying it (16.7.3, deferred document security).
 		self.assertNotIn("id_image", payload["identifications"][0])
 
+	def test_get_guest_does_not_return_the_identification_image_url(self):
+		"""`api.guests.get_guest` mirrors the workspace: the row, never the file URL.
+
+		`Guest Identification.id_image` is an `Attach Image` with no `is_private`,
+		so it is stored at a public `/files/` URL and Frappe authorises that
+		download against the *attached-to* Guest at permlevel 0. Returning the URL
+		to a permlevel-1 reader hands out a bearer credential wider than the
+		permlevel-1 gate the image sits behind - the same reason the workspace
+		omits it (16.7.3, deferred document security). The lifecycle `get_guest`
+		endpoint must not reintroduce it.
+		"""
+		id_image_url = "/files/QA-passport-scan-4417789.jpg"
+
+		frappe.set_user("Administrator")
+		guest = self.fixtures.guest(
+			"Documented",
+			identifications=[
+				{
+					"id_type": "Passport",
+					"id_number": "QA-PASSPORT-IMG-0001",
+					"issuing_country": "United Arab Emirates",
+					"is_primary": 1,
+					"id_image": id_image_url,
+				}
+			],
+		)
+		frappe.db.commit()
+
+		# The desk holds permlevel 1, so the identifications rows arrive at all -
+		# without that, an absent `id_image` key would prove nothing.
+		frappe.set_user(self.desk)
+		payload = guests_api.get_guest(guest)
+
+		self.assertIn(
+			"identifications", payload, msg="the permlevel-1 reader lost the rows entirely"
+		)
+		row = payload["identifications"][0]
+
+		# The row is intact: this is the redaction of one column, not an outage.
+		self.assertEqual(row["id_number"], "QA-PASSPORT-IMG-0001")
+
+		# The image URL never appears, in the row or anywhere in the payload.
+		self.assertNotIn("id_image", row)
+		self.assertNotIn(id_image_url, frappe.as_json(payload))
+
 	def test_guest_workspace_does_not_leak_blacklist_to_unauthorized_role(self):
 		"""Finance Manager reads Guest and holds no permlevel 2."""
 		payload = self._workspace(self.finance)

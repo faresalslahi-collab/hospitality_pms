@@ -12,7 +12,13 @@ from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, nowdate
 
 from hospitality_pms.services import rooms as room_service
-from hospitality_pms.services.base import assert_transition, lock_document, require_role
+from hospitality_pms.services.base import (
+	assert_transition,
+	lock_and_find,
+	lock_and_get_doc,
+	lock_document,
+	require_role,
+)
 from hospitality_pms.services.exceptions import HospitalityPMSError, throw
 from hospitality_pms.services.property import get_business_date
 
@@ -208,11 +214,39 @@ def take_out_of_service(ticket: str, status: str, reason: str, *, until_date=Non
 	if not reason or not reason.strip():
 		throw(_("A reason is required to take a room out of service."), exc=HospitalityPMSError)
 
-	lock_document(TICKET_DOCTYPE, ticket)
-	doc = frappe.get_doc(TICKET_DOCTYPE, ticket)
+	# Locked and read in one operation. `lock_document` serialises but does not
+	# refresh: a plain `get_doc` after it is answered from the snapshot this
+	# transaction opened *before* it started waiting, so a retry that queued
+	# behind a winner read `room_block` as empty, raised a second submitted
+	# Active Room Block for the same room, and overwrote the ticket's reference
+	# with the newer one - orphaning the first. `verify_and_release` then
+	# releases only the block the ticket names, leaving the orphan holding the
+	# room out of sale for good (N1).
+	doc = lock_and_get_doc(TICKET_DOCTYPE, ticket)
 
 	if not doc.room:
 		throw(_("Ticket {0} is not against a room.").format(ticket), exc=HospitalityPMSError)
+
+	# Idempotent under a double-click or a retried request: a ticket already
+	# covered by its own submitted, Active Room Block does not get a second one.
+	# `lock_and_get_doc` read `room_block` currently under the lock, but the
+	# block it names must be read currently too - a plain read of it would be
+	# answered from this transaction's pre-lock snapshot, which predates the
+	# winner *inserting* that block, so the block would look absent and the guard
+	# would fall through and raise a second one. `lock_and_find` reads it with a
+	# locking read, so the winner's just-committed block is visible.
+	if doc.room_block:
+		existing = lock_and_find(
+			BLOCK_DOCTYPE, {"name": doc.room_block}, ["docstatus", "status", "room"]
+		)
+
+		if existing and existing.docstatus == 1 and existing.status == "Active" and existing.room == doc.room:
+			return {
+				"ticket": ticket,
+				"room": doc.room,
+				"status": doc.out_of_service_status or status,
+				"room_block": doc.room_block,
+			}
 
 	business_date = get_business_date(doc.property)
 	until_date = getdate(until_date or add_days(business_date, 7))
