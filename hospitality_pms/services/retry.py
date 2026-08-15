@@ -145,6 +145,12 @@ HANDLERS: dict[str, OperationHandler] = {
 	# waits for someone who can see what already exists.
 	"import_reservation": OperationHandler(None, MANUAL_ONLY),
 	"unmatched_callback": OperationHandler(None, MANUAL_ONLY),
+	# A gateway payment/refund the provider performed against a folio that had
+	# already closed. It cannot be replayed - the money has moved - so it waits for
+	# finance to reopen the folio and post it (F-FIN2). It is parked directly in
+	# Needs Reconciliation, so the scheduler never claims it; this entry only keeps
+	# a stray claim from being abandoned as an unknown operation.
+	"reconcile_closed_folio_payment": OperationHandler(None, MANUAL_ONLY),
 }
 
 
