@@ -27,10 +27,12 @@ from hospitality_pms.services.base import (
 	STAY_ORCHESTRATION,
 	assert_transition,
 	lock_and_get_doc,
+	lock_and_read,
 	lock_document,
 	require_permission,
 	require_role,
 	service_context,
+	transaction,
 )
 from hospitality_pms.services.exceptions import (
 	HospitalityPMSError,
@@ -902,7 +904,7 @@ def mark_due_out(property_name: str, business_date=None) -> list[str]:
 	"""
 	business_date = getdate(business_date or get_business_date(property_name))
 
-	due = frappe.get_all(
+	candidates = frappe.get_all(
 		STAY_DOCTYPE,
 		filters={
 			"property": property_name,
@@ -912,20 +914,46 @@ def mark_due_out(property_name: str, business_date=None) -> list[str]:
 		pluck="name",
 	)
 
-	for stay in due:
-		frappe.db.set_value(STAY_DOCTYPE, stay, "stay_status", DUE_OUT, update_modified=True)
-		room = frappe.db.get_value(STAY_DOCTYPE, stay, "room")
-		if room:
-			room_service.set_status(
-				room,
-				room_service.OCCUPANCY,
-				"Due Out",
-				reason=_("Departing on {0}").format(business_date),
-				reference_doctype=STAY_DOCTYPE,
-				reference_name=stay,
-			)
+	marked = []
 
-	return due
+	for stay in candidates:
+		# Each stay in its own savepoint: the Night Audit runs this over the whole
+		# property, and one stay that cannot be flagged must not roll back the ones
+		# already flagged and strand the auditor mid-step.
+		with transaction():
+			# Current under lock. The plain list read above is a snapshot; a late
+			# checkout committing on another till between that read and here would
+			# otherwise be blindly overwritten back to Due Out - resurrecting a
+			# Checked Out stay with no lock, no transition check and its checkout
+			# timestamp still set. Re-read the status under the row lock and skip
+			# anything no longer In House.
+			current = lock_and_read(STAY_DOCTYPE, stay, ["stay_status", "room"])
+
+			if current["stay_status"] != IN_HOUSE:
+				continue
+
+			frappe.db.set_value(STAY_DOCTYPE, stay, "stay_status", DUE_OUT, update_modified=True)
+
+			room = current["room"]
+			if room:
+				# force=True: an active Stay is the authority for physical
+				# occupancy, so it outranks the denormalised room flag. If the flag
+				# drifted (the room-402 class leaves it Vacant), an unforced Due Out
+				# transition would raise and abort the audit step. Forcing still
+				# locks, validates the value and logs, so the correction is visible.
+				room_service.set_status(
+					room,
+					room_service.OCCUPANCY,
+					"Due Out",
+					reason=_("Departing on {0}").format(business_date),
+					reference_doctype=STAY_DOCTYPE,
+					reference_name=stay,
+					force=True,
+				)
+
+		marked.append(stay)
+
+	return marked
 
 
 # ---------------------------------------------------------------------------

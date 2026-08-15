@@ -83,7 +83,10 @@ class InventoryWorld:
 				"arrival_date": arrival,
 				"departure_date": add_days(arrival, max(spec.get("nights", 2) for spec in specs)),
 				"rate_plan": self.rate_plan,
-				"deposit_received": deposit,
+				# deposit_received is money the hotel holds; the reservation controller
+				# refuses it on the document API (it can only be set by the payments
+				# service via a direct write). Set it through set_deposit below, the way
+				# the real deposit writer does, rather than smuggling it through insert.
 				"rooms": [
 					{
 						"room_type": spec.get("room_type", self.room_type),
@@ -96,6 +99,11 @@ class InventoryWorld:
 				],
 			}
 		).insert(ignore_permissions=True)
+
+		if deposit:
+			frappe.db.set_value(
+				"Reservation", doc.name, "deposit_received", deposit, update_modified=False
+			)
 
 		self.fixtures.track_fresh("Reservation", doc.name, {"Reservation Log": "reservation"})
 		frappe.db.commit()

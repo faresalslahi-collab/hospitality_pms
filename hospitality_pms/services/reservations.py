@@ -81,7 +81,12 @@ TRANSITIONS = {
 	CONFIRMED: {GUARANTEED, CHECKED_IN, CANCELLED, NO_SHOW},
 	GUARANTEED: {CHECKED_IN, CANCELLED, NO_SHOW},
 	CHECKED_IN: {CHECKED_OUT},
-	CHECKED_OUT: {CLOSED},
+	# CHECKED_OUT -> CHECKED_IN exists solely for the role-gated reverse-checkout
+	# path (checkout.reverse_checkout): reversing a departure puts a stay back
+	# In House, so its reservation must return to a holding state or the room line
+	# drops out of the availability sold-count and the room can be oversold. The
+	# authority for the reversal is require_role in reverse_checkout, not this edge.
+	CHECKED_OUT: {CLOSED, CHECKED_IN},
 	CLOSED: set(),
 	CANCELLED: set(),
 	NO_SHOW: {CANCELLED},
@@ -539,6 +544,16 @@ def mark_no_show(reservation: str, *, reason: str | None = None) -> dict:
 		doc.arrival_date,
 		first_night_amount=first_night,
 	)
+
+	# A no-show ends the booking exactly as a cancellation does, so it must return
+	# the corporate credit the confirmation consumed, less the no-show charge the
+	# company still owes - the same release cancel() performs. It has to run here,
+	# BEFORE the transition, because _release_corporate_credit early-returns once
+	# the status leaves the holding states; the sanctioned follow-up NO_SHOW ->
+	# CANCELLED then releases nothing (the status is already No Show), which left
+	# the credit consumed forever and eventually locked the corporate account out
+	# of every future booking for money the hotel will never bill.
+	_release_corporate_credit(doc, charge)
 
 	_transition(doc, NO_SHOW, reason=reason, details={"no_show_charge": charge})
 
