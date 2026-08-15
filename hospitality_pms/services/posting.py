@@ -1318,6 +1318,110 @@ def _build_and_submit_invoice(doc, chargeable, log: str, *, business_date=None, 
 		)
 
 
+def _classify_batch(doc, chargeable) -> dict:
+	"""Decide the ERPNext document a batch of charge rows must become.
+
+	A folio can carry credits as well as charges, and ERPNext refuses a Sales
+	Invoice item with a negative `rate` when `allow_negative_rates_for_items` is
+	off (F-FIN5). So a batch that nets a credit cannot be posted as a bag of
+	signed items - each credit has to be represented the way ERPNext accepts it,
+	and which way depends on what the credit *is*:
+
+	* a **reversal of a charge already invoiced** is a return of money the ledger
+	  has already booked. Its correct ERPNext form is a credit note - a Sales
+	  Invoice with `is_return` set and `return_against` naming the original - so
+	  the reversal lands against the very document it undoes. A batch of these
+	  must be *only* these, all against one invoice: a credit note cannot also
+	  carry new charges or a reversal of a different invoice, and mixing them
+	  would need two documents, so that is refused here rather than half-posted;
+
+	* every other credit - a service-recovery `Discount`, or a reversal whose
+	  original is still *in this same batch* and so was never invoiced on its own
+	  - reduces a bill the same invoice is raising. It becomes an invoice-level
+	  discount: the positive rows are the items, and the credits are folded into
+	  `discount_amount`, so no item rate is ever negative and the grand total
+	  still equals the folio. Their tax (a reversal carries negative tax) is
+	  accumulated into the tax rows regardless, so the ledger holds the folio's
+	  *net* output VAT, not the gross.
+
+	Returns a plan: `is_return`, `return_against`, the rows that become line
+	`items`, and the `discount_amount` that represents the folded credits.
+	"""
+	from hospitality_pms.services.folio import CREDIT_CHARGE_TYPES
+
+	charges_by_name = {row.name: row for row in doc.charges}
+
+	external_reversals: list = []  # reversal of a charge on a prior invoice -> credit note
+	credits: list = []  # discounts and in-batch reversals -> discount fold
+	positives: list = []
+
+	for row in chargeable:
+		original = charges_by_name.get(row.reversal_of) if row.reversal_of else None
+
+		if original is not None and original.is_posted_to_erp:
+			external_reversals.append((row, original))
+			continue
+
+		if flt(row.amount) < 0 or row.charge_type in CREDIT_CHARGE_TYPES:
+			credits.append(row)
+		else:
+			positives.append(row)
+
+	precision = frappe.get_precision("Sales Invoice", "grand_total") or 2
+
+	if external_reversals:
+		# A credit note, and nothing but a credit note. Anything else in the
+		# batch belongs on a different document.
+		if positives or credits:
+			throw(
+				_(
+					"This folio batch reverses a charge that was already invoiced and also carries "
+					"other charges. A reversal of an invoiced charge posts as a credit note against "
+					"that invoice, which cannot also hold new charges; post the new charges on their "
+					"own first."
+				),
+				exc=PostingError,
+			)
+
+		against = {original.sales_invoice for _, original in external_reversals}
+
+		if len(against) != 1 or not next(iter(against)):
+			throw(
+				_(
+					"This batch reverses charges from more than one invoice, which cannot be a single "
+					"credit note. Reverse the charges of one invoice at a time."
+				),
+				exc=PostingError,
+			)
+
+		return {
+			"is_return": True,
+			"return_against": next(iter(against)),
+			"items": [row for row, _ in external_reversals],
+			"discount_amount": 0.0,
+		}
+
+	net_gross = flt(sum(flt(row.amount) for row in positives), precision)
+	discount_total = flt(sum(-flt(row.amount) for row in credits), precision)
+
+	if discount_total > net_gross:
+		throw(
+			_(
+				"The credits on this folio batch ({0}) exceed its charges ({1}), so it cannot be "
+				"invoiced for a positive amount. If this reverses an already-invoiced charge, reverse "
+				"that specific charge so it can post as a credit note against the original invoice."
+			).format(discount_total, net_gross),
+			exc=PostingError,
+		)
+
+	return {
+		"is_return": False,
+		"return_against": None,
+		"items": positives,
+		"discount_amount": discount_total,
+	}
+
+
 def _invoice_within_authority(doc, chargeable, log: str, company: str, actor: str, *, business_date=None, submit: bool = True) -> dict:
 	profile = get_posting_profile(doc.property)
 	profile_doc = frappe.get_cached_doc(PROFILE_DOCTYPE, profile)
@@ -1346,25 +1450,59 @@ def _invoice_within_authority(doc, chargeable, log: str, company: str, actor: st
 	invoice.disable_rounded_total = 1
 	invoice.remarks = _("Hospitality folio {0}").format(doc.name)
 
+	# A batch that nets a credit cannot be a bag of signed items: ERPNext refuses
+	# a negative item rate. `_classify_batch` decides how each credit is
+	# represented instead - a credit note against the invoice it reverses, or an
+	# invoice-level discount - so no item rate is ever negative (F-FIN5).
+	plan = _classify_batch(doc, chargeable)
+
+	if plan["is_return"]:
+		invoice.is_return = 1
+		invoice.return_against = plan["return_against"]
+
 	taxes: dict[str, dict] = {}
 
+	# Tax is accumulated from *every* row in the batch, item or folded credit, so
+	# the ledger holds the folio's net output VAT. A reversal carries negative
+	# tax that must cancel the original's, even though its net is folded into the
+	# discount rather than posted as an item.
 	for row in chargeable:
 		mapping = resolve_charge_item(profile, _tax_charge_type(doc, row))
+		_accumulate_tax(taxes, profile_doc, mapping, row)
+
+	for row in plan["items"]:
+		mapping = resolve_charge_item(profile, _tax_charge_type(doc, row))
+		qty = flt(row.quantity) or 1
+
+		# A credit note carries a negative qty and a *positive* rate, which is
+		# how ERPNext represents a return without a negative rate; an ordinary
+		# item is the folio figure as-is.
+		if plan["is_return"]:
+			item_qty = -abs(qty)
+			rate = abs(flt(row.amount)) / qty
+		else:
+			item_qty = qty
+			rate = flt(row.amount) / qty
 
 		invoice.append(
 			"items",
 			{
 				"item_code": row.item or mapping["item"],
 				"description": row.description,
-				"qty": flt(row.quantity) or 1,
-				"rate": flt(row.amount) / (flt(row.quantity) or 1),
+				"qty": item_qty,
+				"rate": rate,
 				"amount": flt(row.amount),
 				"income_account": mapping["income_account"],
 				"cost_center": mapping["cost_center"],
 			},
 		)
 
-		_accumulate_tax(taxes, profile_doc, mapping, row)
+	# Credits on a net-positive batch reduce the bill through an invoice-level
+	# discount applied on the grand total, so the item rates stay positive and
+	# the grand total still equals the folio.
+	if flt(plan["discount_amount"]) > 0:
+		invoice.apply_discount_on = "Grand Total"
+		invoice.discount_amount = flt(plan["discount_amount"])
 
 	for head, bucket in taxes.items():
 		invoice.append(

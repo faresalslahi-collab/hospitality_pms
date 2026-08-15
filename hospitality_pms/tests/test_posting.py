@@ -563,6 +563,154 @@ class TestPostingParty(PostingTestCase):
 		)
 
 
+class TestNegativeFolioActivity(PostingTestCase):
+	"""F-FIN5 — discounts and reversals must reach the ledger under allow_negative_rates=0.
+
+	A folio credit (a service-recovery Discount, stored negative; a reversal
+	Adjustment, negative) reached the Sales Invoice as an item with a negative
+	`rate`, which ERPNext refuses when `Selling Settings.allow_negative_rates_for_items`
+	is 0. The folio then had no way to invoice or close.
+
+	The fix keeps the invariant that the invoice equals the folio to the fils, but
+	represents each credit the way ERPNext accepts it: a net-positive folio's
+	credits become an invoice-level discount so item rates stay positive, and a
+	reversal of an already-invoiced charge becomes a credit note against that
+	invoice. States that cannot be one document are refused with a clear error
+	rather than failing deep in ERPNext's submit.
+	"""
+
+	WORLD_CODE = "NG"
+
+	def test_selling_settings_forbid_negative_rates(self):
+		"""The precondition the whole finding rests on, asserted, not assumed."""
+		self.assertEqual(
+			frappe.db.get_single_value("Selling Settings", "allow_negative_rates_for_items"),
+			0,
+			msg="this suite only proves anything while ERPNext forbids negative item rates",
+		)
+
+	def test_discount_on_a_net_positive_folio_posts_and_matches_the_folio(self):
+		"""A service-recovery Discount posts as a discount, not a negative-rate item."""
+		self.world.charge(self.folio, "Room Charge", 100, 10, "d1")
+		# A Discount is entered positive and stored negative (CREDIT_CHARGE_TYPES).
+		self.world.charge(self.folio, "Discount", 20, 0, "d2")
+
+		folio_total = flt(frappe.db.get_value("Guest Folio", self.folio, "total_charges"))
+		self.assertMoney(folio_total, 90, msg="folio should be 100 + 10 tax - 20 discount")
+
+		result = posting_service.post_folio_invoice(self.folio)
+		totals = invoice_totals(result["erp_document"])
+
+		self.assertEqual(totals["docstatus"], 1)
+		self.assertMoney(totals["grand_total"], folio_total)
+		self.assertMoney(totals["grand_total"], 90)
+		# The room's output VAT still reaches its account in full; the discount
+		# carried none and must not have invented or eaten any.
+		self.assertMoney(
+			gl_amount("Sales Invoice", result["erp_document"], self.world.room_tax_account),
+			10,
+			msg="the discount must not disturb the folio's output VAT",
+		)
+
+	def test_reversing_an_already_invoiced_charge_posts_as_a_credit_note(self):
+		"""A reversal of a posted charge becomes an is_return credit note against it."""
+		self.world.charge(self.folio, "Minibar", 50, 2.50, "r1")
+		first = posting_service.post_folio_invoice(self.folio)
+		original_row = frappe.db.get_value(
+			"Folio Charge", {"parent": self.folio, "charge_type": "Minibar"}, "name"
+		)
+
+		folio_service.transition(self.folio, folio_service.UNDER_REVIEW, reason="Correction")
+		folio_service.reverse_charge(self.folio, original_row, "Charged in error")
+
+		second = posting_service.post_folio_invoice(self.folio)
+		credit = frappe.db.get_value(
+			"Sales Invoice",
+			second["erp_document"],
+			["docstatus", "is_return", "return_against", "grand_total"],
+			as_dict=True,
+		)
+
+		self.assertEqual(credit["docstatus"], 1)
+		self.assertEqual(credit["is_return"], 1, msg="a reversal must post as a credit note")
+		self.assertEqual(
+			credit["return_against"],
+			first["erp_document"],
+			msg="the credit note must name the invoice it reverses",
+		)
+		self.assertMoney(credit["grand_total"], -52.50)
+		# The reversed output VAT is credited back at its own account.
+		self.assertMoney(
+			gl_amount("Sales Invoice", second["erp_document"], self.world.minibar_tax_account),
+			-2.50,
+		)
+
+		# The two documents net to nothing, which is what the folio now says.
+		net = sum(flt(invoice_totals(i)["grand_total"]) for i in folio_invoices(self.folio))
+		self.assertMoney(net, 0)
+		self.assertMoney(net, flt(frappe.db.get_value("Guest Folio", self.folio, "total_charges")))
+
+	def test_reversal_before_any_posting_nets_out_in_one_invoice(self):
+		"""A charge reversed before it was ever invoiced still posts (net zero)."""
+		charge = self.world.charge(self.folio, "Minibar", 50, 2.50, "n1")
+
+		folio_service.reverse_charge(self.folio, charge["row"], "Never consumed")
+
+		self.assertMoney(frappe.db.get_value("Guest Folio", self.folio, "total_charges"), 0)
+
+		result = posting_service.post_folio_invoice(self.folio)
+		totals = invoice_totals(result["erp_document"])
+
+		self.assertEqual(totals["docstatus"], 1)
+		self.assertMoney(totals["grand_total"], 0)
+		# Both rows are accounted for, so neither lingers for a later invoice.
+		self.assertEqual(
+			frappe.get_all(
+				"Folio Charge",
+				filters={"parent": self.folio, "is_posted_to_erp": 0},
+				pluck="name",
+			),
+			[],
+		)
+
+	def test_credit_exceeding_charges_is_refused_early(self):
+		"""A batch whose credits exceed its charges cannot be one positive invoice."""
+		self.world.charge(self.folio, "Laundry", 50, 0, "x1")
+		self.world.charge(self.folio, "Discount", 100, 0, "x2")
+
+		with self.assertRaises(PostingError):
+			posting_service.post_folio_invoice(self.folio)
+
+		self._assert_no_partial()
+
+	def test_reversal_mixed_with_new_charges_is_refused_early(self):
+		"""Reversing a posted charge while adding new ones needs two documents, so refuse."""
+		self.world.charge(self.folio, "Minibar", 50, 2.50, "m1")
+		posting_service.post_folio_invoice(self.folio)
+		posted_row = frappe.db.get_value(
+			"Folio Charge", {"parent": self.folio, "charge_type": "Minibar"}, "name"
+		)
+
+		folio_service.transition(self.folio, folio_service.UNDER_REVIEW, reason="Correction")
+		folio_service.reverse_charge(self.folio, posted_row, "Charged in error")
+		self.world.charge(self.folio, "Room Charge", 200, 20, "m2")
+
+		with self.assertRaises(PostingError):
+			posting_service.post_folio_invoice(self.folio)
+
+		frappe.db.rollback()
+
+	def _assert_no_partial(self):
+		frappe.db.rollback()
+		self.assertEqual(folio_invoices(self.folio), [])
+		self.assertEqual(
+			frappe.get_all(
+				"Folio Charge", filters={"parent": self.folio, "is_posted_to_erp": 1}, pluck="name"
+			),
+			[],
+		)
+
+
 class TestPostingProfileSetupValidation(PostingTestCase):
 	"""The tax misconfiguration that stops posting is refused at *setup*.
 
