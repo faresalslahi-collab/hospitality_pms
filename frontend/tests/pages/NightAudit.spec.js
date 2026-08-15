@@ -431,6 +431,76 @@ describe('Night Audit blockers', () => {
     expect(wrapper.text()).toContain('Late Checkout')
     expect(wrapper.text()).toContain('Resolved')
   })
+
+  /**
+   * 16.7.6-R1G — the screen reassured the auditor about a list that had failed
+   * to rebuild.
+   *
+   * A review that threw on the server saves nothing, so `exceptions` comes back
+   * empty and the green line read "No blocking exceptions" directly beneath the
+   * red error the same click had just produced. Empty there means "the rebuild
+   * never happened", which is the opposite of what the sentence claims.
+   */
+  it('does not claim the day is clear while the current action has failed', async () => {
+    current.data = payload({
+      audit: auditRecord({ review_completed_on: null, no_shows_completed_on: null }),
+      exceptions: [],
+      blocking_count: 0,
+    })
+
+    review.submit.mockRejectedValue(new Error('Could not find Row #19: Reference Name: 450qjg7djd'))
+
+    const wrapper = await mountAudit()
+
+    expect(wrapper.text()).toContain('No blocking exceptions')
+
+    await actionCard(wrapper).find('button').trigger('click')
+    await flush()
+
+    expect(wrapper.text()).toContain('Could not find Row #19')
+    expect(wrapper.text()).not.toContain('No blocking exceptions')
+  })
+
+  it('says so again once the failed action is retried', async () => {
+    current.data = payload({
+      audit: auditRecord({ review_completed_on: null, no_shows_completed_on: null }),
+      exceptions: [],
+      blocking_count: 0,
+    })
+
+    review.submit.mockRejectedValueOnce(new Error('Review failed'))
+
+    const wrapper = await mountAudit()
+
+    await actionCard(wrapper).find('button').trigger('click')
+    await flush()
+
+    expect(wrapper.text()).not.toContain('No blocking exceptions')
+
+    await actionCard(wrapper).find('button').trigger('click')
+    await flush()
+
+    expect(wrapper.text()).toContain('No blocking exceptions')
+  })
+
+  /** A blocker the server did send is never hidden by the suppression above. */
+  it('still lists the server blockers when an action has failed', async () => {
+    current.data = payload({
+      audit: auditRecord({ review_completed_on: null, no_shows_completed_on: null }),
+      exceptions: [exceptionRow()],
+      blocking_count: 1,
+    })
+
+    review.submit.mockRejectedValue(new Error('Review failed'))
+
+    const wrapper = await mountAudit()
+
+    await actionCard(wrapper).find('button').trigger('click')
+    await flush()
+
+    expect(wrapper.text()).toContain('Night Audit cannot be closed yet')
+    expect(wrapper.text()).toContain('Unresolved Arrival')
+  })
 })
 
 describe('Night Audit close', () => {

@@ -238,7 +238,16 @@ def review(audit: str) -> dict:
 			"audit_exceptions",
 			{
 				"exception_type": "Failed Posting",
-				"reference_doctype": posting_service.POSTING_LOG,
+				# The DocType the row itself names, not the posting log for all of
+				# them. `get_failed_postings` answers from two records - a Failed
+				# `Financial Posting Log`, and for a posting that took its whole
+				# transaction down and left no such row (P1-14), the durable
+				# operation ledger. Labelling the ledger half as a posting log left
+				# this Dynamic Link pointing at a name that DocType has never held,
+				# and the save threw `LinkValidationError` before any of `review()`
+				# reached the database - figures, arrival and departure exceptions
+				# and the completion stamp with it (16.7.6-R1G).
+				"reference_doctype": row["reference_doctype"],
 				"reference_name": row["name"],
 				"description": _("{0} posting failed after {1} attempt(s).").format(
 					row["posting_type"], row["attempts"]

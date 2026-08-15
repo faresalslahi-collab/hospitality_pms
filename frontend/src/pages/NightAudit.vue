@@ -212,8 +212,21 @@
             </ul>
           </div>
 
+          <!--
+            "No blocking exceptions" is a claim about a list the server has just
+            rebuilt. When the step that rebuilds it has failed, there is no such
+            list — the exceptions on screen are the ones from before the attempt,
+            and an empty one means the rebuild never reached the database, not
+            that the day is clear. A review that threw drew this green line
+            directly beneath its own red error (16.7.6-R1G).
+
+            Suppressed rather than reworded, and only while `actionError` stands:
+            the error above already says what happened, `run()` clears it before
+            the next attempt, and no blocker that the server *did* send is hidden
+            by this — the list above renders whenever it has rows.
+          -->
           <p
-            v-else
+            v-else-if="!actionError"
             class="flex items-center gap-2 rounded-xl border border-outline-green-1 bg-surface-green-1 px-4 py-3
               text-p-sm font-medium text-ink-green-3"
           >

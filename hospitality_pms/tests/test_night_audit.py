@@ -599,3 +599,119 @@ class TestReviewCanStrandAVarianceCount(NightAuditTestCase):
 
 		self.assertIn("no exception", str(caught.exception).lower())
 		self.assertNotEqual(self._field(audit, "audit_status"), audit_service.CLOSED)
+
+
+class TestFailedPostingExceptionReferences(NightAuditTestCase):
+	"""16.7.6-R1G — `review()` mislabelled the DocType of a durable failure.
+
+	`get_failed_postings` answers from two records, because a posting can fail in
+	two ways: a `Financial Posting Log` row marked Failed, and - when the failure
+	took its whole transaction down and left no such row (P1-14) - a
+	`PMS Integration Failure Queue` row in the durable ledger.
+
+	`review()` wrote every one of them onto an exception row as
+	`reference_doctype = "Financial Posting Log"` with the source row's `name`.
+	For the ledger half that name belongs to another DocType, so the Dynamic Link
+	on `Night Audit Exception.reference_name` had nothing to resolve and the save
+	threw `LinkValidationError: Could not find Row #19: Reference Name: ...`.
+
+	The whole of `review()` was lost with the save - the figures, the arrival and
+	departure exceptions and the `review_completed_on` stamp - so a property with
+	one durably-failed posting could not review its day at all. That is precisely
+	the property that most needs to: the failure it cannot see is the reason.
+	"""
+
+	WORLD_CODE = "NG"
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		cls.world.check_in_guest(0)
+
+	def setUp(self):
+		super().setUp()
+		from hospitality_pms.services import durability
+
+		durability.purge_operations(property_name=self.world.property)
+
+	def tearDown(self):
+		from hospitality_pms.services import durability
+
+		durability.purge_operations(property_name=self.world.property)
+		super().tearDown()
+
+	def _durable_failure(self, key: str = "ref:1") -> str:
+		"""A posting failure that exists only in the durable ledger."""
+		from hospitality_pms.services import durability
+
+		operation_key = f"{self.world.tag}:{key}"
+
+		durability.begin_operation(
+			property_name=self.world.property,
+			integration_type="Other",
+			operation="post_folio_invoice",
+			operation_key=operation_key,
+			payload={"folio": "HPMS-FOL-NONE"},
+			reference_doctype=folio_service.FOLIO_DOCTYPE,
+			reference_name="HPMS-FOL-NONE",
+		)
+		durability.fail_operation(operation_key, error="ERP refused")
+
+		return durability.find_operations(
+			property_name=self.world.property, operation="post_folio_invoice"
+		)[0]["name"]
+
+	def test_review_survives_a_posting_that_failed_only_in_the_durable_ledger(self):
+		"""The failure itself: review() could not save at all."""
+		self._durable_failure()
+
+		audit = self._audit()
+
+		audit_service.review(audit)
+
+		self.assertIsNotNone(
+			self._field(audit, "review_completed_on"),
+			msg="review() did not complete with a durable posting failure on the property",
+		)
+
+	def test_the_durable_failure_is_recorded_against_the_doctype_that_owns_it(self):
+		"""And it is recorded truthfully, not dropped to make the save pass."""
+		ledger_row = self._durable_failure("ref:2")
+
+		audit = self._audit()
+		audit_service.review(audit)
+
+		rows = frappe.get_all(
+			"Night Audit Exception",
+			filters={"parent": audit, "exception_type": "Failed Posting"},
+			fields=["reference_doctype", "reference_name", "severity"],
+		)
+
+		durable = [row for row in rows if row.reference_name == ledger_row]
+
+		self.assertEqual(
+			len(durable), 1, msg=f"the durable posting failure was not raised as an exception: {rows}"
+		)
+		self.assertEqual(durable[0].reference_doctype, "PMS Integration Failure Queue")
+		self.assertEqual(durable[0].severity, audit_service.BLOCKING)
+
+	def test_every_failed_posting_exception_names_a_record_that_exists(self):
+		"""The invariant behind the fix, stated where a future source can break it.
+
+		Whatever `get_failed_postings` learns to read next, the row it produces
+		must say which DocType its `name` belongs to, or `review()` breaks again.
+		"""
+		self._durable_failure("ref:3")
+
+		audit = self._audit()
+		audit_service.review(audit)
+
+		for row in frappe.get_all(
+			"Night Audit Exception",
+			filters={"parent": audit, "exception_type": "Failed Posting"},
+			fields=["reference_doctype", "reference_name"],
+		):
+			self.assertTrue(
+				frappe.db.exists(row.reference_doctype, row.reference_name),
+				msg=f"exception points at a record that does not exist: {row}",
+			)

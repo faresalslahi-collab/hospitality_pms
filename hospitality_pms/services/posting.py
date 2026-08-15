@@ -2016,6 +2016,12 @@ def get_failed_postings(property_name: str, limit: int = 100) -> list[dict]:
 
 	Night Audit calls this to decide whether the day's revenue reached ERPNext,
 	so an answer that omitted the second kind would be confidently wrong.
+
+	Because the two halves come from two DocTypes, every row says which DocType
+	its own `name` belongs to. Callers that record a row as a reference - Night
+	Audit raises one as an exception with a Dynamic Link - cannot otherwise tell
+	them apart, and assuming the posting log for both wrote a link that resolved
+	to nothing (16.7.6-R1G).
 	"""
 	logged = frappe.get_all(
 		POSTING_LOG,
@@ -2034,6 +2040,9 @@ def get_failed_postings(property_name: str, limit: int = 100) -> list[dict]:
 		limit=limit,
 	)
 
+	for row in logged:
+		row["reference_doctype"] = POSTING_LOG
+
 	seen = {row["folio"] for row in logged if row["folio"]}
 
 	for row in durability.failed_posting_operations(property_name, limit=limit):
@@ -2043,6 +2052,7 @@ def get_failed_postings(property_name: str, limit: int = 100) -> list[dict]:
 		logged.append(
 			{
 				"name": row["name"],
+				"reference_doctype": durability.OPERATION_LEDGER,
 				"posting_type": _POSTING_TYPE_BY_OPERATION.get(row["operation"], row["operation"]),
 				"folio": row["reference_name"],
 				"amount": None,
