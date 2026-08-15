@@ -38,6 +38,24 @@
             {{ formatDate(active.business_date) }}
           </span>
         </span>
+
+        <!--
+          The gap between the operating day and the real one, said plainly and
+          only when there is one.
+
+          It sits with the business date because that is the figure it qualifies
+          — a date the desk would otherwise read as current. It reports the lag;
+          it does not cause it and cannot close it. Only the Night Audit moves a
+          business date forward.
+        -->
+        <span
+          v-if="lag"
+          class="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-400/15 px-2 py-1 text-[11px]
+            leading-tight text-amber-200 ring-1 ring-inset ring-amber-400/25"
+        >
+          <FeatherIcon name="alert-triangle" class="mt-px size-3 shrink-0" aria-hidden="true" />
+          <span class="min-w-0">{{ tCount('common.audit_lag', lag) }}</span>
+        </span>
       </span>
 
       <!--
@@ -84,12 +102,15 @@ import { computed, ref } from 'vue'
 
 import { property } from '@/stores/property'
 import { formatDate } from '@/utils/format'
-import { t } from '@/utils/i18n'
+import { t, tCount } from '@/utils/i18n'
 
 const open = ref(false)
 
 const active = computed(() => property.active.value)
 const canSwitch = computed(() => property.list.value.length > 1)
+
+/** Days the operating day is behind the property's calendar day; 0 when level. */
+const lag = computed(() => property.businessDateLag.value)
 
 function select(name) {
   property.setActive(name)

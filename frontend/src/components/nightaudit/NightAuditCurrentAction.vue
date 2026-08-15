@@ -12,23 +12,37 @@
 -->
 <template>
   <section
-    class="rounded-xl border bg-surface-white p-5 shadow-card"
+    class="rounded-xl border bg-surface-white p-4 shadow-card"
     :class="isClose ? 'border-outline-red-1' : 'border-outline-blue-1'"
     aria-labelledby="night-audit-current-action"
   >
-    <p class="text-xs font-medium uppercase tracking-wide" :class="isClose ? 'text-ink-red-3' : 'text-ink-blue-3'">
-      {{ eyebrow }}
-    </p>
+    <!--
+      Position and title on one line.
 
-    <h2 id="night-audit-current-action" class="mt-1 text-xl font-semibold tracking-tight text-ink-gray-9">
-      {{ title }}
-    </h2>
+      They were stacked, which cost a row to carry four words, and with the
+      generous padding below it the card ran to most of a screen for a sentence
+      and a button. Everything it said is still said - the step number, the
+      title, the description, the server's figures, the action - in about half
+      the height, so the rail above and the blockers below stay in view with it.
+    -->
+    <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <p
+        class="text-xs font-medium uppercase tracking-wide"
+        :class="isClose ? 'text-ink-red-3' : 'text-ink-blue-3'"
+      >
+        {{ eyebrow }}
+      </p>
 
-    <p class="mt-1 max-w-prose text-p-sm text-ink-gray-6">{{ description }}</p>
+      <h2 id="night-audit-current-action" class="text-lg font-semibold tracking-tight text-ink-gray-9">
+        {{ title }}
+      </h2>
+    </div>
+
+    <p class="mt-0.5 max-w-prose text-p-sm text-ink-gray-6">{{ description }}</p>
 
     <!-- What the server already knows about this step, where it knows anything.
          Figures here are context for the decision, not the day's report. -->
-    <dl v-if="context.length" class="mt-4 flex flex-wrap gap-x-6 gap-y-2">
+    <dl v-if="context.length" class="mt-3 flex flex-wrap gap-x-6 gap-y-1.5">
       <div v-for="item in context" :key="item.key" class="min-w-0">
         <dt class="text-xs text-ink-gray-5">{{ item.label }}</dt>
         <dd class="text-p-base font-semibold tabular-nums" :class="item.tone || 'text-ink-gray-9'">
@@ -41,13 +55,13 @@
          the reason is read first rather than discovered by a dead click. -->
     <p
       v-if="blockedReason"
-      class="mt-4 flex items-start gap-2 rounded-lg bg-surface-red-1 px-3 py-2 text-p-sm text-ink-red-3"
+      class="mt-3 flex items-start gap-2 rounded-lg bg-surface-red-1 px-3 py-2 text-p-sm text-ink-red-3"
     >
       <FeatherIcon name="alert-triangle" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
       <span class="min-w-0">{{ blockedReason }}</span>
     </p>
 
-    <div class="mt-4 flex flex-wrap items-center gap-3">
+    <div class="mt-3 flex flex-wrap items-center gap-3">
       <Button
         variant="solid"
         :theme="isClose ? 'red' : 'blue'"

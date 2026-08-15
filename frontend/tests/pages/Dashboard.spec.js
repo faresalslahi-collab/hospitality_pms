@@ -281,22 +281,58 @@ beforeEach(() => {
 })
 
 describe('Command Center header', () => {
-  it('leads with the property and the business date the server is working', async () => {
+  it('leads with the property and the real date at that property', async () => {
+    vi.setSystemTime(new Date('2026-08-15T09:00:00Z'))
+
     const wrapper = await mountDashboard()
 
     expect(wrapper.text()).toContain('Doha Grand')
-    expect(wrapper.text()).toContain('08 Aug 2026')
+    // The civil date, with its weekday: the question this header answers is
+    // "what day is it", which the rail's business date cannot.
+    expect(wrapper.text()).toContain('Saturday')
+    expect(wrapper.text()).toContain('15 Aug 2026')
   })
 
-  it('never reads the browser clock for the business date', async () => {
-    // The payload's date, not today's: a property mid-Night-Audit is still
-    // working an earlier day, and this is the assertion that catches a regression
-    // to `new Date()`.
-    dashboard.data = dashboardData({ business_date: '2026-08-01' })
+  it('reads the calendar date in the property zone, not the runtime zone', async () => {
+    // 22:30 UTC on the 15th is already the 16th in Doha. A bench in London must
+    // not make a Doha desk read yesterday.
+    vi.setSystemTime(new Date('2026-08-15T22:30:00Z'))
 
     const wrapper = await mountDashboard()
 
-    expect(wrapper.text()).toContain('01 Aug 2026')
+    expect(wrapper.text()).toContain('16 Aug 2026')
+  })
+
+  it('no longer repeats the business date the sidebar already shows', async () => {
+    // The rail is the one authoritative place for the operating day, and it now
+    // carries the lag warning beside it. Two copies of one figure is not
+    // emphasis - it is a screen with nothing to say about the real date.
+    vi.setSystemTime(new Date('2026-08-15T09:00:00Z'))
+    dashboard.data = dashboardData({ business_date: '2026-08-08' })
+
+    const wrapper = await mountDashboard()
+
+    // Scoped to the header: "business date" still appears in body copy, where it
+    // is describing what a board is filtered on. What must not come back is the
+    // header repeating the figure the rail already owns.
+    const header = wrapper.findComponent({ name: 'PageHeader' })
+
+    expect(header.exists()).toBe(true)
+    expect(header.text()).not.toContain('business date')
+    expect(header.text()).not.toContain('08 Aug 2026')
+    expect(header.text()).toContain('15 Aug 2026')
+  })
+
+  it('never takes an operational figure from the clock', async () => {
+    // The header's date is civil and decorative. Every fetch this screen makes
+    // still goes out on the property alone, never on a browser-derived date.
+    vi.setSystemTime(new Date('2026-08-15T09:00:00Z'))
+
+    await mountDashboard()
+
+    for (const [params] of dashboard.fetch.mock.calls) {
+      expect(Object.keys(params)).toEqual(['property'])
+    }
   })
 
   it('fetches every board on the property alone, and refetches when it changes', async () => {
@@ -315,6 +351,36 @@ describe('Command Center header', () => {
     await flush()
 
     expect(dashboard.fetch).toHaveBeenCalledWith({ property: 'DOHA02' })
+  })
+})
+
+describe('Command Center search', () => {
+  it('leads with the header and puts the search box under it', async () => {
+    const wrapper = await mountDashboard()
+
+    const html = wrapper.html()
+    const header = html.indexOf('Doha Grand')
+    const search = html.indexOf('data-global-search')
+
+    expect(header).toBeGreaterThan(-1)
+    expect(search).toBeGreaterThan(-1)
+    expect(search).toBeGreaterThan(header)
+  })
+
+  it('mounts exactly one search box, as the shell did', async () => {
+    const wrapper = await mountDashboard()
+
+    expect(wrapper.findAll('[data-global-search]')).toHaveLength(1)
+  })
+
+  it('offers the search before the boards have answered', async () => {
+    // A desk looking for a guest should not have to wait for a rack.
+    dashboard.loading = true
+    dashboard.data = null
+
+    const wrapper = await mountDashboard()
+
+    expect(wrapper.find('[data-global-search]').exists()).toBe(true)
   })
 })
 

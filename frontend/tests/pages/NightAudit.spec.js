@@ -198,7 +198,10 @@ describe('Night Audit header', () => {
     // close are not.
     const wrapper = await mountAudit()
 
-    expect(wrapper.text()).toContain('3 of 7 steps complete')
+    // "recorded complete", not "complete": the count is of server stamps, and a
+    // stamp can sit ahead of the step the operator is on. The wording says what
+    // is actually being counted rather than implying a journey through them.
+    expect(wrapper.text()).toContain('3 of 7 steps recorded complete')
   })
 
   it('never presents the browser clock as the business date', async () => {
@@ -240,8 +243,9 @@ describe('Night Audit progress rail', () => {
     const wrapper = await mountAudit()
 
     expect(rail(wrapper).mark_no_shows).not.toBe('done')
-    expect(rail(wrapper).post_room_charges).toBe('done')
-    expect(wrapper.text()).toContain('3 of 7 steps complete')
+    // Stamped, and ahead of the operator: real evidence, its own state.
+    expect(rail(wrapper).post_room_charges).toBe('recorded')
+    expect(wrapper.text()).toContain('3 of 7 steps recorded complete')
   })
 
   it('marks the close step blocked rather than pending when it cannot run', async () => {
@@ -259,6 +263,69 @@ describe('Night Audit progress rail', () => {
     const wrapper = await mountAudit()
 
     expect(rail(wrapper).close).toBe('blocked')
+  })
+
+  it('does not present a later completed step as progress already made', async () => {
+    // Start, Review and Reconcile stamped; the no-show sweep never ran. The
+    // reconcile stamp is true and stays visible, but it sits ahead of the
+    // marker and must not read like the four steps behind it.
+    current.data = payload({
+      audit: {
+        audit_status: 'Reviewing',
+        no_shows_completed_on: null,
+        posting_completed_on: null,
+        due_outs_completed_on: null,
+        reconciliation_completed_on: '2026-08-12 03:20:00',
+      },
+    })
+
+    const wrapper = await mountAudit()
+    const states = rail(wrapper)
+
+    expect(states.review).toBe('done')
+    expect(states.mark_no_shows).toBe('current')
+    expect(states.reconcile).toBe('recorded')
+    expect(states.reconcile).not.toBe('done')
+  })
+
+  it('names the out-of-sequence state in words too', async () => {
+    current.data = payload({
+      audit: {
+        no_shows_completed_on: null,
+        reconciliation_completed_on: '2026-08-12 03:20:00',
+      },
+    })
+
+    const wrapper = await mountAudit()
+
+    expect(wrapper.find('[data-step="reconcile"]').text()).toContain('Recorded earlier')
+  })
+
+  it('keeps every step in exactly one of the six states', async () => {
+    current.data = payload({
+      audit: {
+        audit_status: 'Ready to Close',
+        no_shows_completed_on: null,
+        posting_completed_on: '2026-08-12 03:10:00',
+        due_outs_completed_on: '2026-08-12 03:12:00',
+        reconciliation_completed_on: '2026-08-12 03:20:00',
+      },
+      exceptions: [exceptionRow()],
+      blocking_count: 1,
+    })
+
+    const wrapper = await mountAudit()
+    const allowed = ['done', 'recorded', 'current', 'pending', 'blocked', 'closed']
+
+    for (const state of Object.values(rail(wrapper))) {
+      expect(allowed).toContain(state)
+    }
+
+    // The operator is on the sweep; everything stamped after it reads as
+    // recorded rather than travelled.
+    expect(rail(wrapper).mark_no_shows).toBe('current')
+    expect(rail(wrapper).post_room_charges).toBe('recorded')
+    expect(rail(wrapper).reconcile).toBe('recorded')
   })
 
   it('names each state in words, not only in colour', async () => {
@@ -526,6 +593,21 @@ describe('Night Audit in Arabic', () => {
     expect(wrapper.text()).toContain('تاريخ العمل التالي')
     expect(actionCard(wrapper).text()).toContain('ترحيل رسوم الغرف')
     expect(wrapper.text()).toContain('لا يمكن إغلاق التدقيق الليلي بعد')
+  })
+
+  it('names the out-of-sequence state in Arabic too', async () => {
+    // Colour is never the only channel, and the words have to exist in both
+    // locales or an Arabic session reads amber with no explanation.
+    current.data = payload({
+      audit: {
+        no_shows_completed_on: null,
+        reconciliation_completed_on: '2026-08-12 03:20:00',
+      },
+    })
+
+    const wrapper = await mountAudit()
+
+    expect(wrapper.find('[data-step="reconcile"]').text()).toContain('مُسجّل سابقاً')
   })
 
   it('expresses the rail logically, with no physical direction', async () => {

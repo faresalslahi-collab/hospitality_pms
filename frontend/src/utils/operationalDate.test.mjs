@@ -12,7 +12,13 @@
  */
 import assert from 'node:assert/strict'
 
-import { defaultStayRange, nextDay, operationalDate } from './operationalDate.js'
+import {
+  currentCalendarDate,
+  daysBetween,
+  defaultStayRange,
+  nextDay,
+  operationalDate,
+} from './operationalDate.js'
 
 const iso = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -56,6 +62,55 @@ check('a form opens on tonight, on the property day', () => {
     arrival: '2026-08-08',
     departure: '2026-08-09',
   })
+})
+
+check('the calendar date is read in the property zone, not the runtime zone', () => {
+  // 22:30 UTC on the 13th is already the 14th in Doha (+3) and still the 13th
+  // in New York (-4). The property decides, whatever machine the browser is on.
+  const instant = new Date('2026-08-13T22:30:00Z')
+
+  assert.equal(currentCalendarDate('Asia/Qatar', instant), '2026-08-14')
+  assert.equal(currentCalendarDate('America/New_York', instant), '2026-08-13')
+  assert.equal(currentCalendarDate('Pacific/Kiritimati', instant), '2026-08-14')
+  assert.equal(currentCalendarDate('UTC', instant), '2026-08-13')
+})
+
+check('the calendar date pads to a comparable YYYY-MM-DD', () => {
+  // Compared against the business date as a string in one place, so a missing
+  // zero would silently make January look like a lag.
+  assert.equal(currentCalendarDate('UTC', new Date('2026-01-05T12:00:00Z')), '2026-01-05')
+  assert.equal(currentCalendarDate('UTC', new Date('2028-02-29T12:00:00Z')), '2028-02-29')
+})
+
+check('an unknown zone is not fatal', () => {
+  // A property whose zone has not been set falls back to the runtime, which is
+  // the only thing left to fall back to, and still answers with a real date.
+  assert.match(currentCalendarDate(null, new Date('2026-08-13T12:00:00Z')), /^\d{4}-\d{2}-\d{2}$/)
+  assert.match(currentCalendarDate('', new Date('2026-08-13T12:00:00Z')), /^\d{4}-\d{2}-\d{2}$/)
+})
+
+check('the lag is counted in whole days, in either direction', () => {
+  assert.equal(daysBetween('2026-08-08', '2026-08-11'), 3)
+  assert.equal(daysBetween('2026-08-11', '2026-08-11'), 0)
+  // A business date *ahead* of the calendar is not a lag; the caller decides
+  // what to do with a negative, and it must not read as three days behind.
+  assert.equal(daysBetween('2026-08-11', '2026-08-08'), -3)
+})
+
+check('the lag crosses months, years and a leap day without drifting', () => {
+  assert.equal(daysBetween('2026-08-31', '2026-09-01'), 1)
+  assert.equal(daysBetween('2026-12-31', '2027-01-01'), 1)
+  assert.equal(daysBetween('2028-02-28', '2028-03-01'), 2)
+})
+
+check('a datetime is narrowed before the lag is counted', () => {
+  assert.equal(daysBetween('2026-08-08 03:00:00', '2026-08-10'), 2)
+})
+
+check('a missing date is no lag at all, never a number', () => {
+  assert.equal(daysBetween(null, '2026-08-10'), null)
+  assert.equal(daysBetween('2026-08-10', undefined), null)
+  assert.equal(daysBetween('not a date', '2026-08-10'), null)
 })
 
 let failed = 0

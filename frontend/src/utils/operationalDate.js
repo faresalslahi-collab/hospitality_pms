@@ -58,6 +58,60 @@ export function nextDay(date) {
 }
 
 /**
+ * Today's *calendar* date at a property, as `YYYY-MM-DD`.
+ *
+ * This is the civil date — what a wall calendar in the lobby says — and it is
+ * emphatically **not** an operational default. Nothing may post to it, default
+ * from it or filter on it; `operationalDate()` above remains the only answer to
+ * "which day is the hotel working". This exists so a screen can *say* what the
+ * real date is, which is the one honest way to show that the business date has
+ * fallen behind it.
+ *
+ * The zone is the property's own `time_zone`, which every Property carries as a
+ * required field and `properties.get_property_context` already sends. A Doha
+ * hotel administered from London is on Doha's calendar, not the browser's; the
+ * browser's zone is used only when the property has not told us its own, which
+ * on a configured bench does not happen.
+ *
+ * @param {string|null|undefined} timeZone IANA zone, e.g. `Asia/Qatar`
+ * @param {Date} [now] the instant to read; defaults to the clock
+ * @returns {string} `YYYY-MM-DD`
+ */
+export function currentCalendarDate(timeZone, now = new Date()) {
+  if (Number.isNaN(now.getTime())) return ''
+
+  // Built from parts rather than sliced off a formatted string: `en-CA` happens
+  // to render ISO order today, but that is a locale detail and not a promise.
+  const parts = new Intl.DateTimeFormat('en-US', {
+    ...(timeZone ? { timeZone } : {}),
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now)
+
+  const at = (type) => parts.find((part) => part.type === type)?.value
+
+  return `${at('year')}-${at('month')}-${at('day')}`
+}
+
+/**
+ * Whole days from one date-only value to the next, or `null` if either is not
+ * a date.
+ *
+ * Both sides are parsed as UTC midnight, which is safe *because* both are: the
+ * offset cancels, so the difference is exact and no zone can round it to the
+ * day either side. Nothing here is an instant.
+ */
+export function daysBetween(from, to) {
+  const start = Date.parse(`${String(from).slice(0, 10)}T00:00:00Z`)
+  const end = Date.parse(`${String(to).slice(0, 10)}T00:00:00Z`)
+
+  if (Number.isNaN(start) || Number.isNaN(end)) return null
+
+  return Math.round((end - start) / 86_400_000)
+}
+
+/**
  * The arrival/departure pair a search or booking form opens with: tonight, on
  * the property's day.
  */

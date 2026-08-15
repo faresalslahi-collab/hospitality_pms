@@ -41,6 +41,25 @@
       </template>
     </PageHeader>
 
+    <!--
+      The one global search box in the app, and it lives here.
+
+      It used to sit in the shell above every page's title - including screens
+      that already have their own, better-scoped search - so the Command Center
+      opened on a text box rather than on the hotel and the date. It is now the
+      page's, and only this page's: this is the screen somebody lands on without
+      yet knowing which board answers their question. Everywhere else the page's
+      own filter is the right control, and the shell renders nothing.
+
+      Under the header, not over it, and outside the sticky area: it scrolls away
+      with the page, available without competing with the counters below it.
+      Rendered before the loading branch, because a desk searching for a guest
+      should not have to wait for a rack.
+    -->
+    <div class="border-b border-outline-gray-1 bg-surface-white px-4 py-2.5 lg:px-5">
+      <GlobalSearch class="w-full md:max-w-md" />
+    </div>
+
     <LoadingState v-if="dashboard.loading && !dashboard.data" />
     <ErrorState v-else-if="dashboard.error" :error="dashboard.error" :on-retry="reload" />
     <EmptyState v-else-if="!dashboard.data" />
@@ -264,6 +283,7 @@ import NightAuditCard from '@/components/dashboard/NightAuditCard.vue'
 import RoomAttentionPanel from '@/components/dashboard/RoomAttentionPanel.vue'
 import RoomStatusBoard from '@/components/dashboard/RoomStatusBoard.vue'
 import StatTile from '@/components/dashboard/StatTile.vue'
+import GlobalSearch from '@/components/operational/GlobalSearch.vue'
 import MoneyDisplay from '@/components/operational/MoneyDisplay.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import RoomDetailDialog from '@/components/RoomDetailDialog.vue'
@@ -333,12 +353,19 @@ const anyLoading = computed(() =>
 )
 
 /**
- * Property and business date, first and prominent.
+ * Property and today's date - the *calendar* date, in the property's own zone.
  *
- * The business date is the server's operational day and is read-only here: a
- * property that has not run its Night Audit is still working yesterday, and a
- * screen that took the date from the browser clock would disagree with every
- * posting the desk makes (CLAUDE.md, "Dates: which kind, and when").
+ * The business date used to be repeated here, and the navigation rail three
+ * inches away was already showing it. Two copies of one figure is not emphasis;
+ * it is a screen with nothing to say about what day it actually is, which is
+ * exactly the question a desk asks when the two have come apart. The rail keeps
+ * the operating day and now carries the lag warning beside it; the header
+ * answers the other question.
+ *
+ * This is a civil date and nothing operational reads it: every posting, filter
+ * and default on this screen still comes from the server's business date
+ * (CLAUDE.md, "Dates: which kind, and when"). The zone is the property's, never
+ * the browser's - a Doha hotel is on Doha's calendar whoever is looking at it.
  */
 const subtitle = computed(() => {
   const data = dashboard.data
@@ -346,7 +373,7 @@ const subtitle = computed(() => {
 
   return t('page.dashboard.subtitle_property', {
     property: data.property_name || data.property || '',
-    date: formatDate(data.business_date),
+    date: formatDate(property.today.value, { weekday: 'long' }),
   })
 })
 

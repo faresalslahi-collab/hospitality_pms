@@ -28,15 +28,21 @@
       </div>
 
       <!--
-        Operational search sits above the content in one bar at every width, so it
-        is reachable from the sidebar layout and from the phone bar without the
-        shell being restructured for either. One instance, not one per breakpoint:
-        two would each keep their own open panel and their own live region.
-      -->
-      <div class="flex items-center gap-2 border-b border-outline-gray-1 px-3 py-2">
-        <GlobalSearch class="w-full md:max-w-md" />
-      </div>
+        No global search bar here.
 
+        The shell used to carry one above every page, which made a box for
+        finding *any* record the first thing on screens that already have their
+        own, better-scoped search — the reservations filter, the guest lookup,
+        every board's column search. Two search boxes stacked a few pixels apart,
+        answering different questions, is a screen that has to be explained.
+
+        Global search now lives on the Command Center alone, under its header,
+        placed by the page (`pages/Dashboard.vue`). The Command Center is where
+        somebody arrives without knowing which screen they need; everywhere else
+        the page's own control is the right one. That also keeps it to a single
+        mounted instance — two would each hold their own open panel and their own
+        live region.
+      -->
       <main class="min-h-0 flex-1 overflow-y-auto">
         <slot />
       </main>
@@ -50,7 +56,6 @@ import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 import AppSidebar from '@/components/AppSidebar.vue'
-import GlobalSearch from '@/components/operational/GlobalSearch.vue'
 import { t } from '@/utils/i18n'
 
 const drawerOpen = ref(false)

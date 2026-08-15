@@ -107,7 +107,14 @@ export function auditStepStates(audit, blockingCount = 0) {
     let state = 'pending'
 
     if (done) {
-      state = 'done'
+      // Complete, but *after* the step the operator is on. The server's evidence
+      // is not hidden or softened - the stamp is real and the step did run - but
+      // presenting it in the same green as the steps behind the marker reads as
+      // "you have been through this", which the operator has not. A close is a
+      // sequence, and a later step carrying an earlier stamp is worth noticing
+      // rather than smoothing over: it usually means a previous run got that far
+      // before the day was reopened.
+      state = currentSeen ? 'recorded' : 'done'
     } else if (!currentSeen) {
       currentSeen = true
       state = 'current'
