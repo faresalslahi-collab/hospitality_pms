@@ -415,6 +415,11 @@ def reconcile_folio(folio: str) -> dict:
 		"erp_invoices": "Sales Invoice",
 		"erp_payment_entries": "Payment Entry",
 		"currency_mismatch": "Sales Invoice",
+		# Credit notes are Sales Invoices, raised in ERPNext by finance, and the
+		# list names them. `erp_returned` is a figure rather than an identifier
+		# and stays unconditionally, for the reason the variance figures do: this
+		# endpoint is folio-authorised, so its money is the caller's to see.
+		"erp_credit_notes": "Sales Invoice",
 	}
 
 	disclosure = {
@@ -507,6 +512,32 @@ def reconcile_folio(folio: str) -> dict:
 		]
 
 	return disclosed
+
+
+@frappe.whitelist(methods=["POST"])
+def withdraw_posting(log: str, reason: str) -> dict:
+	"""Withdraw the PMS's claim on a posting the ledger no longer supports.
+
+	The finance end of the recovery path. `retry_posting` beside it refuses a
+	Posted row whose document has left the ledger, and it is right to: the
+	folio's charge rows are still stamped and re-sending under the same key would
+	either double-post or post a batch that no longer matches the stamps. This is
+	the other answer - record that the claim is empty, and let finance settle the
+	folio from there.
+
+	Deliberately *not* on `RECONCILIATION_ROLES`. That set exists so a Night
+	Auditor can see the reconciliation queue; writing off a claim on the ledger is
+	a decision for the roles in `WITHDRAWAL_ROLES`, and the service re-checks it.
+	The property is re-checked there too, against the posting's own record rather
+	than anything sent here.
+
+	The response names nothing the caller may not read: `log` is their own
+	argument, already authorised above, and no accounting document appears in it.
+	"""
+	require_role(posting_service.WITHDRAWAL_ROLES)
+	authorise_document(posting_service.POSTING_LOG, log, "read")
+
+	return posting_service.withdraw_stale_posting(log, reason)
 
 
 @frappe.whitelist(methods=["POST"])

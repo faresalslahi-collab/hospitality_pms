@@ -145,6 +145,49 @@ class NightAuditWorld(PostingWorld):
 
 		return names
 
+	def checked_out_stay(self, room_index: int = 0, *, charge: float = 90.0) -> dict:
+		"""A guest who has been through the supported checkout, end to end.
+
+		The premise `reverse_checkout` needs: a Checked Out stay whose folio is
+		Settled or Closed and whose money is in ERPNext, so reversing it exercises
+		the real path rather than a folio arranged to look like one.
+		"""
+		from hospitality_pms.services import checkout as checkout_service
+
+		result = self.check_in_guest(room_index, nights=2)
+		stay = result["stay"] if isinstance(result, dict) else result
+		folio = folio_service.get_folio_for_stay(stay)
+
+		self.charge(folio, "Room Charge", charge, 0, f"{self.tag}:stay-charge:{folio}")
+		folio_service.post_payment(
+			folio, charge, "Cash", idempotency_key=f"{self.tag}:stay-settle:{folio}"
+		)
+
+		checkout_service.check_out(stay)
+		frappe.db.commit()
+
+		return {"stay": stay, "folio": folio, "room": self.rooms[room_index]}
+
+	def credit_note(self, invoice: str) -> str:
+		"""A submitted ERPNext credit note against an invoice, raised the way finance does.
+
+		Through `make_sales_return`, so the document carries the `is_return` and
+		`return_against` wiring ERPNext's own return handling depends on, rather
+		than a hand-built negative invoice that would only look like one.
+		"""
+		from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_return
+
+		note = make_sales_return(invoice)
+		note.flags.ignore_permissions = True
+		note.insert()
+		note.submit()
+
+		# Deliberately *not* committed, unlike the folio builders above. A credit
+		# note is the damage a test arranges, not part of the world it shares: left
+		# committed it survives `tearDown`'s rollback and every later test in the
+		# class reconciles against a folio ERPNext has credited back.
+		return note.name
+
 	def folio_with_unposted_charge(self, amount: float = 25.0) -> str:
 		"""A settled folio whose money never reached ERPNext."""
 		guest = self.fixtures.guest("Variance")
