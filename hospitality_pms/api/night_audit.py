@@ -46,6 +46,22 @@ AUDIT_FIELDS = (
 	"occupancy_percentage",
 	"adr",
 	"revpar",
+	# Step completion evidence, for the progress rail.
+	#
+	# Read-only stamps the service already wrote (`review`, `post_room_charges`,
+	# `reconcile`) plus the two added in 16.7.6 for the steps that move no status.
+	# The screen shows a step as complete only where one of these says so — it
+	# used to infer completion from `audit_status`, and because a status covers
+	# more than one step it ticked steps that had never run.
+	#
+	# Disclosure: these are timestamps and actor names on a record the caller
+	# already holds `Night Audit.read` for. They carry no folio money and are not
+	# gated with `FOLIO_FIGURE_FIELDS`.
+	"review_completed_on",
+	"no_shows_completed_on",
+	"posting_completed_on",
+	"due_outs_completed_on",
+	"reconciliation_completed_on",
 	"started_on",
 	"started_by",
 	"closed_on",

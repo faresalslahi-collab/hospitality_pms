@@ -58,6 +58,18 @@ export const property = {
     return propertyResource.fetch()
   },
 
+  /**
+   * Re-read the property context unconditionally.
+   *
+   * `load()` is a once-per-session guard; this is for the one thing that moves a
+   * property's business date under a running session — the Night Audit close.
+   * Re-reading here is what updates the navigation rail and every screen scoped
+   * to the business date, instead of asking the operator to reload the browser.
+   */
+  refresh() {
+    return propertyResource.fetch()
+  },
+
   setActive(name) {
     if (!state.properties.some((p) => p.name === name)) return
 
