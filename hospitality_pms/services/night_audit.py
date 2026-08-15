@@ -393,6 +393,15 @@ def post_room_charges(audit: str) -> dict:
 			failed.append({"stay": stay["name"], "error": "no folio"})
 			continue
 
+		# Room-charge idempotency is a per-stay-per-night fact, but post_charge's key
+		# check scans only the one folio it posts to. A charge split onto a company
+		# folio leaves the master without it, so ask the stable Stay/date identity
+		# across every folio first - otherwise this re-run bills the room a second
+		# time wherever the split moved the original (F-FIN7).
+		if stay_service.room_charge_posted(stay["name"], business_date):
+			skipped += 1
+			continue
+
 		try:
 			result = folio_service.post_charge(
 				stay["folio"],

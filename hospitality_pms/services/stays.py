@@ -1006,3 +1006,31 @@ def get_stays_for_room_charge(property_name: str, business_date) -> list[dict]:
 		fields=["name", "folio", "room", "room_type", "room_rate", "rate_plan", "guest", "adults", "children"],
 		limit_page_length=0,
 	)
+
+
+def room_charge_posted(stay: str, business_date) -> bool:
+	"""Whether this stay already has a room charge for a business date, on any folio.
+
+	A room charge is one fact per stay per night, but `folio.post_charge`'s
+	idempotency check scans only the single folio it is posting to. Once a room
+	charge is split onto a company folio the master folio no longer carries it, so a
+	per-folio check would let a Night Audit re-run for that date post the room a
+	second time. This asks the stable Stay/date identity instead - the charge's
+	`reference` to its Stay, which folio surgery preserves - so a re-run recognises
+	the charge wherever the split has moved it (F-FIN7).
+
+	Reversed rows count: the original room charge stays on the folio after a
+	reversal and remains the charge's idempotency anchor, so re-running the audit
+	must not resurrect a room charge finance deliberately reversed.
+	"""
+	return bool(
+		frappe.db.exists(
+			folio_service.FOLIO_CHARGE_DOCTYPE,
+			{
+				"charge_type": "Room Charge",
+				"reference_doctype": STAY_DOCTYPE,
+				"reference_name": stay,
+				"business_date": getdate(business_date),
+			},
+		)
+	)
