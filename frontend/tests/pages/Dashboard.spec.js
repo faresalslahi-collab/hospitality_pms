@@ -396,8 +396,8 @@ describe('Command Center work counters', () => {
     expect(counters.text()).toContain('Pending check-outs')
     expect(counters.text()).toContain('Due out')
     expect(counters.text()).toContain('Rooms not ready')
-    expect(counters.text()).toContain('Available now')
-    expect(counters.text()).toContain('In-house rooms')
+    expect(counters.text()).toContain('Assignable now')
+    expect(counters.text()).toContain('In-house stays')
     // The explanatory sentence under the row was dropped in 16.7.6: each card
     // carries its own helper line now ("Need room assignment"), and a paragraph
     // repeating one of them under all seven was a second voice saying the same
@@ -515,8 +515,8 @@ describe('Command Center work counters', () => {
     // same figure as everybody whose departure date is today — and a helper line
     // reading "Departures today" would put back the total this section dropped.
     expect(text).toContain('Marked to leave today')
-    expect(text).toContain('Ready to assign')
-    expect(text).toContain('Currently occupied')
+    expect(text).toContain('Can be given out now')
+    expect(text).toContain('Guests in the house')
   })
 
   it('sends a not-ready room to housekeeping for a role that may open it', async () => {
@@ -707,10 +707,10 @@ describe('Command Center house state, work and money', () => {
   it('restates the live house in rooms, with what can be sold now', async () => {
     const wrapper = await mountDashboard()
 
-    expect(wrapper.text()).toContain('Occupied now')
+    expect(wrapper.text()).toContain('Occupied rooms now')
     expect(wrapper.text()).toContain('70.0%')
     expect(wrapper.text()).toContain('42 / 60 rooms')
-    expect(wrapper.text()).toContain('Available now')
+    expect(wrapper.text()).toContain('Assignable now')
     expect(wrapper.text()).toContain('7')
   })
 
