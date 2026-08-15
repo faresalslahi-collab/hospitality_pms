@@ -482,10 +482,19 @@ def _record_or_park_folio_payment(
 
 	Returns the folio payment result, or None when the payment was parked.
 	"""
-	status = frappe.db.get_value(folio_service.FOLIO_DOCTYPE, folio, "folio_status")
+	# Idempotency comes first, on both the open and closed paths. `_apply_to_folio`
+	# is re-invoked on every settled callback delivery and on `sync_status`, and that
+	# replay-safety depends on `post_payment`'s `_find_by_key` check. Parking on a
+	# closed folio without it would, after checkout, turn an ordinary replay of an
+	# already-applied payment into a false "reopen and record" item - and a double
+	# payment if actioned. So divert to parking only when the folio is closed AND this
+	# payment is genuinely new; a replay falls through to post_payment, which finds the
+	# existing row and returns it unchanged whatever the folio status.
+	folio_doc = frappe.get_doc(folio_service.FOLIO_DOCTYPE, folio)
+	already_recorded = folio_service._find_by_key(folio_doc.payments, idempotency_key)
 
-	if status == folio_service.CLOSED:
-		property_name = frappe.db.get_value(folio_service.FOLIO_DOCTYPE, folio, "property")
+	if folio_doc.folio_status == folio_service.CLOSED and not already_recorded:
+		property_name = folio_doc.property
 		park_key = f"closed-folio-payment:{idempotency_key}"
 
 		durability.begin_operation(

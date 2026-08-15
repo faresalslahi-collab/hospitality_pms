@@ -334,10 +334,14 @@ def confirm(reservation: str, *, allow_overbooking: bool = False, reason: str | 
 	# and writes the same value back when it is unchanged; it is legal here because
 	# the reservation is still in an interval-editable state. Room-type locks are
 	# already held above, so this preserves the Reservation -> Room Type -> Hotel Room
-	# order.
-	for line in doc.rooms:
-		if line.assigned_room:
-			assign_room(reservation, line.name, line.assigned_room)
+	# order. Sorted by the room being locked so the Hotel Room locks are taken in a
+	# deterministic order - the same order a concurrent same-type change_room takes
+	# its sorted room locks - or a multi-room pre-assigned booking could deadlock a
+	# room move that shares two of its rooms.
+	for line in sorted(
+		(row for row in doc.rooms if row.assigned_room), key=lambda row: row.assigned_room
+	):
+		assign_room(reservation, line.name, line.assigned_room)
 
 	# A corporate booking draws on the account's credit. This runs inside the
 	# same locked transaction as the availability check, so the credit movement

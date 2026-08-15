@@ -291,6 +291,21 @@ def resolve_exception(audit: str, row_name: str, resolution: str) -> str:
 
 	_save(doc)
 
+	# Clearing the last blocking exception on a reconciled day is what makes it
+	# closable (F-NA2). reconcile grants Ready to Close only when it finds nothing
+	# blocking, so a variance resolved *after* reconcile used to leave the audit
+	# stuck in Posting with no supported way forward - and re-running reconcile only
+	# rebuilt the variance unresolved. Granting Ready to Close here instead, without
+	# a rerun, is the exit; the close gate still re-checks steps, blocking exceptions
+	# and finality, and its fingerprint refuses close if any money moved since the
+	# reconciliation this resolution was made against.
+	if (
+		doc.reconciliation_completed_on
+		and doc.audit_status in (REVIEWING, POSTING)
+		and not _blocking_exceptions(doc)
+	):
+		_transition(doc, READY_TO_CLOSE)
+
 	return row_name
 
 
@@ -527,83 +542,55 @@ def reconcile(audit: str) -> dict:
 	)
 	breaks = posting_service.finality_breaks(evidence)
 
-	# Preserve resolutions across reruns (F-NA2). A folio variance an auditor has
-	# explicitly resolved - finance accepting a reviewed discrepancy - must not
-	# silently reappear as unresolved on the next reconcile, or the audit can never
-	# reach Ready to Close: resolve_exception marks the row but does not transition,
-	# and only reconcile grants Ready to Close, so a rerun that wiped the resolution
-	# trapped the day. Keyed on the folio so a resolution follows its variance; a
-	# resolved row whose variance is gone is simply not re-added (it is fixed).
-	#
-	# Two kinds are deliberately NOT preserved and re-block every run, which is the
-	# correct fail-closed behaviour: a finality *break* (a posting-log row whose
-	# document left the ledger, below) and a folio variance flagged
-	# `needs_erp_reconciliation` (the same condition seen at folio level). Those are
-	# accounting-recovery decisions, not discrepancies an auditor may accept, and
-	# `_assert_reconciled_postings_are_final` refuses close while one is live
-	# regardless of any exception row.
-	resolved_variances = {
-		row.reference_name: row
-		for row in doc.audit_exceptions
-		if row.exception_type == "Unposted Charge"
-		and row.reference_doctype == folio_service.FOLIO_DOCTYPE
-		and row.is_resolved
-	}
-
+	# Rebuilt rather than appended to, so a variance that has since been fixed stops
+	# blocking the close instead of lingering from an earlier run. Rows are always
+	# re-added *unresolved*: a resolution is not carried across a reconcile, because
+	# the amount an auditor accepted is not recorded on the row, so carrying `is_resolved`
+	# forward by folio alone would mask a variance that had since grown into a new,
+	# unreviewed discrepancy (F-NA2 review finding). The supported path to close a
+	# reviewed variance is resolve_exception, which transitions the audit to Ready to
+	# Close without a rerun; and if money moves after that, `_assert_steps_complete`'s
+	# fingerprint refuses close and forces a fresh reconcile that shows the current
+	# amount unresolved.
 	doc.set(
 		"audit_exceptions",
 		[row for row in doc.audit_exceptions if row.exception_type != "Unposted Charge"],
 	)
 
 	for variance in variances:
-		prior = (
-			None
-			if variance.get("needs_erp_reconciliation")
-			else resolved_variances.get(variance["folio"])
+		doc.append(
+			"audit_exceptions",
+			{
+				"exception_type": "Unposted Charge",
+				"reference_doctype": folio_service.FOLIO_DOCTYPE,
+				"reference_name": variance["folio"],
+				# Neither the folio's name nor the variance amount is in the
+				# sentence (16.7.5-R1B). This description is rendered on the Night
+				# Audit screen, and ten of the roles that can open it cannot read
+				# `Guest Folio` - so it was telling a room attendant which folio
+				# disagrees with the ledger and by how much money.
+				#
+				# Both facts still reach the people who need them: the folio's
+				# identity through the gated `reference`, and the amount through the
+				# reconciliation endpoint, which is `RECONCILIATION_ROLES`-gated and
+				# is where finance works the variance. What is lost here is only the
+				# ability to read it off a screen without the permission for it.
+				"description": (
+					# Two different problems needing two different people. "Does not
+					# agree" reads as work for whoever posts the day; a posting whose
+					# document has left the ledger is an accounting decision, and
+					# retrying it is refused. Saying so here is what stops the second
+					# being worked as the first.
+					_(
+						"A folio on this business date was posted to ERPNext and that "
+						"document is no longer in the ledger. It needs reconciliation."
+					)
+					if variance.get("needs_erp_reconciliation")
+					else _("A folio on this business date does not agree with ERPNext.")
+				),
+				"severity": BLOCKING,
+			},
 		)
-
-		exception_row = {
-			"exception_type": "Unposted Charge",
-			"reference_doctype": folio_service.FOLIO_DOCTYPE,
-			"reference_name": variance["folio"],
-			# Neither the folio's name nor the variance amount is in the
-			# sentence (16.7.5-R1B). This description is rendered on the Night
-			# Audit screen, and ten of the roles that can open it cannot read
-			# `Guest Folio` - so it was telling a room attendant which folio
-			# disagrees with the ledger and by how much money.
-			#
-			# Both facts still reach the people who need them: the folio's
-			# identity through the gated `reference`, and the amount through the
-			# reconciliation endpoint, which is `RECONCILIATION_ROLES`-gated and
-			# is where finance works the variance. What is lost here is only the
-			# ability to read it off a screen without the permission for it.
-			"description": (
-				# Two different problems needing two different people. "Does not
-				# agree" reads as work for whoever posts the day; a posting whose
-				# document has left the ledger is an accounting decision, and
-				# retrying it is refused. Saying so here is what stops the second
-				# being worked as the first.
-				_(
-					"A folio on this business date was posted to ERPNext and that "
-					"document is no longer in the ledger. It needs reconciliation."
-				)
-				if variance.get("needs_erp_reconciliation")
-				else _("A folio on this business date does not agree with ERPNext.")
-			),
-			"severity": BLOCKING,
-		}
-
-		if prior:
-			exception_row.update(
-				{
-					"is_resolved": 1,
-					"resolution": prior.resolution,
-					"resolved_by": prior.resolved_by,
-					"resolved_on": prior.resolved_on,
-				}
-			)
-
-		doc.append("audit_exceptions", exception_row)
 
 	# A posting whose folio is already carrying a variance row is not reported
 	# twice. The folio row is the more useful of the two - it names the record

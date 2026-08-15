@@ -737,11 +737,14 @@ class TestVarianceGuardStillHolds(FinalityTestCase):
 class TestReconciliationVarianceResolution(FinalityTestCase):
 	"""P1 (F-NA2) — a reviewed and resolved folio variance must reach close.
 
-	reconcile() rebuilds its Unposted Charge exceptions every run. It used to wipe
-	resolved rows too, so a variance an auditor had explicitly resolved reappeared
-	unresolved on the next reconcile and the audit could never leave Posting for
-	Ready to Close. Resolutions for folio variances now survive the rerun; finality
-	breaks still re-block (verified by TestCloseRefusesBrokenFinality).
+	A folio variance an auditor has explicitly resolved used to leave the audit stuck
+	in Posting: resolve_exception marked the row but did not transition, and only
+	reconcile grants Ready to Close - and a reconcile rerun rebuilt the variance
+	unresolved. resolve_exception now grants Ready to Close directly when it clears the
+	last blocking exception. Resolutions are deliberately NOT carried across a reconcile
+	rerun (the accepted amount is not recorded, so carrying it forward would mask a
+	variance that had since grown); a rerun re-shows the current amount unresolved, and
+	the close fingerprint forces a rerun if money moved after the resolution.
 	"""
 
 	def _folio_variance_rows(self, audit: str) -> list:
@@ -760,31 +763,49 @@ class TestReconciliationVarianceResolution(FinalityTestCase):
 		self.assertTrue(self._folio_variance_rows(audit), msg="the variance was not raised")
 		self.assertRefusesClose(audit)
 
-	def test_resolved_variance_survives_reconcile_and_allows_close(self):
+	def _resolve_all_blocking(self, audit: str):
+		doc = frappe.get_doc(AUDIT, audit)
+		for row in doc.audit_exceptions:
+			if row.severity == audit_service.BLOCKING and not row.is_resolved:
+				audit_service.resolve_exception(audit, row.name, "reviewed with finance; accepted")
+
+	def test_resolved_variance_reaches_ready_to_close_and_closes(self):
 		self.world.folio_with_unposted_charge(30)
 		audit = self._reconciled_audit()
 
-		rows = self._folio_variance_rows(audit)
-		self.assertTrue(rows)
+		self.assertTrue(self._folio_variance_rows(audit))
 		self.assertRefusesClose(audit)
 
-		audit_service.resolve_exception(
-			audit, rows[0].name, "reviewed with finance; discrepancy accepted"
-		)
-
-		# The supported rerun of reconcile must keep the resolution and grant
-		# Ready to Close, instead of wiping it and trapping the day.
-		audit_service.reconcile(audit)
-
-		preserved = self._folio_variance_rows(audit)
-		self.assertTrue(preserved, msg="the variance row disappeared entirely")
-		self.assertTrue(
-			all(row.is_resolved for row in preserved),
-			msg="the resolution was wiped on the reconcile rerun (F-NA2)",
-		)
+		# Resolving the last blocking exception grants Ready to Close directly - no
+		# reconcile rerun, so no trap.
+		self._resolve_all_blocking(audit)
 		self.assertEqual(self._status(audit), audit_service.READY_TO_CLOSE)
 
 		closed_date = self.world.business_date
 		result = audit_service.close(audit)
 		self.assertEqual(self._status(audit), audit_service.CLOSED)
 		self.assertEqual(result["closed_business_date"], str(closed_date))
+
+	def test_resolution_is_not_carried_across_a_reconcile_rerun(self):
+		"""The F-NA2 review finding: a resolution must not survive a reconcile.
+
+		The accepted amount is not recorded on the row, so carrying the resolution
+		forward by folio would mask a variance that had since grown. A rerun must
+		therefore re-raise the variance UNRESOLVED, and close must refuse again.
+		"""
+		self.world.folio_with_unposted_charge(30)
+		audit = self._reconciled_audit()
+
+		self._resolve_all_blocking(audit)
+		self.assertEqual(self._status(audit), audit_service.READY_TO_CLOSE)
+
+		# A supported rerun of reconcile must not preserve the resolution.
+		audit_service.reconcile(audit)
+
+		reraised = self._folio_variance_rows(audit)
+		self.assertTrue(reraised, msg="the variance was not re-raised on rerun")
+		self.assertTrue(
+			all(not row.is_resolved for row in reraised),
+			msg="a resolution was carried across a reconcile rerun, which can mask a grown variance",
+		)
+		self.assertRefusesClose(audit)
