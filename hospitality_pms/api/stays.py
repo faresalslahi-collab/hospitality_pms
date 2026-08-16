@@ -117,11 +117,17 @@ def check_in(
 
 
 @frappe.whitelist(methods=["POST"])
-def change_room(stay: str, new_room: str, reason: str, allow_unready: int = 0) -> dict:
+def change_room(
+	stay: str, new_room: str, reason: str, allow_unready: int = 0, allow_overbooking: int = 0
+) -> dict:
 	authorise_document(STAY_DOCTYPE, stay, "write")
 
 	return service.change_room(
-		stay, new_room, reason, allow_unready=bool(int(allow_unready or 0))
+		stay,
+		new_room,
+		reason,
+		allow_unready=bool(int(allow_unready or 0)),
+		allow_overbooking=bool(int(allow_overbooking or 0)),
 	)
 
 

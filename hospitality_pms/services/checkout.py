@@ -392,6 +392,41 @@ def _advance_reservation(stay_doc):
 	)
 
 
+def _restore_reservation_after_reversal(stay_doc):
+	"""Undo the reservation advance a checkout made, when a checkout is reversed.
+
+	Only acts when the reservation is actually Checked Out - if another stay on
+	the booking is still in house, `_advance_reservation` never moved it and there
+	is nothing to restore. The transition propagates Checked In down to every room
+	line, which is what returns the line to the availability sold-count.
+	"""
+	if not stay_doc.reservation:
+		return
+
+	status = frappe.db.get_value(
+		reservation_service.RESERVATION_DOCTYPE, stay_doc.reservation, "reservation_status"
+	)
+
+	if status != reservation_service.CHECKED_OUT:
+		return
+
+	reservation_doc = frappe.get_doc(
+		reservation_service.RESERVATION_DOCTYPE, stay_doc.reservation
+	)
+
+	reservation_service._transition(
+		reservation_doc, reservation_service.CHECKED_IN, reason=_("Checkout reversed")
+	)
+
+	frappe.db.set_value(
+		reservation_service.RESERVATION_DOCTYPE,
+		stay_doc.reservation,
+		"checked_out_on",
+		None,
+		update_modified=False,
+	)
+
+
 def reverse_checkout(stay: str, reason: str) -> dict:
 	"""Undo a checkout.
 
@@ -425,12 +460,46 @@ def reverse_checkout(stay: str, reason: str) -> dict:
 				folio, folio_service.UNDER_REVIEW, reason=_("Checkout reversed: {0}").format(reason.strip())
 			)
 
+	# Physical-room authority has to agree before the guest is put back. A
+	# checkout releases the room to Vacant Dirty; it can be cleaned and re-let to
+	# a walk-in before anyone reverses the checkout. Re-occupying it blindly is
+	# exactly how one room ends up with two active stays - and how that night's
+	# room charge is posted to two folios at the next audit. Refuse the reversal
+	# if another active stay now holds the room, under the room's lock, with the
+	# same commit-time guard every placement path uses.
+	if doc.room:
+		lock_document(room_service.ROOM_DOCTYPE, doc.room)
+		room_service.assert_room_unoccupied(
+			doc.room, exclude_stay=stay, property_name=doc.property
+		)
+
 	stay_service.transition(stay, stay_service.IN_HOUSE, reason=reason.strip())
+
+	# `checked_out_on` is load-bearing for occupancy authority: `active_stay_in_room`
+	# (and every write-time placement guard through it) excludes any stay that
+	# carries the timestamp. check_out stamped it; a reversal that leaves it set
+	# makes the reversed stay invisible to the authority, so the room reads
+	# assignable while the guest is back in it (the room-402 double-occupancy
+	# class). Clearing it is what makes the reversal a true inverse of check_out.
+	frappe.db.set_value(
+		STAY_DOCTYPE,
+		stay,
+		{"checked_out_on": None, "checked_out_by": None},
+		update_modified=True,
+	)
 
 	if doc.room:
 		room_service.mark_occupied(
 			doc.room, reference_doctype=STAY_DOCTYPE, reference_name=stay
 		)
+
+	# The checkout advanced the reservation to Checked Out once its last stay left
+	# (_advance_reservation) and propagated that onto every room line. A line in
+	# Checked Out is invisible to the availability sold-count, so a reversed stay
+	# whose reservation is not restored drops out of inventory and the room can be
+	# oversold. Put it back to Checked In - a holding state - so the night the
+	# guest is once again occupying is counted again.
+	_restore_reservation_after_reversal(doc)
 
 	stay_service.add_note(
 		stay, _("Checkout reversed: {0}").format(reason.strip()), note_type="Operational"

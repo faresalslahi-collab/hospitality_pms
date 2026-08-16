@@ -291,6 +291,21 @@ def resolve_exception(audit: str, row_name: str, resolution: str) -> str:
 
 	_save(doc)
 
+	# Clearing the last blocking exception on a reconciled day is what makes it
+	# closable (F-NA2). reconcile grants Ready to Close only when it finds nothing
+	# blocking, so a variance resolved *after* reconcile used to leave the audit
+	# stuck in Posting with no supported way forward - and re-running reconcile only
+	# rebuilt the variance unresolved. Granting Ready to Close here instead, without
+	# a rerun, is the exit; the close gate still re-checks steps, blocking exceptions
+	# and finality, and its fingerprint refuses close if any money moved since the
+	# reconciliation this resolution was made against.
+	if (
+		doc.reconciliation_completed_on
+		and doc.audit_status in (REVIEWING, POSTING)
+		and not _blocking_exceptions(doc)
+	):
+		_transition(doc, READY_TO_CLOSE)
+
 	return row_name
 
 
@@ -391,6 +406,15 @@ def post_room_charges(audit: str) -> dict:
 	for stay in stay_service.get_stays_for_room_charge(doc.property, business_date):
 		if not stay["folio"]:
 			failed.append({"stay": stay["name"], "error": "no folio"})
+			continue
+
+		# Room-charge idempotency is a per-stay-per-night fact, but post_charge's key
+		# check scans only the one folio it posts to. A charge split onto a company
+		# folio leaves the master without it, so ask the stable Stay/date identity
+		# across every folio first - otherwise this re-run bills the room a second
+		# time wherever the split moved the original (F-FIN7).
+		if stay_service.room_charge_posted(stay["name"], business_date):
+			skipped += 1
 			continue
 
 		try:
@@ -518,8 +542,16 @@ def reconcile(audit: str) -> dict:
 	)
 	breaks = posting_service.finality_breaks(evidence)
 
-	# Rebuilt rather than appended to, so a variance that has since been fixed
-	# stops blocking the close instead of lingering from an earlier run.
+	# Rebuilt rather than appended to, so a variance that has since been fixed stops
+	# blocking the close instead of lingering from an earlier run. Rows are always
+	# re-added *unresolved*: a resolution is not carried across a reconcile, because
+	# the amount an auditor accepted is not recorded on the row, so carrying `is_resolved`
+	# forward by folio alone would mask a variance that had since grown into a new,
+	# unreviewed discrepancy (F-NA2 review finding). The supported path to close a
+	# reviewed variance is resolve_exception, which transitions the audit to Ready to
+	# Close without a rerun; and if money moves after that, `_assert_steps_complete`'s
+	# fingerprint refuses close and forces a fresh reconcile that shows the current
+	# amount unresolved.
 	doc.set(
 		"audit_exceptions",
 		[row for row in doc.audit_exceptions if row.exception_type != "Unposted Charge"],
@@ -850,8 +882,12 @@ def close(audit: str) -> dict:
 
 	next_date = add_days(business_date, 1)
 
-	_set_business_date(doc.property, next_date)
+	# The audit status moves first, so an illegal transition (an audit that never
+	# reached Ready to Close) is refused before the business date is touched rather
+	# than after. Both writes share this transaction, so a failure either way rolls
+	# the pair back together; validating first keeps the ordering honest.
 	_transition(doc, CLOSED)
+	_set_business_date(doc.property, next_date)
 
 	frappe.db.set_value(
 		AUDIT_DOCTYPE,

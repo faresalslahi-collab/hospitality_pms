@@ -75,7 +75,9 @@ class TestLockingPrimitive(IntegrationTestCase):
 		("services/housekeeping.py", "inspect"): "pre-Wave-1; task state",
 		("services/housekeeping.py", "set_do_not_disturb"): "pre-Wave-1; task state",
 		("services/maintenance.py", "start_work"): "pre-Wave-1; ticket state",
-		("services/maintenance.py", "take_out_of_service"): "pre-Wave-1; ticket state",
+		# take_out_of_service was moved to lock_and_get_doc in the 16.7
+		# production-readiness audit (idempotency fix), so it no longer reads the
+		# locked ticket from a stale snapshot and is no longer allow-listed here.
 		("services/maintenance.py", "complete_work"): "pre-Wave-1; ticket state",
 		("services/maintenance.py", "verify_and_release"): "pre-Wave-1; ticket state",
 		("services/regulatory.py", "register_guest"): "pre-Wave-1; registration state",

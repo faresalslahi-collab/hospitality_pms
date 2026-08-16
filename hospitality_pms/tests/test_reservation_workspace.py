@@ -291,9 +291,9 @@ class TestReservationWorkspace(IntegrationTestCase):
 		multi = self.fixtures.reservation(
 			self.property, self.room_type, self.guest, rate_plan=self.rate_plan, rooms=3
 		)
-		doc = frappe.get_doc("Reservation", multi)
-		doc.deposit_received = 300
-		doc.save(ignore_permissions=True)
+		# deposit_received is set by the payments service via a direct write, not
+		# through the document API (the controller refuses the latter); mirror that.
+		frappe.db.set_value("Reservation", multi, "deposit_received", 300, update_modified=False)
 
 		frappe.set_user(self.agent)
 		deposit = workspace.get_workspace(multi)["deposit"]

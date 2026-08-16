@@ -25,7 +25,7 @@ from frappe.utils import add_days, flt, getdate
 
 from hospitality_pms.services import folio as folio_service
 from hospitality_pms.services import night_audit as audit_service
-from hospitality_pms.services.exceptions import NightAuditError
+from hospitality_pms.services.exceptions import FolioError, NightAuditError
 from hospitality_pms.tests.night_audit_world import NightAuditWorld
 
 AUDIT = "Night Audit"
@@ -714,4 +714,117 @@ class TestFailedPostingExceptionReferences(NightAuditTestCase):
 			self.assertTrue(
 				frappe.db.exists(row.reference_doctype, row.reference_name),
 				msg=f"exception points at a record that does not exist: {row}",
+			)
+
+
+class TestSplitPreservesRoomChargeIdentity(NightAuditTestCase):
+	"""F-FIN7 - folio surgery must not break room-charge idempotency.
+
+	A room charge is posted once per stay per business date under
+	`room-charge:{stay}:{business_date}`, and `post_charge`'s duplicate check scans
+	only the single folio it is posting to. `split_folio` used to rewrite the moved
+	row's key to `split:{row.name}`, so once a room charge was split onto a company
+	folio the master folio no longer carried the room-charge key - and a
+	documented-safe Night Audit re-run for that date, which finds nothing on the
+	master, posted the room charge a second time. The guest was billed the room
+	twice, across two folios.
+
+	The invariant: one logical room charge keeps one stable identity for its
+	lifetime, and a re-run finds it wherever folio surgery has since moved it.
+	"""
+
+	WORLD_CODE = "NS"
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		cls.checkin = cls.world.check_in_guest(0)
+
+	def _room_charges(self, stay):
+		"""Every live room charge for a stay+date, across all of its folios."""
+		return frappe.db.sql(
+			"""
+			select c.name, c.parent, c.idempotency_key
+			from `tabFolio Charge` c
+			inner join `tabGuest Folio` f on f.name = c.parent
+			where f.property = %s
+			  and c.charge_type = 'Room Charge'
+			  and c.reference_name = %s
+			  and c.business_date = %s
+			  and ifnull(c.is_reversed, 0) = 0
+			""",
+			(self.world.property, stay, self.world.business_date),
+			as_dict=True,
+		)
+
+	def test_split_room_charge_does_not_double_post_on_rerun(self):
+		"""The reproduction: split a posted room charge, re-run, expect one charge."""
+		stay = self.checkin["stay"]
+		master = self.checkin["folio"]
+
+		audit = self._audit()
+		audit_service.review(audit)
+		audit_service.post_room_charges(audit)
+
+		rows = self._room_charges(stay)
+		self.assertEqual(len(rows), 1, msg="premise: exactly one room charge was posted")
+
+		# Move the posted room charge onto a company folio.
+		folio_service.split_folio(
+			master, [rows[0]["name"]], folio_type="Company", payer="Company"
+		)
+
+		# The documented-safe retry of room-charge generation for the same date.
+		audit_service.post_room_charges(audit)
+
+		rows_after = self._room_charges(stay)
+		self.assertEqual(
+			len(rows_after),
+			1,
+			msg="the room charge was posted twice across the stay's folios after a split",
+		)
+
+	def test_split_of_ordinary_unposted_charge_still_works(self):
+		"""Positive control: the ordinary split path is unaffected."""
+		master = self.checkin["folio"]
+
+		result = folio_service.post_charge(
+			master, "Minibar", "Water", 10, idempotency_key=f"{self.world.tag}:mb:ok"
+		)
+
+		company = folio_service.split_folio(
+			master, [result["row"]], folio_type="Company", payer="Company"
+		)
+
+		moved = frappe.get_all(
+			"Folio Charge", filters={"parent": company, "charge_type": "Minibar"}
+		)
+		self.assertEqual(len(moved), 1, msg="the ordinary charge did not move onto the split folio")
+
+	def test_split_refuses_a_charge_posted_to_erp(self):
+		"""A charge already in ERPNext cannot be moved: it would strand the posting log link."""
+		master = self.checkin["folio"]
+
+		result = folio_service.post_charge(
+			master, "Minibar", "Water", 10, idempotency_key=f"{self.world.tag}:mb:erp"
+		)
+		frappe.db.set_value("Folio Charge", result["row"], "is_posted_to_erp", 1)
+
+		with self.assertRaises(FolioError):
+			folio_service.split_folio(
+				master, [result["row"]], folio_type="Company", payer="Company"
+			)
+
+	def test_split_refuses_a_lone_reversed_original(self):
+		"""A reversed charge must not be split away from its reversal."""
+		master = self.checkin["folio"]
+
+		result = folio_service.post_charge(
+			master, "Minibar", "Water", 10, idempotency_key=f"{self.world.tag}:mb:rev"
+		)
+		folio_service.reverse_charge(master, result["row"], reason="spill")
+
+		with self.assertRaises(FolioError):
+			folio_service.split_folio(
+				master, [result["row"]], folio_type="Company", payer="Company"
 			)

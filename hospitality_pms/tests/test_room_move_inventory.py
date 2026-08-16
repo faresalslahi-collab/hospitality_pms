@@ -22,7 +22,11 @@ from hospitality_pms.services import reservations as reservation_service
 from hospitality_pms.services import rooms as room_service
 from hospitality_pms.services import stays as stay_service
 from hospitality_pms.services.availability import get_availability
-from hospitality_pms.services.exceptions import HospitalityPMSError, RoomNotAssignableError
+from hospitality_pms.services.exceptions import (
+	AvailabilityError,
+	HospitalityPMSError,
+	RoomNotAssignableError,
+)
 from hospitality_pms.tests.inventory_world import InventoryWorld
 
 
@@ -437,3 +441,116 @@ class TestCrossTypeRoomMove(IntegrationTestCase):
 		)
 		self.assertEqual(self._line(line)["room_type"], self.world.room_type)
 		self.assertEqual(self._line(line)["assigned_room"], destination)
+
+
+class TestCrossTypeAndPresetAssignment(IntegrationTestCase):
+	"""RES-3 and RES-4 — inventory and validation gaps around room assignment.
+
+	RES-3: a cross-type room move updates the line's room_type but never checked the
+	destination type had a room for the nights the line still holds, so a move into a
+	physically-free room of a sold-out type oversold that type. RES-4: a pre-set
+	assigned_room (create payload / channel import / Desk) reached confirm and check-in
+	without the clash/property/type checks assign_room applies.
+	"""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		cls.world = InventoryWorld("XTYPE", "XT", rooms=6)
+		# A second type with a single room, so it can be sold out deterministically.
+		cls.dlx_type = cls.world.fixtures.room_type(cls.world.property, "DLX")
+		cls.dlx_rooms = cls.world.fixtures.rooms(cls.world.property, cls.dlx_type, count=1)
+		# The fixture rate plan is one-per-property and was built for Standard only;
+		# extend it to cover the Deluxe type so a Deluxe booking can be priced.
+		rate_plan = frappe.get_doc("Rate Plan", cls.world.rate_plan)
+		rate_plan.append("room_types", {"room_type": cls.dlx_type, "base_rate": 100.0, "is_active": 1})
+		rate_plan.save(ignore_permissions=True)
+		frappe.db.commit()
+
+	@classmethod
+	def tearDownClass(cls):
+		cls.world.fixtures.teardown()
+		super().tearDownClass()
+
+	_alloc = 0
+
+	@classmethod
+	def _std_room(cls) -> str:
+		room = cls.world.rooms[cls._alloc]
+		cls._alloc += 1
+		return room
+
+	def _dlx_reservation(self, *, nights=3) -> str:
+		guest = self.world.fixtures.guest("Dlx")
+		res = self.world.fixtures.reservation(
+			self.world.property, self.dlx_type, guest, rate_plan=self.world.rate_plan, nights=nights
+		)
+		return res
+
+	# -- RES-3 --------------------------------------------------------------
+
+	def test_cross_type_move_into_a_sold_out_type_is_refused(self):
+		# Sell the single DLX room for the nights (a confirmed hold, not assigned to
+		# the specific room - so the physical room is free but the type is full).
+		filler = self._dlx_reservation()
+		reservation_service.confirm(filler)
+
+		# A guest checked into a Standard room.
+		occupied = self._std_room()
+		std_res = self.world.confirmed(nights=3)
+		std_line = self.world.lines(std_res)[0]["name"]
+		reservation_service.assign_room(std_res, std_line, occupied)
+		self.world.check_in(std_res, line=std_line, room=occupied)
+		std_stay = frappe.db.get_value("Stay", {"reservation_room_line": std_line}, "name")
+
+		# Moving them into the DLX room oversells the DLX type: the room is free but
+		# the type has no capacity for these nights.
+		with self.assertRaises(AvailabilityError):
+			stay_service.change_room(std_stay, self.dlx_rooms[0], "guest upgrade request")
+
+		# Same-type-open control: a move within Standard still works.
+		vacant_std = self._std_room()
+		stay_service.change_room(std_stay, vacant_std, "noisy corridor")
+		self.assertEqual(frappe.db.get_value("Stay", std_stay, "room"), vacant_std)
+
+	# -- RES-4 --------------------------------------------------------------
+
+	def test_confirm_refuses_a_preset_assigned_room_of_the_wrong_type(self):
+		res = self.world.reservation(nights=2)  # Standard line
+		line = self.world.lines(res)[0]["name"]
+		# A DLX room smuggled onto a Standard line, the way a create payload or import
+		# could, bypassing assign_room.
+		frappe.db.set_value("Reservation Room", line, "assigned_room", self.dlx_rooms[0])
+		frappe.db.commit()
+
+		with self.assertRaises((HospitalityPMSError, frappe.ValidationError)):
+			reservation_service.confirm(res)
+
+	def test_confirm_refuses_a_preset_assigned_room_already_promised(self):
+		# One booking legitimately holds a Standard room.
+		first = self.world.confirmed(nights=2)
+		first_line = self.world.lines(first)[0]["name"]
+		held = self._std_room()
+		reservation_service.assign_room(first, first_line, held)
+
+		# A second booking is created pre-assigned the same physical room.
+		second = self.world.reservation(nights=2)
+		second_line = self.world.lines(second)[0]["name"]
+		frappe.db.set_value("Reservation Room", second_line, "assigned_room", held)
+		frappe.db.commit()
+
+		with self.assertRaises((HospitalityPMSError, RoomNotAssignableError, frappe.ValidationError)):
+			reservation_service.confirm(second)
+
+	def test_confirm_accepts_a_valid_preset_assigned_room(self):
+		res = self.world.reservation(nights=2)
+		line = self.world.lines(res)[0]["name"]
+		room = self._std_room()
+		frappe.db.set_value("Reservation Room", line, "assigned_room", room)
+		frappe.db.commit()
+
+		reservation_service.confirm(res)  # must not raise
+		self.assertEqual(
+			frappe.db.get_value("Reservation", res, "reservation_status"),
+			reservation_service.CONFIRMED,
+		)

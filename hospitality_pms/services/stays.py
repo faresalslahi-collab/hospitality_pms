@@ -27,10 +27,12 @@ from hospitality_pms.services.base import (
 	STAY_ORCHESTRATION,
 	assert_transition,
 	lock_and_get_doc,
+	lock_and_read,
 	lock_document,
 	require_permission,
 	require_role,
 	service_context,
+	transaction,
 )
 from hospitality_pms.services.exceptions import (
 	HospitalityPMSError,
@@ -192,9 +194,13 @@ def check_in(
 	# so there is no date on which today's occupant is somebody else's problem.
 	room_service.assert_room_unoccupied(room, property_name=reservation_doc.property)
 
-	# Assigning through the reservation service re-checks the clash rules.
-	if line.assigned_room != room:
-		reservation_service.assign_room(reservation, room_line, room, allow_unready=allow_unready_room)
+	# Assigning through the reservation service re-checks the clash, property and
+	# type rules. Run it even when the line was already assigned this room (RES-4):
+	# a pre-set assigned_room can arrive through the create payload, a channel
+	# import or Desk without ever passing those checks, and the old fast path
+	# skipped them exactly when the room had not been validated. assign_room writes
+	# the same value back when it is unchanged, so this is a no-op beyond the checks.
+	reservation_service.assign_room(reservation, room_line, room, allow_unready=allow_unready_room)
 
 	# Every precondition above has now passed, so this is the one moment at
 	# which a Stay may legitimately come into existence. The context is opened
@@ -411,7 +417,14 @@ def _all_lines_checked_in(reservation: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def change_room(stay: str, new_room: str, reason: str, *, allow_unready: bool = False) -> dict:
+def change_room(
+	stay: str,
+	new_room: str,
+	reason: str,
+	*,
+	allow_unready: bool = False,
+	allow_overbooking: bool = False,
+) -> dict:
 	"""Move an in-house guest to another room.
 
 	Takes the inventory row first, then the Stay, then both Hotel Rooms in a
@@ -461,6 +474,24 @@ def change_room(stay: str, new_room: str, reason: str, *, allow_unready: bool = 
 
 	if new_room == doc.room:
 		throw(_("The guest is already in room {0}.").format(new_room))
+
+	# A cross-type move consumes a room in the destination *type*, and until now
+	# nothing checked that type had one to give (RES-3). `assert_assignable` and
+	# `_assert_room_free` below prove the specific physical room is free, but a room
+	# held for a future arrival is physically free today - so a move into it left
+	# the destination type oversold for the nights the line still holds, with no
+	# `check_availability` and no overbooking authority anywhere on this path. The
+	# type is locked here, before either Hotel Room, in the documented chain
+	# position (Reservation Room -> Room Type -> Hotel Room), and the availability
+	# itself is checked below once the interval is known.
+	old_type = line["room_type"] if line else doc.room_type
+	target_type = frappe.db.get_value("Hotel Room", new_room, "room_type")
+	cross_type = target_type != old_type
+
+	if cross_type:
+		if allow_overbooking:
+			authorise_overbooking(reason)
+		lock_room_type(doc.property, sorted({old_type, target_type}))
 
 	for room in sorted([doc.room, new_room]):
 		lock_document("Hotel Room", room)
@@ -516,6 +547,25 @@ def change_room(stay: str, new_room: str, reason: str, *, allow_unready: bool = 
 	# Under the Hotel Room locks taken above, with a current read, for the reason
 	# recorded on `_assert_room_free`: the lock serialises but does not refresh.
 	room_service.assert_room_unoccupied(new_room, exclude_stay=stay, property_name=doc.property)
+
+	# The destination type must actually have a room to give for the nights the
+	# line still holds (RES-3). Checked over today-forward - past nights are already
+	# consumed - with a current read under the room-type lock taken above, and
+	# honouring the overbooking authority granted at the top. Same-type moves skip
+	# this: the line already counts against that type, so its own count is unchanged.
+	if cross_type:
+		check_start = max(getdate(get_business_date(doc.property)), interval_start)
+		if check_start < interval_end:
+			check_availability(
+				doc.property,
+				target_type,
+				check_start,
+				interval_end,
+				rooms=1,
+				allow_overbooking=allow_overbooking,
+				exclude_reservation=line["parent"] if line else doc.reservation,
+				current=True,
+			)
 
 	previous_room = doc.room
 
@@ -902,7 +952,7 @@ def mark_due_out(property_name: str, business_date=None) -> list[str]:
 	"""
 	business_date = getdate(business_date or get_business_date(property_name))
 
-	due = frappe.get_all(
+	candidates = frappe.get_all(
 		STAY_DOCTYPE,
 		filters={
 			"property": property_name,
@@ -912,20 +962,46 @@ def mark_due_out(property_name: str, business_date=None) -> list[str]:
 		pluck="name",
 	)
 
-	for stay in due:
-		frappe.db.set_value(STAY_DOCTYPE, stay, "stay_status", DUE_OUT, update_modified=True)
-		room = frappe.db.get_value(STAY_DOCTYPE, stay, "room")
-		if room:
-			room_service.set_status(
-				room,
-				room_service.OCCUPANCY,
-				"Due Out",
-				reason=_("Departing on {0}").format(business_date),
-				reference_doctype=STAY_DOCTYPE,
-				reference_name=stay,
-			)
+	marked = []
 
-	return due
+	for stay in candidates:
+		# Each stay in its own savepoint: the Night Audit runs this over the whole
+		# property, and one stay that cannot be flagged must not roll back the ones
+		# already flagged and strand the auditor mid-step.
+		with transaction():
+			# Current under lock. The plain list read above is a snapshot; a late
+			# checkout committing on another till between that read and here would
+			# otherwise be blindly overwritten back to Due Out - resurrecting a
+			# Checked Out stay with no lock, no transition check and its checkout
+			# timestamp still set. Re-read the status under the row lock and skip
+			# anything no longer In House.
+			current = lock_and_read(STAY_DOCTYPE, stay, ["stay_status", "room"])
+
+			if current["stay_status"] != IN_HOUSE:
+				continue
+
+			frappe.db.set_value(STAY_DOCTYPE, stay, "stay_status", DUE_OUT, update_modified=True)
+
+			room = current["room"]
+			if room:
+				# force=True: an active Stay is the authority for physical
+				# occupancy, so it outranks the denormalised room flag. If the flag
+				# drifted (the room-402 class leaves it Vacant), an unforced Due Out
+				# transition would raise and abort the audit step. Forcing still
+				# locks, validates the value and logs, so the correction is visible.
+				room_service.set_status(
+					room,
+					room_service.OCCUPANCY,
+					"Due Out",
+					reason=_("Departing on {0}").format(business_date),
+					reference_doctype=STAY_DOCTYPE,
+					reference_name=stay,
+					force=True,
+				)
+
+		marked.append(stay)
+
+	return marked
 
 
 # ---------------------------------------------------------------------------
@@ -977,4 +1053,32 @@ def get_stays_for_room_charge(property_name: str, business_date) -> list[dict]:
 		},
 		fields=["name", "folio", "room", "room_type", "room_rate", "rate_plan", "guest", "adults", "children"],
 		limit_page_length=0,
+	)
+
+
+def room_charge_posted(stay: str, business_date) -> bool:
+	"""Whether this stay already has a room charge for a business date, on any folio.
+
+	A room charge is one fact per stay per night, but `folio.post_charge`'s
+	idempotency check scans only the single folio it is posting to. Once a room
+	charge is split onto a company folio the master folio no longer carries it, so a
+	per-folio check would let a Night Audit re-run for that date post the room a
+	second time. This asks the stable Stay/date identity instead - the charge's
+	`reference` to its Stay, which folio surgery preserves - so a re-run recognises
+	the charge wherever the split has moved it (F-FIN7).
+
+	Reversed rows count: the original room charge stays on the folio after a
+	reversal and remains the charge's idempotency anchor, so re-running the audit
+	must not resurrect a room charge finance deliberately reversed.
+	"""
+	return bool(
+		frappe.db.exists(
+			folio_service.FOLIO_CHARGE_DOCTYPE,
+			{
+				"charge_type": "Room Charge",
+				"reference_doctype": STAY_DOCTYPE,
+				"reference_name": stay,
+				"business_date": getdate(business_date),
+			},
+		)
 	)

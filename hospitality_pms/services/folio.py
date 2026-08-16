@@ -31,6 +31,7 @@ from hospitality_pms.services.exceptions import FolioError, throw
 from hospitality_pms.services.property import assert_posting_allowed, get_business_date
 
 FOLIO_DOCTYPE = "Guest Folio"
+FOLIO_CHARGE_DOCTYPE = "Folio Charge"
 FOLIO_LOG_DOCTYPE = "Folio Log"
 
 OPEN = "Open"
@@ -597,6 +598,8 @@ def split_folio(folio: str, charge_rows: list[str], *, folio_type: str = "Split"
 	if not moving:
 		throw(_("Select at least one charge to move."), exc=FolioError)
 
+	_assert_charges_movable(moving, source.charges)
+
 	target = open_folio(
 		source.property,
 		source.guest,
@@ -617,7 +620,13 @@ def split_folio(folio: str, charge_rows: list[str], *, folio_type: str = "Split"
 			values.pop(field, None)
 
 		values["payer"] = payer
-		values["idempotency_key"] = f"split:{row.name}"
+		# The idempotency_key is deliberately carried over unchanged. It is the
+		# moved charge's logical identity for its whole lifetime, and a room charge
+		# posted under `room-charge:{stay}:{business_date}` must keep it so a Night
+		# Audit re-run recognises the charge wherever the split has moved it. Minting
+		# a new `split:{...}` key here is what let the same room night be billed twice
+		# across two folios (F-FIN7); the cross-folio room-charge check in
+		# `night_audit.post_room_charges` is the other half of that guard.
 		target_doc.append("charges", values)
 
 	source.charges = [row for row in source.charges if row.name not in set(charge_rows)]
@@ -662,12 +671,19 @@ def merge_folio(source_folio: str, target_folio: str) -> str:
 				exc=FolioError,
 			)
 
+	# A merge moves every row, so a reversal and its original always travel
+	# together; the one thing it must still refuse is a row already in ERPNext,
+	# whose Financial Posting Log link ties it to the folio it was posted from
+	# (read by reconcile_folio / _allocate_against_folio_invoices).
+	_assert_no_posted_rows(source.charges, source.payments)
+
 	for table in ("charges", "payments"):
 		for row in source.get(table):
 			values = row.as_dict()
 			for field in ("name", "parent", "parentfield", "parenttype", "idx", "creation", "modified", "owner", "modified_by"):
 				values.pop(field, None)
-			values["idempotency_key"] = f"merge:{row.name}"
+			# Original key preserved, for the reason recorded in `split_folio`: a
+			# charge keeps one idempotency identity for its lifetime (F-FIN7).
 			target.append(table, values)
 
 		source.set(table, [])
@@ -686,6 +702,68 @@ def merge_folio(source_folio: str, target_folio: str) -> str:
 	_log(target_folio, target.property, "Folio merged in", details={"from_folio": source_folio})
 
 	return target_folio
+
+
+def _assert_charges_movable(moving, all_charges):
+	"""Refuse to move charges whose identity or ledger linkage a move would break.
+
+	Two rows may not be moved between folios:
+
+	* one already posted to ERPNext (`is_posted_to_erp`), because the Financial
+	  Posting Log ties it to the folio it was posted from and `reconcile_folio` /
+	  `_allocate_against_folio_invoices` read that link - move the row and the
+	  reconciliation can no longer find its money;
+	* one leg of a reversal without the other. A reversed original and its
+	  compensating line are a single accounting fact; splitting them apart leaves
+	  one folio holding half a correction and the totals on both wrong.
+	"""
+	moving_names = {row.name for row in moving}
+
+	for row in moving:
+		if row.is_posted_to_erp:
+			throw(
+				_(
+					"Charge {0} has already been posted to ERPNext and cannot be moved between "
+					"folios. Reverse it first if it belongs elsewhere."
+				).format(row.name),
+				exc=FolioError,
+			)
+
+		if row.reversal_of and row.reversal_of not in moving_names:
+			throw(
+				_("A reversal cannot be moved without the charge it reverses. Move both together."),
+				exc=FolioError,
+			)
+
+		if row.is_reversed:
+			reversal = next((other for other in all_charges if other.reversal_of == row.name), None)
+
+			if reversal and reversal.name not in moving_names:
+				throw(
+					_("A reversed charge cannot be moved without its reversal. Move both together."),
+					exc=FolioError,
+				)
+
+
+def _assert_no_posted_rows(charges, payments):
+	"""Refuse a merge while either folio still holds a row posted to ERPNext."""
+	for row in charges:
+		if row.is_posted_to_erp:
+			throw(
+				_(
+					"Charge {0} has already been posted to ERPNext and cannot be moved between folios."
+				).format(row.name),
+				exc=FolioError,
+			)
+
+	for row in payments:
+		if row.is_posted_to_erp:
+			throw(
+				_(
+					"Payment {0} has already been posted to ERPNext and cannot be moved between folios."
+				).format(row.name),
+				exc=FolioError,
+			)
 
 
 # ---------------------------------------------------------------------------

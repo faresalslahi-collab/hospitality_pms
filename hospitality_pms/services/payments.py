@@ -429,24 +429,110 @@ def _apply_to_folio(transaction: str) -> str | None:
 	if not doc.folio:
 		return None
 
-	result = folio_service.post_payment(
+	result = _record_or_park_folio_payment(
 		doc.folio,
 		flt(doc.amount),
-		"Online Gateway",
 		payment_type="Refund" if doc.transaction_type == "Refund" else "Payment",
 		idempotency_key=f"gateway:{transaction}",
 		reference=doc.name,
 		provider_reference=doc.provider_reference,
+		provider=doc.provider,
 	)
 
 	frappe.db.set_value(
 		TRANSACTION_DOCTYPE,
 		transaction,
-		{"folio_payment_row": result["row"], "completed_on": now_datetime()},
+		{
+			"folio_payment_row": result["row"] if result else None,
+			"completed_on": now_datetime(),
+		},
 		update_modified=False,
 	)
 
-	return result["row"]
+	return result["row"] if result else None
+
+
+def _record_or_park_folio_payment(
+	folio: str,
+	amount: float,
+	*,
+	payment_type: str,
+	idempotency_key: str,
+	reference: str | None,
+	provider_reference: str | None,
+	provider: str | None = None,
+):
+	"""Record a gateway payment/refund on its folio, or park it if the folio is closed.
+
+	By the time this is reached the provider has already moved the money, so a
+	closed folio must not make that fact vanish (F-FIN2). `post_payment` refuses a
+	closed folio, and letting that refusal propagate rolled the whole request back
+	- leaving the durable ledger saying the refund succeeded while nothing local
+	recorded it, and, on a lost-callback capture, the webhook raising so the
+	provider redelivered for ever.
+
+	A refund against a departed guest is the *ordinary* refund case (the folio is
+	closed precisely because they checked out), and reopening it is a finance
+	decision gated on REOPEN_ROLES that the refund/callback caller may not hold and
+	that an asynchronous callback has no human to satisfy. So the fact is parked as
+	a durable Needs Reconciliation item - the same evidence a lost provider reply
+	uses - keyed on this payment, and finance reopens the folio through the normal
+	path to post it. Nothing is discarded, nothing is posted twice, and no closed
+	folio is silently reopened by a machine.
+
+	Returns the folio payment result, or None when the payment was parked.
+	"""
+	# Idempotency comes first, on both the open and closed paths. `_apply_to_folio`
+	# is re-invoked on every settled callback delivery and on `sync_status`, and that
+	# replay-safety depends on `post_payment`'s `_find_by_key` check. Parking on a
+	# closed folio without it would, after checkout, turn an ordinary replay of an
+	# already-applied payment into a false "reopen and record" item - and a double
+	# payment if actioned. So divert to parking only when the folio is closed AND this
+	# payment is genuinely new; a replay falls through to post_payment, which finds the
+	# existing row and returns it unchanged whatever the folio status.
+	folio_doc = frappe.get_doc(folio_service.FOLIO_DOCTYPE, folio)
+	already_recorded = folio_service._find_by_key(folio_doc.payments, idempotency_key)
+
+	if folio_doc.folio_status == folio_service.CLOSED and not already_recorded:
+		property_name = folio_doc.property
+		park_key = f"closed-folio-payment:{idempotency_key}"
+
+		durability.begin_operation(
+			property_name=property_name,
+			integration_type="Payment",
+			operation="reconcile_closed_folio_payment",
+			operation_key=park_key,
+			provider=provider,
+			reference_doctype=folio_service.FOLIO_DOCTYPE,
+			reference_name=folio,
+			payload={
+				"folio": folio,
+				"amount": flt(amount),
+				"payment_type": payment_type,
+				"reference": reference,
+				"provider_reference": provider_reference,
+			},
+		)
+		durability.flag_for_reconciliation(
+			park_key,
+			error=_(
+				"A gateway {0} of {1} was performed after folio {2} closed and could not be "
+				"posted to it. Reopen the folio and record it."
+			).format(payment_type.lower(), flt(amount, 2), folio),
+			external_reference=provider_reference,
+		)
+
+		return None
+
+	return folio_service.post_payment(
+		folio,
+		amount,
+		"Online Gateway",
+		payment_type=payment_type,
+		idempotency_key=idempotency_key,
+		reference=reference,
+		provider_reference=provider_reference,
+	)
 
 
 def sync_status(transaction: str) -> dict:
@@ -659,14 +745,17 @@ def refund_payment(transaction: str, amount: float, reason: str, *, idempotency_
 	)
 
 	if current["folio"]:
-		folio_service.post_payment(
+		# Park rather than throw if the guest has already departed and their folio
+		# is closed: the provider has moved the money and refusing to record it here
+		# would roll the whole refund back while the ledger says it succeeded (F-FIN2).
+		_record_or_park_folio_payment(
 			current["folio"],
 			amount,
-			"Online Gateway",
 			payment_type="Refund",
 			idempotency_key=f"gateway-refund:{key}",
 			reference=transaction,
 			provider_reference=result.provider_reference,
+			provider=current["provider"],
 		)
 
 	return {

@@ -302,3 +302,41 @@ class TestPaymentInitiationDurability(PaymentDurabilityTestCase):
 			)
 
 		self.assertEqual(len(fake_provider.calls("initiate_payment")), 1)
+
+
+class TestRefundAgainstClosedFolio(PaymentDurabilityTestCase):
+	"""P1 (F-FIN2) — a provider refund against a departed guest's closed folio.
+
+	Refunding a guest who has checked out is the ordinary refund case: their folio
+	is closed precisely because they left. post_payment refuses a closed folio, and
+	before the fix that refusal rolled the whole refund back while the durable
+	ledger said the provider had paid it - money out of the merchant account, no
+	local record, and every retry refusing again. The provider fact is now parked
+	as a durable Needs Reconciliation item instead of being discarded.
+	"""
+
+	def test_refund_against_closed_folio_is_parked_not_lost(self):
+		frappe.db.set_value(
+			"Guest Folio", self.folio, "folio_status", "Closed", update_modified=False
+		)
+		frappe.db.commit()
+
+		# Must not raise, and must not roll the provider refund back.
+		payment_service.refund_payment(
+			self.transaction, CAPTURED, "guest disputes a charge", idempotency_key="closed:refund:1"
+		)
+		frappe.db.commit()
+
+		self.assertEqual(len(self._refund_calls()), 1, msg="the provider was not asked to refund once")
+		self.assertMoney(
+			frappe.db.get_value("Payment Transaction", self.transaction, "refunded_amount"),
+			CAPTURED,
+			msg="the refund was not recorded on the transaction",
+		)
+
+		parked = durability.get_operation("closed-folio-payment:gateway-refund:closed:refund:1")
+		self.assertIsNotNone(
+			parked, msg="the refund against the closed folio was silently discarded (F-FIN2)"
+		)
+		self.assertEqual(parked["queue_status"], durability.NEEDS_RECONCILIATION)
+		self.assertEqual(parked["reference_name"], self.folio)

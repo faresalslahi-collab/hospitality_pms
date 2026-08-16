@@ -737,6 +737,105 @@ def withdraw_stale_posting(log: str, reason: str) -> dict:
 	}
 
 
+#: The durable posting operations a stranded Night Audit may re-arm. Both are
+#: SAFE_RETRY in retry.HANDLERS - their failure mode is an explicit refusal
+#: (e.g. a tax template that was missing at build time), so nothing reached
+#: ERPNext and there is no side effect to double. RECONCILE_FIRST money
+#: operations are deliberately excluded: a re-arm of one of those would be a
+#: licence to move money twice, which is what reconciliation exists to prevent.
+REARMABLE_POSTING_OPERATIONS = {
+	"post_folio_invoice": "Sales Invoice",
+	"post_folio_payment": "Payment Entry",
+}
+
+
+def rearm_abandoned_posting(operation_key: str, reason: str) -> dict:
+	"""Re-arm an Abandoned folio-posting operation after its cause is fixed.
+
+	The supported exit from F-NA1: a folio posting that failed on a fixable
+	configuration error (the Minibar tax-template case is the live example)
+	exhausts its five attempts and becomes Abandoned. `run_durably` then refuses
+	the key for ever, `reschedule_now` will not revive a terminal row, and the
+	Night Audit's `_assert_no_unresolved_posting_failures` blocks close on it -
+	so correcting the configuration afterwards changes nothing and the day cannot
+	close. Without this there is no operator path from "posting abandoned" to
+	"day closes".
+
+	It is deliberately narrow, and distinct from the deferred Finance Recovery:
+
+	* finance only (`WITHDRAWAL_ROLES`), with a mandatory reason recorded on the
+	  ledger row for the audit trail;
+	* the property is re-checked from the operation's own record, so a key from
+	  another property cannot be re-armed here;
+	* only the two SAFE_RETRY folio postings qualify - never a money operation
+	  whose outcome could be ambiguous;
+	* it refuses if the operation names an ERP document that is still live, so it
+	  can never be a way to post a second invoice for one that already exists.
+	  For these operations the external side effect is a same-database document,
+	  so its absence is authoritative (the F-DURA reasoning).
+
+	After re-arming, the operation is dispatched once through its normal handler,
+	so a corrected configuration posts immediately rather than waiting on the
+	scheduler and leaving the auditor unsure whether it worked.
+	"""
+	require_role(WITHDRAWAL_ROLES)
+
+	if not reason or not reason.strip():
+		throw(_("A reason is required to re-arm a posting operation."), exc=PostingError)
+
+	record = durability.get_operation(operation_key)
+
+	if not record:
+		throw(_("Operation {0} does not exist.").format(operation_key), exc=PostingError)
+
+	require_property_access(record["property"])
+
+	erp_doctype = REARMABLE_POSTING_OPERATIONS.get(record["operation"])
+	if not erp_doctype:
+		throw(
+			_("Operation {0} is not a folio posting and cannot be re-armed here.").format(operation_key),
+			exc=PostingError,
+		)
+
+	if record["queue_status"] != durability.ABANDONED:
+		throw(
+			_("Operation {0} is {1}, not Abandoned; only an abandoned posting is re-armed.").format(
+				operation_key, record["queue_status"]
+			),
+			exc=PostingError,
+		)
+
+	# Side-effect ambiguity guard. A SAFE_RETRY posting that failed at build time
+	# carries no external_reference, but if one is present and still live the work
+	# did reach ERPNext and this is a reconciliation decision, not a re-arm.
+	if record.get("external_reference") and _erp_document_is_live(
+		erp_doctype, record["external_reference"]
+	):
+		throw(
+			_(
+				"Operation {0} names a {1} that is still in the ledger; it needs reconciliation, "
+				"not a re-arm."
+			).format(operation_key, erp_doctype),
+			exc=ReconciliationError,
+		)
+
+	durability.rearm_operation(
+		operation_key, reason=_("Re-armed by finance: {0}").format(reason.strip())
+	)
+
+	# Dispatch once now, through the same handler the scheduler uses, so the
+	# corrected posting is attempted immediately under the caller's action.
+	from hospitality_pms.services import retry as retry_service
+
+	outcome = retry_service.dispatch(durability.get_operation(operation_key))
+
+	return {
+		"operation": operation_key,
+		"status": outcome.get("status"),
+		"rearmed_by": frappe.session.user,
+	}
+
+
 def _note_withdrawal(log: str, reason: str):
 	"""Keep the withdrawal on the payload, beside `_authority`."""
 	try:
@@ -979,6 +1078,63 @@ def _latest_invoice_posting(folio: str) -> dict | None:
 	return rows[0] if rows else None
 
 
+def _run_durable_posting(erp_doctype: str, idempotency_key: str, run_kwargs: dict):
+	"""run_durably for a same-database ERP posting, healing a stale phantom resolve.
+
+	Returns `(durable_result, is_duplicate)`.
+
+	`run_durably` was built for a genuinely external side effect - a payment
+	gateway that keeps its record when our transaction rolls back. An ERPNext
+	document is not that: it is created on the caller's own connection, so it
+	rolls back with the caller while the durable ledger row, committed on a second
+	connection, survives. When that happens the ledger says Resolved for an invoice
+	or payment that no longer exists, and the old code returned it as a duplicate -
+	a phantom naming a document that was never committed. The folio's charges then
+	stay unstamped, so it can never invoice or close, and a payment phantom is worse
+	still: the folio closes (close gates on charges, not payments) with a Payment
+	Entry that never reached the ledger.
+
+	The heal is safe precisely because ERPNext shares our database: if the ledger
+	claims a document that `_erp_document_is_live` cannot find, that is proof the
+	work did not survive, so reopening the operation and re-posting cannot double
+	anything. This reasoning holds ONLY for same-database postings; it must never be
+	applied to a provider operation.
+	"""
+	durable = durability.run_durably(**run_kwargs)
+
+	if durable.performed:
+		return durable, False
+
+	# The ledger says already resolved. Trust it only if the document it names is
+	# actually in the ledger.
+	if _erp_document_is_live(erp_doctype, durable.external_reference):
+		return durable, True
+
+	# Resolved but the named document does not exist: the recording transaction
+	# rolled back. Reopen and re-post under the folio lock the caller already holds.
+	durability.reopen_absent_operation(
+		idempotency_key,
+		reason=_("Resolved {0} {1} was not in the ledger; re-posting.").format(
+			erp_doctype, durable.external_reference or ""
+		),
+	)
+
+	durable = durability.run_durably(**run_kwargs)
+
+	if not durable.performed:
+		# Another worker resolved it again between the reopen and here. Fail closed
+		# rather than return a phantom; the operator retries or finance reconciles.
+		throw(
+			_(
+				"Posting {0} could not be completed: its durable record is resolved but the "
+				"{1} it names is not in the ledger. Retry, or ask finance to reconcile."
+			).format(idempotency_key, erp_doctype),
+			exc=ReconciliationError,
+		)
+
+	return durable, False
+
+
 def post_folio_invoice(folio: str, *, business_date=None, submit: bool = True) -> dict:
 	"""Raise the ERPNext Sales Invoice for a folio's currently unposted lines.
 
@@ -1056,25 +1212,28 @@ def post_folio_invoice(folio: str, *, business_date=None, submit: bool = True) -
 		posting = get_posting(idempotency_key)
 		return {**posting, "duplicate": True}
 
-	durable = durability.run_durably(
-		property_name=doc.property,
-		integration_type="Other",
-		operation="post_folio_invoice",
-		operation_key=idempotency_key,
-		reference_doctype=FOLIO_DOCTYPE,
-		reference_name=folio,
-		payload={"folio": folio, "rows": [row.name for row in chargeable]},
-		call=lambda: _build_and_submit_invoice(
-			doc, chargeable, log, business_date=business_date, submit=submit
+	durable, is_duplicate = _run_durable_posting(
+		"Sales Invoice",
+		idempotency_key,
+		dict(
+			property_name=doc.property,
+			integration_type="Other",
+			operation="post_folio_invoice",
+			operation_key=idempotency_key,
+			reference_doctype=FOLIO_DOCTYPE,
+			reference_name=folio,
+			payload={"folio": folio, "rows": [row.name for row in chargeable]},
+			call=lambda: _build_and_submit_invoice(
+				doc, chargeable, log, business_date=business_date, submit=submit
+			),
+			reference_of=lambda result: result["erp_document"],
 		),
-		reference_of=lambda result: result["erp_document"],
 	)
 
-	if not durable.performed:
-		# The ledger says this batch already reached ERPNext. That can only
-		# happen if the invoice was raised and the transaction that recorded it
-		# then rolled back, so the posting log is refreshed from the ledger
-		# rather than a second invoice being raised for the same charges.
+	if is_duplicate:
+		# The ledger says this batch already reached ERPNext AND the named invoice
+		# is live, so the posting log is refreshed from the ledger rather than a
+		# second invoice being raised for the same charges.
 		return {
 			"log": log,
 			"erp_doctype": "Sales Invoice",
@@ -1159,6 +1318,110 @@ def _build_and_submit_invoice(doc, chargeable, log: str, *, business_date=None, 
 		)
 
 
+def _classify_batch(doc, chargeable) -> dict:
+	"""Decide the ERPNext document a batch of charge rows must become.
+
+	A folio can carry credits as well as charges, and ERPNext refuses a Sales
+	Invoice item with a negative `rate` when `allow_negative_rates_for_items` is
+	off (F-FIN5). So a batch that nets a credit cannot be posted as a bag of
+	signed items - each credit has to be represented the way ERPNext accepts it,
+	and which way depends on what the credit *is*:
+
+	* a **reversal of a charge already invoiced** is a return of money the ledger
+	  has already booked. Its correct ERPNext form is a credit note - a Sales
+	  Invoice with `is_return` set and `return_against` naming the original - so
+	  the reversal lands against the very document it undoes. A batch of these
+	  must be *only* these, all against one invoice: a credit note cannot also
+	  carry new charges or a reversal of a different invoice, and mixing them
+	  would need two documents, so that is refused here rather than half-posted;
+
+	* every other credit - a service-recovery `Discount`, or a reversal whose
+	  original is still *in this same batch* and so was never invoiced on its own
+	  - reduces a bill the same invoice is raising. It becomes an invoice-level
+	  discount: the positive rows are the items, and the credits are folded into
+	  `discount_amount`, so no item rate is ever negative and the grand total
+	  still equals the folio. Their tax (a reversal carries negative tax) is
+	  accumulated into the tax rows regardless, so the ledger holds the folio's
+	  *net* output VAT, not the gross.
+
+	Returns a plan: `is_return`, `return_against`, the rows that become line
+	`items`, and the `discount_amount` that represents the folded credits.
+	"""
+	from hospitality_pms.services.folio import CREDIT_CHARGE_TYPES
+
+	charges_by_name = {row.name: row for row in doc.charges}
+
+	external_reversals: list = []  # reversal of a charge on a prior invoice -> credit note
+	credits: list = []  # discounts and in-batch reversals -> discount fold
+	positives: list = []
+
+	for row in chargeable:
+		original = charges_by_name.get(row.reversal_of) if row.reversal_of else None
+
+		if original is not None and original.is_posted_to_erp:
+			external_reversals.append((row, original))
+			continue
+
+		if flt(row.amount) < 0 or row.charge_type in CREDIT_CHARGE_TYPES:
+			credits.append(row)
+		else:
+			positives.append(row)
+
+	precision = frappe.get_precision("Sales Invoice", "grand_total") or 2
+
+	if external_reversals:
+		# A credit note, and nothing but a credit note. Anything else in the
+		# batch belongs on a different document.
+		if positives or credits:
+			throw(
+				_(
+					"This folio batch reverses a charge that was already invoiced and also carries "
+					"other charges. A reversal of an invoiced charge posts as a credit note against "
+					"that invoice, which cannot also hold new charges; post the new charges on their "
+					"own first."
+				),
+				exc=PostingError,
+			)
+
+		against = {original.sales_invoice for _, original in external_reversals}
+
+		if len(against) != 1 or not next(iter(against)):
+			throw(
+				_(
+					"This batch reverses charges from more than one invoice, which cannot be a single "
+					"credit note. Reverse the charges of one invoice at a time."
+				),
+				exc=PostingError,
+			)
+
+		return {
+			"is_return": True,
+			"return_against": next(iter(against)),
+			"items": [row for row, _ in external_reversals],
+			"discount_amount": 0.0,
+		}
+
+	net_gross = flt(sum(flt(row.amount) for row in positives), precision)
+	discount_total = flt(sum(-flt(row.amount) for row in credits), precision)
+
+	if discount_total > net_gross:
+		throw(
+			_(
+				"The credits on this folio batch ({0}) exceed its charges ({1}), so it cannot be "
+				"invoiced for a positive amount. If this reverses an already-invoiced charge, reverse "
+				"that specific charge so it can post as a credit note against the original invoice."
+			).format(discount_total, net_gross),
+			exc=PostingError,
+		)
+
+	return {
+		"is_return": False,
+		"return_against": None,
+		"items": positives,
+		"discount_amount": discount_total,
+	}
+
+
 def _invoice_within_authority(doc, chargeable, log: str, company: str, actor: str, *, business_date=None, submit: bool = True) -> dict:
 	profile = get_posting_profile(doc.property)
 	profile_doc = frappe.get_cached_doc(PROFILE_DOCTYPE, profile)
@@ -1187,25 +1450,59 @@ def _invoice_within_authority(doc, chargeable, log: str, company: str, actor: st
 	invoice.disable_rounded_total = 1
 	invoice.remarks = _("Hospitality folio {0}").format(doc.name)
 
+	# A batch that nets a credit cannot be a bag of signed items: ERPNext refuses
+	# a negative item rate. `_classify_batch` decides how each credit is
+	# represented instead - a credit note against the invoice it reverses, or an
+	# invoice-level discount - so no item rate is ever negative (F-FIN5).
+	plan = _classify_batch(doc, chargeable)
+
+	if plan["is_return"]:
+		invoice.is_return = 1
+		invoice.return_against = plan["return_against"]
+
 	taxes: dict[str, dict] = {}
 
+	# Tax is accumulated from *every* row in the batch, item or folded credit, so
+	# the ledger holds the folio's net output VAT. A reversal carries negative
+	# tax that must cancel the original's, even though its net is folded into the
+	# discount rather than posted as an item.
 	for row in chargeable:
 		mapping = resolve_charge_item(profile, _tax_charge_type(doc, row))
+		_accumulate_tax(taxes, profile_doc, mapping, row)
+
+	for row in plan["items"]:
+		mapping = resolve_charge_item(profile, _tax_charge_type(doc, row))
+		qty = flt(row.quantity) or 1
+
+		# A credit note carries a negative qty and a *positive* rate, which is
+		# how ERPNext represents a return without a negative rate; an ordinary
+		# item is the folio figure as-is.
+		if plan["is_return"]:
+			item_qty = -abs(qty)
+			rate = abs(flt(row.amount)) / qty
+		else:
+			item_qty = qty
+			rate = flt(row.amount) / qty
 
 		invoice.append(
 			"items",
 			{
 				"item_code": row.item or mapping["item"],
 				"description": row.description,
-				"qty": flt(row.quantity) or 1,
-				"rate": flt(row.amount) / (flt(row.quantity) or 1),
+				"qty": item_qty,
+				"rate": rate,
 				"amount": flt(row.amount),
 				"income_account": mapping["income_account"],
 				"cost_center": mapping["cost_center"],
 			},
 		)
 
-		_accumulate_tax(taxes, profile_doc, mapping, row)
+	# Credits on a net-positive batch reduce the bill through an invoice-level
+	# discount applied on the grand total, so the item rates stay positive and
+	# the grand total still equals the folio.
+	if flt(plan["discount_amount"]) > 0:
+		invoice.apply_discount_on = "Grand Total"
+		invoice.discount_amount = flt(plan["discount_amount"])
 
 	for head, bucket in taxes.items():
 		invoice.append(
@@ -1329,6 +1626,20 @@ def _resolve_tax_head(mapping: dict, charge_type: str) -> dict:
 			exc=ConfigurationError,
 		)
 
+	return resolve_single_tax_head(template, charge_type)
+
+
+def resolve_single_tax_head(template: str, charge_type: str) -> dict:
+	"""The single tax account a configured template posts to, or refuse.
+
+	The resolvability half of `_resolve_tax_head`, split out so the Posting
+	Profile can apply the *same* rule when it is saved. Posting refuses a
+	template with more than one head at invoice-build time - during checkout or
+	Night Audit - because a folio line holds one tax figure and no breakdown, so
+	splitting it would invent an allocation between two liabilities. Sharing this
+	function means the profile refuses at save exactly what posting would refuse
+	later, with no second rule to drift from this one.
+	"""
 	rows = frappe.get_all(
 		"Sales Taxes and Charges",
 		filters={"parent": template, "parenttype": "Sales Taxes and Charges Template"},
@@ -1415,19 +1726,23 @@ def post_folio_payment(folio: str, payment_row: str, *, business_date=None) -> d
 		posting = get_posting(idempotency_key)
 		return {**posting, "duplicate": True}
 
-	durable = durability.run_durably(
-		property_name=doc.property,
-		integration_type="Other",
-		operation="post_folio_payment",
-		operation_key=idempotency_key,
-		reference_doctype=FOLIO_DOCTYPE,
-		reference_name=folio,
-		payload={"folio": folio, "payment_row": payment_row},
-		call=lambda: _build_and_submit_payment(doc, row, log, business_date=business_date),
-		reference_of=lambda result: result["erp_document"],
+	durable, is_duplicate = _run_durable_posting(
+		"Payment Entry",
+		idempotency_key,
+		dict(
+			property_name=doc.property,
+			integration_type="Other",
+			operation="post_folio_payment",
+			operation_key=idempotency_key,
+			reference_doctype=FOLIO_DOCTYPE,
+			reference_name=folio,
+			payload={"folio": folio, "payment_row": payment_row},
+			call=lambda: _build_and_submit_payment(doc, row, log, business_date=business_date),
+			reference_of=lambda result: result["erp_document"],
+		),
 	)
 
-	if not durable.performed:
+	if is_duplicate:
 		return {
 			"log": log,
 			"erp_doctype": "Payment Entry",

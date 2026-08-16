@@ -559,3 +559,159 @@ class TestOverbookingAuthorization(IntegrationTestCase):
 				allow_overbooking=True,
 				reason="Guest extended",
 			)
+
+
+class TestNoShowReleasesCorporateCredit(IntegrationTestCase):
+	"""P1 (RES-2) — a no-show must return the corporate credit it consumed.
+
+	`cancel()` releases credit before its transition; `mark_no_show` did not, and
+	because `_release_corporate_credit` early-returns once the status leaves the
+	holding states, the sanctioned NO_SHOW -> CANCELLED follow-up released nothing
+	either. The consumed credit was stranded, and enough no-shows locked the
+	account out of every future booking for money the hotel will never bill.
+	"""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		cls.fixtures = Fixtures("RNSC")
+		cls.property = cls.fixtures.property("NS")
+		cls.room_type = cls.fixtures.room_type(cls.property, base_rate=ROOM_RATE)
+		cls.fixtures.rooms(cls.property, cls.room_type, count=2)
+		cls.rate_plan = cls.fixtures.rate_plan(cls.property, cls.room_type, base_rate=ROOM_RATE)
+		cls.guest = cls.fixtures.guest("NoShow")
+		cls.account = cls.fixtures.corporate_account(cls.property, credit_limit=10000)
+		frappe.db.commit()
+
+	@classmethod
+	def tearDownClass(cls):
+		cls.fixtures.teardown()
+		super().tearDownClass()
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+		frappe.db.set_value(
+			"Corporate Account",
+			self.account,
+			{"credit_used": 0, "credit_available": 10000},
+			update_modified=False,
+		)
+		frappe.db.delete("Corporate Credit Log", {"corporate_account": self.account})
+		frappe.db.commit()
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		frappe.db.rollback()
+
+	def test_no_show_releases_the_consumed_credit(self):
+		reservation = self.fixtures.reservation(
+			self.property,
+			self.room_type,
+			self.guest,
+			rate_plan=self.rate_plan,
+			nights=NIGHTS,
+			corporate_account=self.account,
+		)
+		reservation_service.confirm(reservation)
+		frappe.db.commit()
+
+		self.assertEqual(
+			flt(frappe.db.get_value("Corporate Account", self.account, "credit_used")),
+			RESERVATION_TOTAL,
+			msg="confirmation should have consumed the booking's credit",
+		)
+
+		reservation_service.mark_no_show(reservation, reason="nobody arrived")
+
+		self.assertEqual(
+			flt(frappe.db.get_value("Corporate Account", self.account, "credit_used")),
+			0.0,
+			msg="the no-show did not release the consumed corporate credit",
+		)
+		released = frappe.get_all(
+			"Corporate Credit Log",
+			filters={"corporate_account": self.account, "action": "Credit released"},
+			pluck="name",
+		)
+		self.assertTrue(released, msg="no credit-release movement was recorded for the no-show")
+
+
+class TestDepositReceivedGuard(IntegrationTestCase):
+	"""P0 (RES-1) — deposit_received is money the hotel holds and must not be
+	settable through the document API.
+
+	The field is read at check-in and converted, pound for pound, into a folio
+	Deposit payment. It is read_only (a UI hint only) at permlevel 0, so nothing
+	stopped a reservation-write role setting it via the create payload or a plain
+	doc.save() and minting a payment the drawer never took. Its sanctioned writer
+	is the payments service, which writes it directly (db.set_value), bypassing the
+	controller - so the guard closes the fabrication without blocking that writer.
+	"""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		cls.fixtures = Fixtures("RDEP")
+		cls.property = cls.fixtures.property("DP")
+		cls.room_type = cls.fixtures.room_type(cls.property, base_rate=ROOM_RATE)
+		cls.fixtures.rooms(cls.property, cls.room_type, count=2)
+		cls.rate_plan = cls.fixtures.rate_plan(cls.property, cls.room_type, base_rate=ROOM_RATE)
+		cls.guest = cls.fixtures.guest("Deposit")
+		frappe.db.commit()
+
+	@classmethod
+	def tearDownClass(cls):
+		cls.fixtures.teardown()
+		super().tearDownClass()
+
+	def setUp(self):
+		frappe.set_user("Administrator")
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		frappe.db.rollback()
+
+	def _payload(self, deposit_received=None) -> dict:
+		arrival = frappe.db.get_value("Property", self.property, "business_date")
+		payload = {
+			"doctype": "Reservation",
+			"property": self.property,
+			"reservation_status": "Draft",
+			"reservation_type": "Individual",
+			"guest": self.guest,
+			"arrival_date": arrival,
+			"departure_date": add_days(arrival, NIGHTS),
+			"rate_plan": self.rate_plan,
+			"rooms": [
+				{
+					"room_type": self.room_type,
+					"rooms": 1,
+					"adults": 1,
+					"arrival_date": arrival,
+					"departure_date": add_days(arrival, NIGHTS),
+				}
+			],
+		}
+		if deposit_received is not None:
+			payload["deposit_received"] = deposit_received
+		return payload
+
+	def test_create_cannot_set_deposit_received(self):
+		with self.assertRaises(InvalidStateTransitionError):
+			frappe.get_doc(self._payload(deposit_received=500)).insert(ignore_permissions=True)
+
+	def test_editing_deposit_received_is_refused(self):
+		name = frappe.get_doc(self._payload()).insert(ignore_permissions=True).name
+		frappe.db.commit()
+
+		doc = frappe.get_doc("Reservation", name)
+		doc.deposit_received = 300
+		with self.assertRaises(InvalidStateTransitionError):
+			doc.save(ignore_permissions=True)
+
+	def test_payments_service_writer_still_works(self):
+		# The sanctioned path is a direct write, which does not pass through the
+		# controller guard; it must keep working.
+		name = frappe.get_doc(self._payload()).insert(ignore_permissions=True).name
+		frappe.db.set_value("Reservation", name, "deposit_received", 250, update_modified=False)
+		self.assertEqual(flt(frappe.db.get_value("Reservation", name, "deposit_received")), 250.0)

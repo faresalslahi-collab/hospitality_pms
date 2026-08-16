@@ -81,7 +81,12 @@ TRANSITIONS = {
 	CONFIRMED: {GUARANTEED, CHECKED_IN, CANCELLED, NO_SHOW},
 	GUARANTEED: {CHECKED_IN, CANCELLED, NO_SHOW},
 	CHECKED_IN: {CHECKED_OUT},
-	CHECKED_OUT: {CLOSED},
+	# CHECKED_OUT -> CHECKED_IN exists solely for the role-gated reverse-checkout
+	# path (checkout.reverse_checkout): reversing a departure puts a stay back
+	# In House, so its reservation must return to a holding state or the room line
+	# drops out of the availability sold-count and the room can be oversold. The
+	# authority for the reversal is require_role in reverse_checkout, not this edge.
+	CHECKED_OUT: {CLOSED, CHECKED_IN},
 	CLOSED: set(),
 	CANCELLED: set(),
 	NO_SHOW: {CANCELLED},
@@ -320,6 +325,24 @@ def confirm(reservation: str, *, allow_overbooking: bool = False, reason: str | 
 		current=True,
 	)
 
+	# Validate any room a line was pre-assigned with (RES-4). `assigned_room` can be
+	# set on a draft through the create payload, a channel import or Desk without
+	# ever passing the clash, property and type checks - and confirm otherwise checks
+	# only room-type demand, so two lines could hold one physical room, or a line
+	# could hold a room of the wrong type or another property, surfacing only at the
+	# desk on arrival. assign_room applies exactly those checks under the room's lock
+	# and writes the same value back when it is unchanged; it is legal here because
+	# the reservation is still in an interval-editable state. Room-type locks are
+	# already held above, so this preserves the Reservation -> Room Type -> Hotel Room
+	# order. Sorted by the room being locked so the Hotel Room locks are taken in a
+	# deterministic order - the same order a concurrent same-type change_room takes
+	# its sorted room locks - or a multi-room pre-assigned booking could deadlock a
+	# room move that shares two of its rooms.
+	for line in sorted(
+		(row for row in doc.rooms if row.assigned_room), key=lambda row: row.assigned_room
+	):
+		assign_room(reservation, line.name, line.assigned_room)
+
 	# A corporate booking draws on the account's credit. This runs inside the
 	# same locked transaction as the availability check, so the credit movement
 	# and the booking decision commit together or not at all.
@@ -539,6 +562,16 @@ def mark_no_show(reservation: str, *, reason: str | None = None) -> dict:
 		doc.arrival_date,
 		first_night_amount=first_night,
 	)
+
+	# A no-show ends the booking exactly as a cancellation does, so it must return
+	# the corporate credit the confirmation consumed, less the no-show charge the
+	# company still owes - the same release cancel() performs. It has to run here,
+	# BEFORE the transition, because _release_corporate_credit early-returns once
+	# the status leaves the holding states; the sanctioned follow-up NO_SHOW ->
+	# CANCELLED then releases nothing (the status is already No Show), which left
+	# the credit consumed forever and eventually locked the corporate account out
+	# of every future booking for money the hotel will never bill.
+	_release_corporate_credit(doc, charge)
 
 	_transition(doc, NO_SHOW, reason=reason, details={"no_show_charge": charge})
 

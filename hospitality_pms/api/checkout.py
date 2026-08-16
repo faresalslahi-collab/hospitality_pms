@@ -541,6 +541,24 @@ def withdraw_posting(log: str, reason: str) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
+def rearm_posting_operation(operation_key: str, reason: str) -> dict:
+	"""Re-arm an Abandoned folio-posting operation once its cause is fixed.
+
+	The operator exit from a Night Audit stranded by an abandoned posting (F-NA1):
+	after correcting the configuration that made the posting fail (e.g. mapping the
+	missing tax template), finance re-arms the operation and it posts. The service
+	re-checks the role (`WITHDRAWAL_ROLES`) and the property from the operation's
+	own record, refuses anything that is not a safe-retry folio posting, and refuses
+	if the operation names an ERP document that is still live - so this can never
+	post a second invoice for one that already exists. It is not the deferred
+	Finance Recovery: it only re-attempts work whose side effect is proven absent.
+	"""
+	require_role(posting_service.WITHDRAWAL_ROLES)
+
+	return posting_service.rearm_abandoned_posting(operation_key, reason)
+
+
+@frappe.whitelist(methods=["POST"])
 def retry_posting(log: str) -> dict:
 	"""Retry a failed posting under its original idempotency key."""
 	require_role(RECONCILIATION_ROLES)

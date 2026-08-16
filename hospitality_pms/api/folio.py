@@ -18,6 +18,13 @@ from hospitality_pms.services.base import authorise_document, require_operation_
 
 FOLIO_DOCTYPE = "Guest Folio"
 
+#: Payment types the ungated `post_payment` front door accepts. Everything else -
+#: a `Refund`, a `Credit` - is a correction that moves money back to the guest,
+#: and corrections have a gated home (`api.payments.refund`): a role, a reason
+#: and a refundable-balance check. `post_payment` grants none of those, so it is
+#: held to the two receipt types that only ever bring money *in* (FIN-4).
+_UNGATED_PAYMENT_TYPES = ("Payment", "Deposit")
+
 
 #: Posting fields that describe an ERP document rather than the folio.
 #:
@@ -140,6 +147,24 @@ def post_charge(
 	"""Post a charge, once per operation key however many times it is sent."""
 	authorise_document(FOLIO_DOCTYPE, folio, "write")
 
+	# `SIGNED_CHARGE_TYPES` (Adjustment, Discount) are corrections, not trading:
+	# their whole point is a negative line that moves the balance, and the service
+	# permits that sign *only* because the workflows that reach them -
+	# `post_adjustment`, `reverse_charge` - already demand an elevated role and a
+	# recorded reason. This front door demands neither, so an ordinary agent could
+	# post `Adjustment -100` and drain the balance with no approval and nothing in
+	# the audit trail to tell it from a real charge. Those types belong to the
+	# gated adjustment endpoint; refuse them here (FIN-3).
+	if charge_type in service.SIGNED_CHARGE_TYPES:
+		frappe.throw(
+			_(
+				"A {0} is a correction and cannot be posted as a charge. Use the "
+				"adjustment endpoint (folio.post_adjustment), which records who "
+				"approved it and why."
+			).format(_(charge_type)),
+			frappe.ValidationError,
+		)
+
 	return service.post_charge(
 		folio,
 		charge_type,
@@ -163,6 +188,21 @@ def post_payment(
 	payer: str = "Guest",
 ) -> dict:
 	authorise_document(FOLIO_DOCTYPE, folio, "write")
+
+	# A `Refund` flips the sign into a cash-out and is exempt from the closed-day
+	# fence; a `Credit` reduces what the guest owes without money arriving. Both
+	# are corrections that belong to the gated refund path (api.payments.refund) -
+	# a role, a reason, a refundable-balance check - none of which this front door
+	# applies. Hold it to the receipt types that only bring money in (FIN-4).
+	if payment_type not in _UNGATED_PAYMENT_TYPES:
+		frappe.throw(
+			_(
+				"A {0} cannot be recorded here. Returning money to a guest is a "
+				"correction: use the refund endpoint (payments.refund), which "
+				"records who approved it and why."
+			).format(_(payment_type)),
+			frappe.ValidationError,
+		)
 
 	return service.post_payment(
 		folio,

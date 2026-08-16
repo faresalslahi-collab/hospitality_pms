@@ -128,6 +128,7 @@ class Reservation(Document):
 		# their room lines are wrong, which sends them to fix the wrong thing.
 		self._guard_status_change()
 		self._guard_holding_immutability()
+		self._guard_deposit_received()
 
 		self._validate_dates()
 		self._validate_room_lines()
@@ -399,6 +400,44 @@ class Reservation(Document):
 				)
 
 		self._guard_room_line_immutability()
+
+	def _guard_deposit_received(self):
+		"""`deposit_received` is money the hotel actually holds; it is never set
+		through the document API.
+
+		The field is read at check-in and converted, pound for pound, into a folio
+		Deposit payment (stays._create_folio_for_stay). If a booking payload or a
+		`doc.save()` could set it, any reservation-write role could mint a payment
+		the drawer never took - the guest then settles that much short at checkout.
+		It carries `read_only` (a UI hint only, no server force) and permlevel 0,
+		so nothing else stops it. Its label says "Maintained by the payment and
+		folio services": those write it with a direct `db.set_value` against real
+		money received, which does not pass through here - so refusing every ORM
+		change closes the fabrication without blocking the sanctioned writer.
+		"""
+		field = self.meta.get_field("deposit_received")
+
+		if self.is_new():
+			if flt(self.deposit_received):
+				frappe.throw(
+					_(
+						"Deposit received is recorded by the payments service when money is "
+						"taken; it cannot be set when creating a reservation."
+					),
+					exc=InvalidStateTransitionError,
+				)
+			return
+
+		before = self.get_doc_before_save()
+
+		if before and not _values_agree(field, before.get("deposit_received"), self.deposit_received):
+			frappe.throw(
+				_(
+					"Deposit received is maintained by the payments service and cannot be "
+					"changed by editing the reservation."
+				),
+				exc=InvalidStateTransitionError,
+			)
 
 	def _guarded_value_changed(self, fieldname: str) -> bool:
 		"""`has_value_changed`, but comparing a Currency as a number.

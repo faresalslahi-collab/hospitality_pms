@@ -41,6 +41,7 @@ import frappe
 from frappe.tests import IntegrationTestCase
 from frappe.utils import add_days
 
+from hospitality_pms.services import checkout as checkout_service
 from hospitality_pms.services import front_office as front_office_service
 from hospitality_pms.services import reservations as reservation_service
 from hospitality_pms.services import rooms as room_service
@@ -622,3 +623,113 @@ class TestCommandCentreCountsFollowTheAuthority(RoomAuthorityTestCase):
 
 		self.assertEqual(counts["occupied"], 0)
 		self.assertEqual(counts["vacant"], counts["total"])
+
+
+class ReverseCheckoutAuthorityTestCase(RoomAuthorityTestCase):
+	"""P0 — reverse_checkout must be a true inverse of check_out.
+
+	check_out stamps `checked_out_on` (which removes the stay from physical
+	occupancy authority) and advances the reservation to Checked Out (which
+	removes its room line from the availability sold-count). A reversal that
+	restores neither re-creates the room-402 double-occupancy class and can
+	oversell the room.
+	"""
+
+	WORLD_CODE = "RVC"
+
+	def _check_in_and_out(self, room: str):
+		reservation = self.world.confirmed(nights=1)
+		line = self.world.lines(reservation)[0]["name"]
+		stay = stay_service.check_in(reservation, line, room)["stay"]
+		checkout_service.check_out(stay, post_to_erp=False)
+		frappe.db.commit()
+		return reservation, stay
+
+	def test_reverse_checkout_refuses_a_room_that_was_relet(self):
+		room = self.world.rooms[0]
+		_reservation_a, stay_a = self._check_in_and_out(room)
+
+		# Housekeeping cleans the room and a walk-in takes it.
+		frappe.db.set_value(
+			"Hotel Room",
+			room,
+			{"occupancy_status": "Vacant", "housekeeping_status": "Clean", "inventory_status": "Available"},
+			update_modified=False,
+		)
+		reservation_b = self.world.confirmed(nights=1)
+		line_b = self.world.lines(reservation_b)[0]["name"]
+		stay_b = stay_service.check_in(reservation_b, line_b, room)["stay"]
+		frappe.db.commit()
+
+		with self.assertRaises(RoomNotAssignableError):
+			checkout_service.reverse_checkout(stay_a, "guest disputes a charge")
+
+		active = frappe.get_all(
+			"Stay",
+			filters={
+				"room": room,
+				"stay_status": ("in", stay_service.ACTIVE_OCCUPANCY_STATES),
+				"checked_out_on": ("is", "not set"),
+			},
+			pluck="name",
+		)
+		self.assertEqual(active, [stay_b], msg="the room must still hold exactly the re-let guest")
+
+	def test_reverse_checkout_restores_occupancy_authority_and_reservation(self):
+		room = self.world.rooms[0]
+		reservation, stay = self._check_in_and_out(room)
+
+		# After checkout the authority sees nobody in the room.
+		self.assertIsNone(room_service.active_stay_in_room(room))
+
+		checkout_service.reverse_checkout(stay, "guest is staying after all")
+		frappe.db.commit()
+
+		# The checkout timestamp is cleared, so the authority sees the guest again.
+		self.assertIsNone(frappe.db.get_value("Stay", stay, "checked_out_on"))
+		self.assertEqual(room_service.active_stay_in_room(room), stay)
+
+		# The reservation is back in a holding state, so the night is counted again.
+		self.assertEqual(
+			frappe.db.get_value("Reservation", reservation, "reservation_status"),
+			reservation_service.CHECKED_IN,
+		)
+
+		# And the room is no longer assignable to anyone else.
+		other = self.world.confirmed(nights=1)
+		other_line = self.world.lines(other)[0]["name"]
+		with self.assertRaises(RoomNotAssignableError):
+			stay_service.check_in(other, other_line, room)
+
+
+class MarkDueOutResilienceTestCase(RoomAuthorityTestCase):
+	"""P1 (STAY-3) — the Night Audit due-out sweep must not abort on a stale flag.
+
+	`mark_due_out` set the room's occupancy flag to Due Out with no `force`. When
+	the flag had drifted to Vacant (the room-402 class), that transition is not in
+	the table and raised, rolling back the whole due-out step and stranding the
+	auditor. An active Stay outranks the denormalised flag, so the sweep must force
+	the correction and carry on.
+	"""
+
+	WORLD_CODE = "MDO"
+
+	def test_mark_due_out_survives_a_stale_vacant_room_flag(self):
+		room = self.world.rooms[0]
+		reservation = self.world.confirmed(nights=1)
+		line = self.world.lines(reservation)[0]["name"]
+		stay = stay_service.check_in(reservation, line, room)["stay"]
+
+		# The guest's departure day arrives.
+		self.world.set_business_date(add_days(self.opening_date, 1))
+
+		# The room flag has drifted to Vacant while the guest is still in house.
+		frappe.db.set_value("Hotel Room", room, "occupancy_status", "Vacant", update_modified=False)
+		frappe.db.commit()
+
+		# Must not raise, and must still flag both the stay and the room.
+		due = stay_service.mark_due_out(self.world.property)
+
+		self.assertIn(stay, due, msg="the due-out sweep skipped the departing guest")
+		self.assertEqual(frappe.db.get_value("Stay", stay, "stay_status"), stay_service.DUE_OUT)
+		self.assertEqual(frappe.db.get_value("Hotel Room", room, "occupancy_status"), "Due Out")

@@ -305,7 +305,6 @@ def get_guest(guest: str) -> dict:
 				"expiry_date": row.expiry_date,
 				"is_primary": row.is_primary,
 				"verified": row.verified,
-				"id_image": row.id_image,
 			}
 			for row in doc.identifications
 		]
