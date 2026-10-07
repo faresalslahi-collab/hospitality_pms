@@ -16,6 +16,9 @@ dependencies = [
     "pydantic>=2.13.0"
 ]
 
+[tool.setuptools.packages.find]
+include = ["hospitality_pms*"]
+
 [tool.bench.frappe-dependencies]
 frappe = ">=16.0.0"
 erpnext = ">=16.0.0"
