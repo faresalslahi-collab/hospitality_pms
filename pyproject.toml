@@ -15,8 +15,3 @@ dependencies = [
     "json5>=0.13.0",
     "pydantic>=2.13.0"
 ]
-
-[tool.bench.frappe-dependencies]
-frappe = "16.x.x"
-erpnext = "16.x.x"
-hrms = "16.x.x"
